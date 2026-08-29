@@ -115,7 +115,11 @@ test("shows a practical API failure state without crashing", async ({ page }) =>
   await page.goto("/#opportunities");
 
   await expect(page.getByText("E2E_FORCED_FAILURE")).toBeVisible();
-  await expect(page.getByRole("button", { name: /Refresh/ })).toBeVisible();
+  await expect(
+    page
+      .getByTestId("app-main")
+      .getByRole("button", { name: "↻ Refresh", exact: true })
+  ).toBeVisible();
 
   // Chromium reports a native console diagnostic for the intentionally mocked
   // 500. The exact structured event contract still rejects page errors and
