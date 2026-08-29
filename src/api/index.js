@@ -32,6 +32,11 @@ const tasks =
     "./tasks"
   );
 
+const revenueIntelligence =
+  require(
+    "./revenueIntelligence"
+  );
+
 const router =
   express.Router();
 
@@ -57,6 +62,10 @@ router.use(
 
 router.use(
   tasks
+);
+
+router.use(
+  revenueIntelligence
 );
 
 router.get(
