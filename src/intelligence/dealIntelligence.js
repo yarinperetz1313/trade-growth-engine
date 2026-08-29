@@ -27,7 +27,10 @@ function hasValue(value) {
   );
 }
 
-function daysSince(date) {
+function daysSince(
+  date,
+  now = Date.now()
+) {
   if (!date) return null;
 
   const timestamp =
@@ -39,7 +42,7 @@ function daysSince(date) {
 
   return Math.max(
     0,
-    (Date.now() - timestamp) /
+    (new Date(now).getTime() - timestamp) /
       86400000
   );
 }
@@ -90,27 +93,35 @@ function firstContactValue(...values) {
   );
 }
 
-function buildDealIntelligence(
-  opportunity
+function buildDealIntelligenceFromData(
+  opportunity,
+  {
+    prospects = [],
+    activities: allActivities = [],
+    tasks: allTasks = [],
+    generatedAt = new Date().toISOString()
+  } = {}
 ) {
   const prospect =
-    findProspect(opportunity);
+    prospects.find(
+      item =>
+        item.id ===
+        opportunity?.prospect_id
+    ) || null;
 
   const activities =
-    readCollection("activities")
-      .filter(
-        activity =>
-          activity.opportunity_id ===
-          opportunity.id
-      );
+    allActivities.filter(
+      activity =>
+        activity.opportunity_id ===
+        opportunity.id
+    );
 
   const tasks =
-    readCollection("tasks")
-      .filter(
-        task =>
-          task.opportunity_id ===
-          opportunity.id
-      );
+    allTasks.filter(
+      task =>
+        task.opportunity_id ===
+        opportunity.id
+    );
 
   const latestActivity =
     [...activities]
@@ -138,7 +149,8 @@ function buildDealIntelligence(
 
   const activityAge =
     daysSince(
-      latestActivity?.created_at
+      latestActivity?.created_at,
+      generatedAt
     );
 
   /*
@@ -717,7 +729,7 @@ function buildDealIntelligence(
 
   return {
     generated_at:
-      new Date().toISOString(),
+      generatedAt,
 
     opportunity_id:
       opportunity.id,
@@ -783,6 +795,24 @@ function buildDealIntelligence(
   };
 }
 
+function buildDealIntelligence(
+  opportunity
+) {
+  const prospect =
+    findProspect(opportunity);
+
+  return buildDealIntelligenceFromData(
+    opportunity,
+    {
+      prospects: prospect ? [prospect] : [],
+      activities:
+        readCollection("activities"),
+      tasks:
+        readCollection("tasks")
+    }
+  );
+}
+
 function getOpportunityIntelligence(
   opportunityId
 ) {
@@ -813,5 +843,6 @@ function getOpportunityIntelligence(
 
 module.exports = {
   buildDealIntelligence,
+  buildDealIntelligenceFromData,
   getOpportunityIntelligence
 };

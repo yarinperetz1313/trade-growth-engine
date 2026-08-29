@@ -53,6 +53,24 @@ function readCollection(
   );
 }
 
+function readCollectionReadOnly(
+  collection
+) {
+  const file =
+    filePath(collection);
+
+  if (!fs.existsSync(file)) {
+    return [];
+  }
+
+  return JSON.parse(
+    fs.readFileSync(
+      file,
+      "utf8"
+    )
+  );
+}
+
 function writeCollection(
   collection,
   data
@@ -191,6 +209,7 @@ function deleteRecord(
 
 module.exports = {
   readCollection,
+  readCollectionReadOnly,
   writeCollection,
   createRecord,
   updateRecord,
