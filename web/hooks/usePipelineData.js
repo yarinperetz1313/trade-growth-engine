@@ -6,7 +6,8 @@ import {
 
 import {
   getOpportunities,
-  getPipelineMetrics
+  getPipelineMetrics,
+  getRevenueIntelligence
 } from "../lib/api";
 
 export default function usePipelineData() {
@@ -21,6 +22,21 @@ export default function usePipelineData() {
   ] = useState([]);
 
   const [
+    revenue,
+    setRevenue
+  ] = useState(null);
+
+  const [
+    revenueLoading,
+    setRevenueLoading
+  ] = useState(true);
+
+  const [
+    revenueError,
+    setRevenueError
+  ] = useState(null);
+
+  const [
     loading,
     setLoading
   ] = useState(true);
@@ -29,6 +45,33 @@ export default function usePipelineData() {
     error,
     setError
   ] = useState(null);
+
+  const refreshRevenue =
+    useCallback(
+      async () => {
+        setRevenueLoading(true);
+        setRevenueError(null);
+
+        try {
+          const revenueResponse =
+            await getRevenueIntelligence();
+
+          setRevenue(
+            revenueResponse?.data ||
+              null
+          );
+        } catch (err) {
+          setRevenueError(
+            err instanceof Error
+              ? err.message
+              : "Unable to load revenue intelligence"
+          );
+        } finally {
+          setRevenueLoading(false);
+        }
+      },
+      []
+    );
 
   const refresh =
     useCallback(
@@ -69,13 +112,18 @@ export default function usePipelineData() {
 
   useEffect(() => {
     refresh();
-  }, [refresh]);
+    refreshRevenue();
+  }, [refresh, refreshRevenue]);
 
   return {
     metrics,
     opportunities,
+    revenue,
+    revenueLoading,
+    revenueError,
     loading,
     error,
-    refresh
+    refresh,
+    refreshRevenue
   };
 }

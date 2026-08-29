@@ -128,7 +128,9 @@ export default function OpportunityCommandCenter({
   const [value, setValue] =
     useState("");
 
-  async function loadIntelligence() {
+  async function loadIntelligence({
+    notifyOpportunityUpdated = true
+  } = {}) {
     setLoading(true);
     setError(null);
 
@@ -140,8 +142,11 @@ export default function OpportunityCommandCenter({
 
       setPayload(data.data);
 
-      if (data.data?.opportunity) {
-        onOpportunityUpdated?.(
+      if (
+        notifyOpportunityUpdated &&
+        data.data?.opportunity
+      ) {
+        await onOpportunityUpdated?.(
           data.data.opportunity
         );
       }
@@ -229,7 +234,7 @@ export default function OpportunityCommandCenter({
           };
 
         setPayload(freshPayload);
-        onOpportunityUpdated?.(
+        await onOpportunityUpdated?.(
           data.opportunity
         );
       }
@@ -243,7 +248,9 @@ export default function OpportunityCommandCenter({
       setContactName("");
       setValue("");
 
-      await loadIntelligence();
+      await loadIntelligence({
+        notifyOpportunityUpdated: false
+      });
     } catch (err) {
       setActionError(err.message);
     } finally {

@@ -1,4 +1,5 @@
 import OpportunityCommandCenter from "./components/OpportunityCommandCenter.jsx";
+import RevenueCommandCenter from "./components/RevenueCommandCenter.jsx";
 import React, {
   useEffect,
   useMemo,
@@ -1388,9 +1389,13 @@ function Pipeline() {
 function Opportunities() {
   const {
     opportunities = [],
+    revenue,
+    revenueLoading,
+    revenueError,
     loading,
     error,
-    refresh
+    refresh,
+    refreshRevenue
   } = usePipelineData();
 
   const [selected, setSelected] =
@@ -1662,9 +1667,12 @@ function Opportunities() {
       <OpportunityCommandCenter
         opportunity={selected}
         onBack={closeOpportunity}
-        onOpportunityUpdated={updated => {
+        onOpportunityUpdated={async updated => {
           setSelected(updated);
-          refresh();
+          await Promise.all([
+            refresh(),
+            refreshRevenue()
+          ]);
         }}
       />
     );
@@ -2231,6 +2239,22 @@ function Opportunities() {
 
   return (
     <div className="page">
+
+      <RevenueCommandCenter
+        revenue={revenue}
+        loading={revenueLoading}
+        error={revenueError}
+        onRefresh={refreshRevenue}
+        onOpenOpportunity={opportunityId => {
+          const opportunity = opportunities.find(
+            item => item.id === opportunityId
+          );
+
+          if (opportunity) {
+            openOpportunity(opportunity);
+          }
+        }}
+      />
 
       <div className="page-actions">
 

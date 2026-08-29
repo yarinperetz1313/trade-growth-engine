@@ -131,6 +131,12 @@ export function getPipelineMetrics() {
   );
 }
 
+export function getRevenueIntelligence() {
+  return request(
+    "/api/intelligence/revenue"
+  );
+}
+
 export function getOpportunityActivities(
   opportunityId
 ) {
