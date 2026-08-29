@@ -137,6 +137,21 @@ export function seedE2eStore(storeDir) {
 
   writeCollection(storeDir, "opportunities", [
     {
+      id: "e2e-opp-revenue",
+      created_at: now,
+      updated_at: now,
+      business_name: "E2E Revenue Electrical",
+      service: "Commercial Electrical",
+      location: "Melbourne",
+      stage: "QUALIFIED",
+      priority: "HIGH",
+      qualification_score: 84,
+      value: 21000,
+      probability: 0.2,
+      weighted_value: 4200,
+      next_action: "Begin qualified outreach"
+    },
+    {
       id: "e2e-opp-command",
       created_at: now,
       updated_at: now,
@@ -155,6 +170,17 @@ export function seedE2eStore(storeDir) {
   ]);
 
   writeCollection(storeDir, "activities", [
+    {
+      id: "e2e-revenue-activity-created",
+      created_at: now,
+      updated_at: now,
+      opportunity_id: "e2e-opp-revenue",
+      type: "OPPORTUNITY_CREATED",
+      description: "Seeded revenue opportunity activity",
+      metadata: {
+        source: "e2e-seed"
+      }
+    },
     {
       id: "e2e-activity-created",
       created_at: now,
