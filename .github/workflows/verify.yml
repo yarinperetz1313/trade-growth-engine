@@ -11,6 +11,22 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    env:
+      TGE_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/tge_test
+    services:
+      postgres:
+        image: postgres:16.15
+        env:
+          POSTGRES_DB: tge_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d tge_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
     steps:
       - uses: actions/checkout@v4
 

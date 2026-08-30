@@ -35,9 +35,17 @@ Local JSON remains compatible for local development and tests. **Supabase is not
 
 RevenueAction semantics remain deterministic and manually approved: no automated external sending, no client-side bypass of approval, and no change to recommendation/evidence meaning. The future database implementation makes the related mutations transactional without changing those contracts.
 
+### PR-2 PostgreSQL foundation
+
+PR-2 implements the schema/security foundation without switching runtime persistence. Migration `001` remains unchanged and quarantined in `public`; migration `002` bootstraps the non-login owner/migrator/runtime roles before creating `tge` objects as `tge_owner`, and migration `003` plus every later migration executes under that owner role. The runner refuses to infer an applied `001` from pre-existing legacy objects; an audited baseline is required instead. Legacy operational identifiers remain text IDs in `(tenant_id, id)` keys. Tenant relationships use composite foreign keys with `RESTRICT`, and imported records retain raw payload, source timestamps, and source ordinal.
+
+Forced RLS reads transaction-local `app.tenant_id` and `app.subject_id`. These custom settings are trusted server-only inputs that PR-4 may set only after validating identity and membership; they are not accepted API fields. RLS is defense in depth and does not replace repository predicates or PR-4 authorization. The runtime role is non-bypass and receives no access to the legacy `public` tables, migrations, role/schema administration, truncation, or mutation/deletion of import and audit evidence.
+
 ## Import safety, retention, and deletion
 
-Imports are tenant-scoped and staged: CSV/XLSX upload → preview → explicit commit. Exact duplicates are skipped; ambiguous records require explicit user resolution; imports never merge into or overwrite existing CRM data implicitly.
+Imports are tenant-scoped and staged: CSV/XLSX upload → preview → explicit commit. Exact duplicates are skipped; ambiguous records require explicit user resolution; imports never merge into or overwrite existing CRM data implicitly. Every PR-2 ID-map row references its exact staging source and exactly one real tenant-owned prospect, opportunity, task, activity, or RevenueAction through a typed foreign key. Runtime may only select and insert batch, staging, ID-map, and audit evidence.
+
+Controlled import status transitions and retention deletion are deliberately deferred. PR-3 or a later authorized slice must add them through a reviewed append-only migration and narrow function/repository boundary; unrestricted runtime `UPDATE` or `DELETE` is not an acceptable shortcut.
 
 Validate MIME type, file signature, file size, row count, sheet count, cell count, decompression expansion, and parser resource limits before preview or commit. Treat spreadsheet formula-like values as data: neutralize formula injection on export/display paths and never evaluate formulas as executable content.
 
@@ -50,7 +58,8 @@ The environment contract names the public app URL, API URL, Auth0 domain/issuer/
 ## Implementation checklist
 
 - [x] PR-1 characterized the legacy JSON compatibility contract without production changes; see [Legacy JSON Compatibility Contract](LEGACY_JSON_COMPATIBILITY.md).
-- [ ] PR-2 starts only after the [active plan](../execution-plans/active/pilot-readiness.md) gates are resolved.
+- [ ] PR-2 implementation is present, but completion requires the real PostgreSQL 16.15 final gate recorded in the [active plan](../execution-plans/active/pilot-readiness.md). Vendor gates still block provisioning, not schema-only work.
+- [ ] PR-3 supplies tenant-aware repositories and transactional RevenueAction mutations; PR-2 does not switch the runtime adapter.
 - [ ] PR-4 starts only after the Auth0 magic-link delivery decision is documented and its deterministic E2E acceptance test is defined.
 - [ ] Every production tenant operation has server authorization, RLS, and a negative cross-tenant test.
 - [ ] Restore and tenant extraction runbooks are proven under the [production gate](../operations/PILOT_PRODUCTION_GATE.md).

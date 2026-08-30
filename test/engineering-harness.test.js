@@ -38,8 +38,8 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
     },
     {
       relativePath: "docs/execution-plans/active/pilot-readiness.md",
-      expected: "PR-2 — NOT STARTED (next)",
-      error: /Pilot plan must name PR-2 as next and not started/
+      expected: "PR-2 — IMPLEMENTATION COMPLETE; FINAL DATABASE VERIFICATION PENDING",
+      error: /Pilot plan must distinguish PR-2 implementation from final database verification/
     },
     {
       relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
@@ -105,6 +105,21 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
       relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
       expected: "callback/redirect allowlists",
       error: /Auth0 magic-link pre-PR-4 blocker/
+    },
+    {
+      relativePath: "package.json",
+      expected: "npm run test:db",
+      error: /Full verification must include the real PostgreSQL database gate/
+    },
+    {
+      relativePath: ".github/workflows/verify.yml",
+      expected: "image: postgres:16.15",
+      error: /CI must pin the PostgreSQL 16\.15 service image/
+    },
+    {
+      relativePath: "database/migrations/001_initial_schema.sql",
+      expected: "create extension if not exists pgcrypto;",
+      error: /database migration 001 must remain byte-for-byte unchanged/
     }
   ];
 

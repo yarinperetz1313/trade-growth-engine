@@ -25,10 +25,13 @@ Generated reports and local terminal output are evidence, not source-of-truth po
 | --- | --- | --- | --- |
 | Harness | Docs/scripts/CI contract changes | `npm run test:harness` | Deterministic structural invariants |
 | Fast | Most API/domain changes | `npm run verify:fast` | Harness plus Node integration suite |
+| Database | Migrations, RLS, grants, PostgreSQL constraints | `npm run test:db` | Real PostgreSQL 16.15; requires `TGE_TEST_DATABASE_URL` |
 | Browser | UI or browser-flow changes | `npm run verify:browser` | Harness plus managed serial E2E |
-| Full | Cross-boundary/release-ready work | `npm run verify` | Harness, integration, E2E, production build |
+| Full | Cross-boundary/release-ready work | `npm run verify` | Harness, integration, database, E2E, production build |
 
-`npm run verify` is not weakened: it remains the full integration → E2E → build gate, now preceded by the harness check. Use `OPENSSL_CONF=/dev/null` only when the host requires it; that is an environment constraint, not proof that browser E2E passed.
+`npm run verify` is not weakened: it runs harness → integration → real database → E2E → build. Use `OPENSSL_CONF=/dev/null` only when the host requires it; that is an environment constraint, not proof that browser E2E or PostgreSQL passed.
+
+For local database verification, start the pinned disposable service with `docker compose -f compose.test.yml up -d`, export `TGE_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55432/tge_test`, run `npm run test:db`, then stop it with `docker compose -f compose.test.yml down`. The suite creates and drops an ephemeral database and a non-superuser login; use only a dedicated administrative test server. `npm run db:migrate` separately requires `TGE_DATABASE_URL` and never falls back to a production-looking generic variable.
 
 ### Mechanical invariant ownership
 
@@ -39,6 +42,7 @@ Generated reports and local terminal output are evidence, not source-of-truth po
 - executable/configuration and relevant untracked documentation have no developer-home absolute path;
 - `src/intelligence/` has no web-client dependency or `fetch` call;
 - E2E retains managed-store creation/seeding/cleanup, `LOCAL_STORE_DIR` injection, serial fixed-port configuration, and an empty seeded `revenue_actions` collection.
+- migration `001` retains its locked checksum; the migration sequence, checksum-ledger runner, audited-baseline refusal, post-bootstrap owner-role execution, pinned PostgreSQL 16.15 Compose/CI service, explicit database URL, and full-gate wiring remain present.
 - the active Pilot Readiness plan and its two canonical contracts agree on a small set of locked production facts; it does not scan historical plans or certify provisioned infrastructure.
 
 The Node test suite executes this gate too, so a broken gate is itself a test failure. These checks intentionally do not enforce file-size, style, or speculative architecture rules.
@@ -49,7 +53,7 @@ Use only `npm run test:e2e`. It creates a marked temporary `TGE_E2E_STORE_DIR`, 
 
 Playwright is intentionally serial (`workers: 1`, `fullyParallel: false`) and uses fixed API/web ports. Do not run concurrent local E2E processes; they can collide on ports and shared runner state.
 
-CI sets `TGE_E2E_ARTIFACT_DIR=test-artifacts/e2e` as the artifact root. Playwright writes each run under a unique child of that repository-relative root; unsafe roots are rejected before Playwright can clear them. On failure, GitHub Actions uploads output/traces from the root; temporary CRM stores are still removed. On success the workspace is ephemeral and no artifact is uploaded. The checked-in workflow is an Ubuntu browser baseline, but this repository contains no locally verifiable successful Phase 2 CI run—treat the CI run itself as authority.
+CI sets `TGE_TEST_DATABASE_URL` for its pinned PostgreSQL 16.15 service and `TGE_E2E_ARTIFACT_DIR=test-artifacts/e2e` for browser evidence. Playwright writes each run under a unique child of that repository-relative root; unsafe roots are rejected before Playwright can clear them. On failure, GitHub Actions uploads output/traces from the root; temporary CRM stores are still removed. Treat the CI run itself—not workflow presence—as database/browser authority.
 
 ## Plans, recovery, and parallel work
 
@@ -85,6 +89,6 @@ Each plan records debt and follow-ups. Failed gates and review findings become e
 ## Known limitations
 
 - Phase 2 is locked for this upgrade; its code is not being extended here.
-- Pilot Readiness PR-0 is complete; [PR-1](execution-plans/active/pilot-readiness.md) is next and not started. The contracts are planning evidence, not proof of provisioned production capabilities.
+- Pilot Readiness PR-2 schema implementation is present, but [final database verification](execution-plans/active/pilot-readiness.md) remains pending until the real PostgreSQL gate passes.
 - Browser CI is configured locally; a green CI outcome cannot be established from this checkout alone.
 - Fixed-port serial E2E limits safe local parallelism.

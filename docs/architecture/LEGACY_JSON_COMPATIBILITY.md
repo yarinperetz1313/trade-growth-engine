@@ -1,6 +1,6 @@
 # Legacy JSON Compatibility Contract
 
-**PR-1 is complete:** it characterizes the local JSON contract without changing production persistence, tenancy, or product behavior. PR-2 is the exact next implementation handoff: introduce tenant-scoped, transactional production persistence while keeping these observable semantics.
+**PR-1 is complete:** it characterizes the local JSON contract without changing product behavior. PR-2 now supplies the tenant schema, migration runner, RLS/grants, and import/audit evidence foundation, but it does not switch runtime persistence. PR-3 is the repository handoff that must preserve these observable semantics.
 
 ## Authoritative observable semantics
 
@@ -11,9 +11,9 @@
 | Relationships and ordering | Deal intelligence resolves linked prospects by `prospect_id`, activities/tasks by `opportunity_id`, and selects latest activity/task by descending `created_at`. Revenue intelligence excludes `WON`/`LOST`; its ranked actions use deterministic priority criteria and finish ties by `opportunity_id`. RevenueAction history sorts descending `created_at`. |
 | RevenueAction | Materialization reuses an active action only when opportunity, semantic action type, and basis fingerprint match. Both `WON` and `LOST` opportunities are refused at materialization. An `APPROVED` action with any persisted effects is rejected before execution; `EXECUTING`/`FAILED` actions with one complete, matching set of effects reconcile to `EXECUTED`; multiple linked effects are rejected. JSON multi-file effects are recovery-oriented, not transactional. |
 
-The deterministic fixture set at [`test/fixtures/legacy-json-compat/`](../../test/fixtures/legacy-json-compat/) and its integration characterization test are the executable compatibility evidence. They characterize the listed local-store mutation, value, analytics, ordering, and RevenueAction scenarios—including complete-effect recovery plus approved-action partial/multiple-effect rejection. They do not prove crash timing, concurrent-writer safety, partial-effect recovery, or a production adapter; those are PR-2 requirements.
+The deterministic fixture set at [`test/fixtures/legacy-json-compat/`](../../test/fixtures/legacy-json-compat/) and its integration characterization test are the executable compatibility evidence. They characterize the listed local-store mutation, value, analytics, ordering, and RevenueAction scenarios—including complete-effect recovery plus approved-action partial/multiple-effect rejection. PR-2 database tests prove these fixtures are representable, but they do not provide a production adapter or cutover.
 
-## PR-2 repository boundary
+## PR-3 repository boundary
 
 `TenantContext` is server-resolved from membership and is never created from a client-supplied tenant ID. Every production lookup, list, insert, update, delete, relation traversal, and idempotency lookup receives it and applies tenant scope before returning or mutating data.
 
@@ -26,11 +26,11 @@ repository.tasks.findEquivalentOpen(context, actionIdentity)
 repository.revenueActions.findActiveDuplicate(context, opportunityId, actionType, fingerprint)
 ```
 
-The PR-2 transaction boundary encloses the RevenueAction closed loop: read scoped opportunity/intelligence evidence → validate fingerprint/lifecycle → persist `EXECUTING` request → create or reconcile exact task/activity effects and intended opportunity mutation → finalize action. PostgreSQL RLS is set transaction-locally from this server-owned context; application predicates, RLS, and negative cross-tenant tests are all required. The JSON adapter remains local/test compatible and does not acquire a fabricated `tenant_id` field.
+The PR-3 transaction boundary encloses the RevenueAction closed loop: read scoped opportunity/intelligence evidence → validate fingerprint/lifecycle → persist `EXECUTING` request → create or reconcile exact task/activity effects and intended opportunity mutation → finalize action. PostgreSQL RLS is set transaction-locally from this server-owned context; application predicates, RLS, and negative cross-tenant tests are all required. The JSON adapter remains local/test compatible and does not acquire a fabricated `tenant_id` field.
 
-## One-way JSON-to-PostgreSQL manifest (planned PR-2 adapter contract)
+## One-way JSON-to-PostgreSQL manifest (planned cutover contract)
 
-Before cutover, generate a versioned manifest for one read-only JSON snapshot. Preserve each source identifier as `legacy_id` (unique with `tenant_id`); use a new database primary key only if the implementation requires one. Preserve source timestamps and unmodeled fields in `legacy_payload`; never normalize away evidence during import.
+Before cutover, generate a versioned manifest for one read-only JSON snapshot. Preserve each source identifier directly as the text `id` in the composite `(tenant_id, id)` primary key; do not hide it behind a replacement UUID. Preserve source timestamps, source ordinal, and unmodeled fields in `legacy_payload`; never normalize away evidence during import.
 
 ### Target authorization is mandatory
 
@@ -45,11 +45,11 @@ Legacy JSON source records are tenantless. The manifest therefore records **targ
 
 | Legacy collection | PostgreSQL target | Field/relationship mapping |
 | --- | --- | --- |
-| `prospects` | `prospects` | `id → legacy_id`; `created_at`/`updated_at → source_*_at`; known CRM fields → typed columns; remaining source fields → `legacy_payload`. |
-| `opportunities` | `opportunities` | `id → legacy_id`; `prospect_id → prospect legacy-id lookup in the same tenant`; stage, priority, value, probability, weighted value, next action, and timestamps retain source values; unmodeled fields → `legacy_payload`. |
-| `activities` | `activities` | `id → legacy_id`; `opportunity_id`/`prospect_id → scoped legacy-id lookups`; type, description, metadata, and timestamps are retained. |
-| `tasks` | `tasks` | `id → legacy_id`; `opportunity_id → scoped legacy-id lookup`; title, description, due/completed status, priority, metadata, and timestamps are retained. |
-| `revenue_actions` | `revenue_actions` | `id → legacy_id`; `opportunity_id → scoped legacy-id lookup`; lifecycle fields, fingerprint, immutable snapshot, evidence, prepared execution, audit, execution result, and resulting task/activity legacy IDs are retained. |
+| `prospects` | `tge.prospects` | `id → id`; `created_at`/`updated_at → source_*_at`; array order → `source_ordinal`; known CRM fields → typed columns; complete source row → `legacy_payload`. |
+| `opportunities` | `tge.opportunities` | `id → id`; `prospect_id → same-tenant composite lookup`; value/raw value state, probability, weighted value, next action, timestamps, ordinal, and payload are retained. |
+| `activities` | `tge.activities` | `id → id`; `opportunity_id`/`prospect_id → same-tenant composite lookups`; type, description, metadata, timestamps, ordinal, and payload are retained. |
+| `tasks` | `tge.tasks` | `id → id`; `opportunity_id → same-tenant composite lookup`; title, description, due/completed state, priority, metadata, timestamps, ordinal, and payload are retained. |
+| `revenue_actions` | `tge.revenue_actions` | `id → id`; opportunity/effect links are same-tenant composite references; lifecycle fields, fingerprint, snapshots, evidence, execution state, audit, timestamps, ordinal, and payload are retained. |
 
 The manifest records: the mandatory target authorization fields above; snapshot path and SHA-256; collection counts and per-collection SHA-256; source-to-target ID map; required-relationship results; positive/zero/unknown-value counts; RevenueAction lifecycle/fingerprint/effect-link results; and an exception ledger with source collection, legacy ID, reason, disposition, and operator approval.
 
@@ -66,6 +66,6 @@ The manifest records: the mandatory target authorization fields above; snapshot 
 | RevenueAction with invalid lifecycle, fingerprint, or task/activity effect link | Report and block/quarantine the action; never mark it executed, deduplicate it, or repair links silently. |
 | Unmodeled fields or historically mutable IDs/creation timestamps | Retain in `legacy_payload` and the manifest; the snapshot cannot reconstruct missing history. |
 
-## PR-2 acceptance handoff
+## PR-2 acceptance and PR-3 handoff
 
-PR-2 may begin only with the active-plan gates resolved. It is accepted when tenant-aware interfaces are implemented, all production reads/mutations are server-scoped, RevenueAction closed-loop mutations are transactional, PostgreSQL RLS and cross-tenant negative tests pass, the JSON adapter passes this characterization suite unchanged, and a dry-run manifest/rollback rehearsal produces the evidence above. It does **not** include UI, auth/provisioning, dependency, or PR-3+ work.
+PR-2 is accepted only after its PostgreSQL 16.15 final gate proves append-only migrations, fixture representation, composite relationships, forced RLS with a real non-superuser login, least privilege, RevenueAction active uniqueness, and import/audit scope. PR-3 then implements tenant-aware repositories and transactional RevenueAction mutations. Parsing, import commit, cutover, Auth0 middleware, onboarding UI, and deployment remain later slices.

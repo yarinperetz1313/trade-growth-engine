@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -24,6 +25,7 @@ validateNoTrackedRuntimeOutput(trackedFiles);
 validateNoMachinePaths(listMachinePathCheckFiles(trackedFiles));
 validateOfflineIntelligence();
 validateE2eContract();
+validateDatabaseFoundationContract();
 validatePilotReadinessContract();
 
 if (failures.length > 0) {
@@ -173,6 +175,107 @@ function validateE2eContract() {
   );
 }
 
+function validateDatabaseFoundationContract() {
+  const workflow = readFile(".github/workflows/verify.yml");
+  const compose = readFile("compose.test.yml");
+  const runner = readFile("scripts/migrate-db.mjs");
+  const runnerPolicy = readFile("scripts/migration-runner-policy.mjs");
+  const databaseTest = readFile("test/database/postgres-foundation.test.js");
+  const initialMigration = readFile("database/migrations/001_initial_schema.sql");
+  const tenantMigration = readFile("database/migrations/002_tenant_domain_schema.sql");
+  const securityMigration = readFile("database/migrations/003_roles_rls_and_grants.sql");
+  const migrationFiles = fs
+    .readdirSync(path.join(rootDir, "database", "migrations"))
+    .filter(fileName => /^\d{3}_[a-z0-9_]+\.sql$/.test(fileName))
+    .sort();
+
+  requireText(
+    packageJson.scripts.verify,
+    "npm run test:db",
+    "Full verification must include the real PostgreSQL database gate"
+  );
+  requireText(
+    packageJson.scripts["test:db"] || "",
+    "test/database/*.test.js",
+    "test:db must use the built-in Node runner for database tests"
+  );
+  requireText(
+    packageJson.scripts["db:migrate"] || "",
+    "scripts/migrate-db.mjs",
+    "db:migrate must use the append-only migration runner"
+  );
+  requireText(
+    workflow,
+    "image: postgres:16.15",
+    "CI must pin the PostgreSQL 16.15 service image"
+  );
+  requireText(
+    workflow,
+    "TGE_TEST_DATABASE_URL:",
+    "CI must provide the isolated database-test URL"
+  );
+  requireText(
+    compose,
+    "image: postgres:16.15",
+    "Local database tests must use the same pinned PostgreSQL image as CI"
+  );
+  requireText(
+    runner,
+    "checksum drift",
+    "Migration runner must refuse checksum drift"
+  );
+  requireText(
+    runner,
+    "schema_migrations",
+    "Migration runner must maintain a migration ledger"
+  );
+  requireText(
+    runnerPolicy,
+    "Audited baseline required: migration 001 is unapplied",
+    "Migration runner must refuse an implicit 001 baseline"
+  );
+  requireText(
+    runnerPolicy,
+    "set local role ${role}",
+    "Post-bootstrap migrations must execute under the owner role"
+  );
+  requireText(
+    tenantMigration,
+    "set local role tge_owner",
+    "Migration 002 must create application objects under tge_owner"
+  );
+  requireText(
+    securityMigration,
+    "set local role tge_owner",
+    "Migration 003 must execute under tge_owner"
+  );
+  requireText(
+    databaseTest,
+    "TGE_TEST_DATABASE_URL",
+    "Database tests must require an explicit real PostgreSQL URL"
+  );
+
+  if (
+    createHash("sha256").update(initialMigration).digest("hex")
+    !== "d08f3b7e5c97e05a5ec7f96242543fbbf437d7af4edea34d22dc09db910cfc62"
+  ) {
+    failures.push("database migration 001 must remain byte-for-byte unchanged");
+  }
+
+  if (
+    JSON.stringify(migrationFiles)
+    !== JSON.stringify([
+      "001_initial_schema.sql",
+      "002_tenant_domain_schema.sql",
+      "003_roles_rls_and_grants.sql"
+    ])
+  ) {
+    failures.push(
+      `Pilot PR-2 migration sequence drift: ${migrationFiles.join(", ")}`
+    );
+  }
+}
+
 function validatePilotReadinessContract() {
   const planPath = "docs/execution-plans/active/pilot-readiness.md";
   const executionPlansIndexPath = "docs/execution-plans/README.md";
@@ -199,6 +302,11 @@ function validatePilotReadinessContract() {
     "Execution-plan index must mark Pilot PR-1 complete"
   );
   requireText(
+    executionPlansIndex,
+    "PR-2 implementation is COMPLETE; final database verification is PENDING",
+    "Execution-plan index must report the exact Pilot PR-2 verification state"
+  );
+  requireText(
     plan,
     "[foundation](../../architecture/PILOT_READINESS_FOUNDATION.md)",
     "Pilot plan must link the canonical readiness foundation"
@@ -216,8 +324,8 @@ function validatePilotReadinessContract() {
   );
   requireText(
     plan,
-    "PR-2 — NOT STARTED (next)",
-    "Pilot plan must name PR-2 as next and not started"
+    "PR-2 — IMPLEMENTATION COMPLETE; FINAL DATABASE VERIFICATION PENDING",
+    "Pilot plan must distinguish PR-2 implementation from final database verification"
   );
 
   const canonicalDocuments = {

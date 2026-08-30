@@ -31,6 +31,14 @@ Execution persists `EXECUTING` and the approved execution mode before effects. R
 
 `EXECUTING` and `FAILED` retries reconcile complete exact effects before current-intelligence staleness checks. For an internal `CREATE_TASK` action, completion requires the exact linked task, exact linked activity, and the intended `opportunity.next_action` mutation; recovery applies any missing intended mutation before finalizing. When only the action's exact task exists, the staleness comparison excludes that own partial effect while still detecting external opportunity changes, then creates the missing activity without duplicating the task. This is recovery-oriented idempotency, **not a transaction**: JSON collections cannot provide atomic multi-file commits or cross-process uniqueness.
 
+## PostgreSQL foundation
+
+PR-2 preserves this identity in a partial unique index over `(tenant_id, opportunity_id, action_type, basis_fingerprint)` for `RECOMMENDED`, `PREPARED`, `APPROVED`, `EXECUTING`, and `FAILED`. `FAILED` remains active/retryable; `EXECUTED`, `REJECTED`, and `CANCELLED` history may repeat. There is deliberately no one-active-action-per-opportunity constraint.
+
+Task and activity effects use reciprocal, tenant-and-opportunity-scoped composite foreign keys. The links are deferred so one transaction may insert or update the legitimate cycle, but commit fails for one-sided, mismatched, cross-opportunity, or duplicate effects. Each action can own at most one task and one activity effect.
+
+These constraints protect structural ownership; they do not decide whether a lifecycle transition or effect is semantically valid. Application lifecycle validation remains authoritative. PR-3 must perform the closed-loop mutation in one tenant-scoped transaction, and PR-4 must enforce server-side identity/membership authorization before setting transaction-local RLS context.
+
 ## API
 - `GET /api/revenue-actions?opportunity_id=:id`
 - `GET /api/revenue-actions/:id`
