@@ -53,7 +53,7 @@ if (!testDatabaseUrl) {
     adminClient = new Client({ connectionString: ephemeralUrl });
     await adminClient.connect();
     const createRuntimeRole = await adminClient.query(
-      "select format('create role %I login password %L nosuperuser nocreatedb nocreaterole noreplication nobypassrls', $1, $2) as sql",
+      "select format('create role %I login password %L nosuperuser nocreatedb nocreaterole noreplication nobypassrls', $1::text, $2::text) as sql",
       [runtimeRole, runtimePassword]
     );
     await adminClient.query(createRuntimeRole.rows[0].sql);
