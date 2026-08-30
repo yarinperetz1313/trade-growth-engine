@@ -22,7 +22,8 @@ test("migration 001 remains byte-for-byte unchanged and migrations are append-on
     "001_initial_schema.sql",
     "002_tenant_domain_schema.sql",
     "003_roles_rls_and_grants.sql",
-    "004_global_function_default_privileges.sql"
+    "004_global_function_default_privileges.sql",
+    "005_auth_membership_and_invitations.sql"
   ]);
   assert.equal(Buffer.byteLength(initialMigration), 2752);
   assert.equal(
@@ -242,6 +243,49 @@ test("migration 004 revokes global PUBLIC function defaults as tge_owner", () =>
     security,
     /revoke execute on all functions in schema tge from public;/
   );
+});
+
+test("migration 005 binds active membership to issuer and subject with replay-safe invitations", () => {
+  const auth = read(
+    "database/migrations/005_auth_membership_and_invitations.sql"
+  );
+
+  assert.match(auth, /^set local role tge_owner;/);
+  assert.match(auth, /add column identity_issuer text not null/);
+  assert.match(auth, /add column status text not null/);
+  assert.match(auth, /status in \('ACTIVE', 'SUSPENDED', 'REVOKED'\)/);
+  assert.match(
+    auth,
+    /primary key \(tenant_id, identity_issuer, subject_id\)/
+  );
+  assert.match(auth, /create function tge\.set_identity_context/);
+  assert.match(
+    auth,
+    /identity_issuer = tge\.current_identity_issuer\(\)[\s\S]*?subject_id = tge\.current_subject_id\(\)/
+  );
+  assert.match(auth, /create table tge\.assisted_invitations/);
+  assert.match(auth, /token_hash text not null unique/);
+  assert.match(auth, /token_hash ~ '\^\[0-9a-f\]\{64\}\$'/);
+  assert.match(auth, /status in \('PENDING', 'CONSUMED', 'REVOKED'\)/);
+  assert.match(auth, /expected_identity_issuer text/);
+  assert.match(auth, /expected_subject_id text/);
+  assert.match(auth, /expires_at timestamptz not null/);
+  assert.match(auth, /create function tge\.consume_assisted_invitation/);
+  const identityLockPosition = auth.indexOf("pg_advisory_xact_lock");
+  const membershipCountPosition = auth.indexOf("select count(*)::integer");
+  assert.ok(identityLockPosition > -1, "invitation activation serializes by identity");
+  assert.ok(
+    identityLockPosition < membershipCountPosition,
+    "identity serialization precedes membership counting"
+  );
+  assert.match(auth, /for update/);
+  assert.match(auth, /status = 'PENDING'/);
+  assert.match(auth, /expires_at > requested_at/);
+  assert.match(auth, /'MEMBERSHIP_ACTIVATED'/);
+  assert.match(auth, /'INVITATION_CONSUMED'/);
+  assert.match(auth, /grant execute on function tge\.consume_assisted_invitation/);
+  assert.match(auth, /revoke execute on all functions in schema tge from public/);
+  assert.doesNotMatch(auth, /grant[^;]*delete[^;]*assisted_invitations/i);
 });
 
 test("runner, package scripts, Compose, and CI use the real pinned PostgreSQL gate", () => {
