@@ -14,6 +14,115 @@ test("engineering harness gate passes for the repository contract", () => {
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
+test("engineering harness gate rejects removal of every Pilot Readiness contract rule", () => {
+  const contractRemovals = [
+    {
+      relativePath: "docs/execution-plans/active/pilot-readiness.md",
+      expected: "[foundation](../../architecture/PILOT_READINESS_FOUNDATION.md)",
+      error: /Pilot plan must link the canonical readiness foundation/
+    },
+    {
+      relativePath: "docs/execution-plans/active/pilot-readiness.md",
+      expected: "[production gate](../../operations/PILOT_PRODUCTION_GATE.md)",
+      error: /Pilot plan must link the canonical production gate/
+    },
+    {
+      relativePath: "docs/execution-plans/active/pilot-readiness.md",
+      expected: "PR-0 is COMPLETE",
+      error: /Pilot plan must mark PR-0 complete/
+    },
+    {
+      relativePath: "docs/execution-plans/active/pilot-readiness.md",
+      expected: "PR-1 is NOT STARTED and is next",
+      error: /Pilot plan must name PR-1 as next and not started/
+    },
+    {
+      relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
+      expected: "Cloud Run + Cloud SQL PostgreSQL in australia-southeast2 (Melbourne)",
+      error: /Melbourne Cloud Run and Cloud SQL topology/
+    },
+    {
+      relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
+      expected: "TGE remains the authorization authority.",
+      error: /Auth0 AU identity with TGE-owned authorization/
+    },
+    {
+      relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
+      expected: "never accepts a client-supplied tenant ID as authority",
+      error: /server-resolved TenantContext/
+    },
+    {
+      relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
+      expected: "Server authorization, RLS, and cross-tenant negative tests are all required",
+      error: /tenant roles and layered isolation/
+    },
+    {
+      relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
+      expected: "**Supabase is not the production Pilot target.**",
+      error: /Cloud Run and Cloud SQL production persistence target/
+    },
+    {
+      relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
+      expected: "there is no dual write",
+      error: /append-only one-way JSON cutover without dual write/
+    },
+    {
+      relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
+      expected: "ambiguous records require explicit user resolution",
+      error: /staged tenant-scoped import safety/
+    },
+    {
+      relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
+      expected: "Store audit events and import metadata for **12 months**.",
+      error: /audit and import retention/
+    },
+    {
+      relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
+      expected: "RTO <= 4 business hours",
+      error: /Melbourne backup and tenant-recovery objectives/
+    },
+    {
+      relativePath: "docs/operations/PILOT_PRODUCTION_GATE.md",
+      expected: "complete privacy/DPA review for every selected vendor",
+      error: /vendor and provisioning gates/
+    },
+    {
+      relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
+      expected: "**PR-4 is blocked**",
+      error: /Auth0 magic-link pre-PR-4 blocker/
+    },
+    {
+      relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
+      expected: "mobile/email-client behavior",
+      error: /Auth0 magic-link pre-PR-4 blocker/
+    },
+    {
+      relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
+      expected: "callback/redirect allowlists",
+      error: /Auth0 magic-link pre-PR-4 blocker/
+    }
+  ];
+
+  for (const contractRemoval of contractRemovals) {
+    const filePath = path.join(repositoryRoot, contractRemoval.relativePath);
+    const originalContents = fs.readFileSync(filePath, "utf8");
+
+    try {
+      fs.writeFileSync(
+        filePath,
+        originalContents.replaceAll(contractRemoval.expected, "REMOVED BY TEST")
+      );
+
+      const result = runHarness();
+
+      assert.notEqual(result.status, 0, contractRemoval.relativePath);
+      assert.match(result.stderr, contractRemoval.error);
+    } finally {
+      fs.writeFileSync(filePath, originalContents);
+    }
+  }
+});
+
 test("engineering harness gate rejects an untracked machine path", () => {
   const fixturePath = path.join(
     repositoryRoot,

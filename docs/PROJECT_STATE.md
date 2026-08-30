@@ -25,5 +25,6 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - Developer `data/*.json` must never be touched by tests/E2E.
 
 ## Milestone status
-- Active phase: **none**.
-- Next milestone: **Pilot Readiness** — unimplemented; no execution plan has been created.
+- Active plan: [**Pilot Readiness**](execution-plans/active/pilot-readiness.md).
+- Pilot Readiness **PR-0 is complete**: its architecture, operations, and harness consistency contracts are documented. This does **not** mean production infrastructure, authentication, authorization, tenancy, backups, imports, or deployment have been provisioned or implemented.
+- **PR-1 is next and not started**: production persistence and tenant isolation remain future work, gated by the unresolved vendor/provisioning decisions in the active plan.

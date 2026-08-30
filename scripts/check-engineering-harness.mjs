@@ -24,6 +24,7 @@ validateNoTrackedRuntimeOutput(trackedFiles);
 validateNoMachinePaths(listMachinePathCheckFiles(trackedFiles));
 validateOfflineIntelligence();
 validateE2eContract();
+validatePilotReadinessContract();
 
 if (failures.length > 0) {
   console.error("Engineering harness check failed:");
@@ -170,6 +171,170 @@ function validateE2eContract() {
     'writeCollection(storeDir, "revenue_actions", [])',
     "E2E seed must include empty revenue_actions"
   );
+}
+
+function validatePilotReadinessContract() {
+  const planPath = "docs/execution-plans/active/pilot-readiness.md";
+  const executionPlansIndexPath = "docs/execution-plans/README.md";
+  const foundationPath = "docs/architecture/PILOT_READINESS_FOUNDATION.md";
+  const productionGatePath = "docs/operations/PILOT_PRODUCTION_GATE.md";
+  const plan = readFile(planPath);
+  const executionPlansIndex = readFile(executionPlansIndexPath);
+  const foundation = readFile(foundationPath);
+  const productionGate = readFile(productionGatePath);
+
+  requireText(
+    executionPlansIndex,
+    "[\`active/pilot-readiness.md\`](active/pilot-readiness.md)",
+    "Execution-plan index must link the active Pilot Readiness plan"
+  );
+  requireText(
+    executionPlansIndex,
+    "PR-0 is COMPLETE",
+    "Execution-plan index must mark Pilot PR-0 complete"
+  );
+  requireText(
+    executionPlansIndex,
+    "PR-1 is NOT STARTED and is next",
+    "Execution-plan index must mark Pilot PR-1 not started and next"
+  );
+  requireText(
+    plan,
+    "[foundation](../../architecture/PILOT_READINESS_FOUNDATION.md)",
+    "Pilot plan must link the canonical readiness foundation"
+  );
+  requireText(
+    plan,
+    "[production gate](../../operations/PILOT_PRODUCTION_GATE.md)",
+    "Pilot plan must link the canonical production gate"
+  );
+  requireText(plan, "PR-0 is COMPLETE", "Pilot plan must mark PR-0 complete");
+  requireText(
+    plan,
+    "PR-1 is NOT STARTED and is next",
+    "Pilot plan must name PR-1 as next and not started"
+  );
+
+  const canonicalDocuments = {
+    foundation: { path: foundationPath, contents: foundation },
+    productionGate: { path: productionGatePath, contents: productionGate }
+  };
+
+  const pilotReadinessRules = [
+    {
+      name: "Melbourne Cloud Run and Cloud SQL topology",
+      document: "foundation",
+      requirements: [
+        "Cloud Run + Cloud SQL PostgreSQL in australia-southeast2 (Melbourne)",
+        "Sydney is allowed only as a written, approved exception."
+      ]
+    },
+    {
+      name: "Auth0 AU identity with TGE-owned authorization",
+      document: "foundation",
+      requirements: [
+        "Auth0 Australia (AU) provides magic-link **identity**",
+        "TGE remains the authorization authority."
+      ]
+    },
+    {
+      name: "server-resolved TenantContext",
+      document: "foundation",
+      requirements: [
+        "resolves `TenantContext` from server-side membership",
+        "never accepts a client-supplied tenant ID as authority"
+      ]
+    },
+    {
+      name: "tenant roles and layered isolation",
+      document: "foundation",
+      requirements: [
+        "| OWNER |",
+        "| ADMIN |",
+        "| MEMBER |",
+        "PostgreSQL RLS is applied transaction-locally",
+        "runtime database role is nonprivileged",
+        "server-only migration/operations role",
+        "Server authorization, RLS, and cross-tenant negative tests are all required"
+      ]
+    },
+    {
+      name: "Cloud Run and Cloud SQL production persistence target",
+      document: "foundation",
+      requirements: ["**Supabase is not the production Pilot target.**"]
+    },
+    {
+      name: "append-only one-way JSON cutover without dual write",
+      document: "foundation",
+      requirements: [
+        "append-only migrations",
+        "one-way, verified legacy JSON snapshot cutover",
+        "there is no dual write"
+      ]
+    },
+    {
+      name: "staged tenant-scoped import safety",
+      document: "foundation",
+      requirements: [
+        "Imports are tenant-scoped and staged: CSV/XLSX upload → preview → explicit commit.",
+        "Exact duplicates are skipped",
+        "ambiguous records require explicit user resolution",
+        "never merge into or overwrite existing CRM data implicitly"
+      ]
+    },
+    {
+      name: "audit and import retention",
+      document: "foundation",
+      requirements: ["12 months", "raw files for **7 days**, then delete them"]
+    },
+    {
+      name: "Melbourne backup and tenant-recovery objectives",
+      document: "foundation",
+      requirements: [
+        "Australian **regional** Cloud SQL backup location explicitly",
+        "14 daily backups",
+        "RPO <= 24 hours",
+        "RTO <= 4 business hours",
+        "full database into a temporary Australian instance, logically exporting the affected tenant, and restoring that export"
+      ]
+    },
+    {
+      name: "vendor and provisioning gates",
+      document: "productionGate",
+      requirements: [
+        "Cloudflare Pages is recommended, subject to static-host vendor/privacy approval.",
+        "approve the production domain/registrar",
+        "custom transactional SMTP, SPF, DKIM, and DMARC",
+        "confirm AU tenancy, selected plan, magic-link/custom-domain capabilities",
+        "complete privacy/DPA review for every selected vendor"
+      ]
+    },
+    {
+      name: "Auth0 magic-link pre-PR-4 blocker",
+      document: "foundation",
+      requirements: [
+        "**PR-4 is blocked**",
+        "Auth0 AU plan supports passwordless magic links",
+        "Classic Login with same-browser/device completion",
+        "mobile/email-client behavior",
+        "callback/redirect allowlists",
+        "phishing/resend/session protections",
+        "deterministic E2E acceptance test",
+        "There is no implicit OTP fallback."
+      ]
+    }
+  ];
+
+  for (const rule of pilotReadinessRules) {
+    const document = canonicalDocuments[rule.document];
+    for (const expected of rule.requirements) {
+      requireText(
+        document.contents,
+        expected,
+        `Pilot Readiness contract drift (${rule.name}): ${document.path} must retain ${JSON.stringify(expected)}`
+      );
+    }
+  }
 }
 
 function requireText(contents, expected, message) {

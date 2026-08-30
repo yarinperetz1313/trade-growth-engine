@@ -1,6 +1,6 @@
 # Engineering Harness
 
-This is the operational contract for making Trade Growth Engine changes safely and reviewably. It adds no product scope: Phase 2 is locked, no execution plan is active, and Pilot Readiness remains unimplemented.
+This is the operational contract for making Trade Growth Engine changes safely and reviewably. It adds no product scope: Phase 2 is locked, and Pilot Readiness PR-0 has documented its future-state contracts without provisioning or product implementation.
 
 ## Quick path
 1. Read the nearest `AGENTS.md` and the current-state/architecture reference for the affected boundary.
@@ -39,6 +39,7 @@ Generated reports and local terminal output are evidence, not source-of-truth po
 - executable/configuration and relevant untracked documentation have no developer-home absolute path;
 - `src/intelligence/` has no web-client dependency or `fetch` call;
 - E2E retains managed-store creation/seeding/cleanup, `LOCAL_STORE_DIR` injection, serial fixed-port configuration, and an empty seeded `revenue_actions` collection.
+- the active Pilot Readiness plan and its two canonical contracts agree on a small set of locked production facts; it does not scan historical plans or certify provisioned infrastructure.
 
 The Node test suite executes this gate too, so a broken gate is itself a test failure. These checks intentionally do not enforce file-size, style, or speculative architecture rules.
 
@@ -84,6 +85,6 @@ Each plan records debt and follow-ups. Failed gates and review findings become e
 ## Known limitations
 
 - Phase 2 is locked for this upgrade; its code is not being extended here.
-- Pilot Readiness is the next milestone but has no implementation plan or acceptance evidence yet.
+- Pilot Readiness PR-0 is complete; [PR-1](execution-plans/active/pilot-readiness.md) is next and not started. The contracts are planning evidence, not proof of provisioned production capabilities.
 - Browser CI is configured locally; a green CI outcome cannot be established from this checkout alone.
 - Fixed-port serial E2E limits safe local parallelism.
