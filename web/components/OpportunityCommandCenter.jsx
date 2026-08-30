@@ -1,8 +1,27 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  createRevenueAction,
+  getOpportunityRevenueActions,
   getOpportunityIntelligence,
-  runOpportunityIntelligenceAction
+  runOpportunityIntelligenceAction,
+  transitionRevenueAction
 } from "../lib/api";
+
+const ACTIVE_REVENUE_ACTION_STATUSES = new Set([
+  "RECOMMENDED",
+  "PREPARED",
+  "APPROVED",
+  "EXECUTING",
+  "FAILED"
+]);
+
+const SUPPORTED_REVENUE_ACTION_TYPES = new Set([
+  "FOLLOW_UP",
+  "CREATE_TASK",
+  "RESEARCH",
+  "QUALIFY",
+  "ADVANCE"
+]);
 
 function money(value) {
   if (
@@ -128,6 +147,31 @@ export default function OpportunityCommandCenter({
   const [value, setValue] =
     useState("");
 
+  const [revenueActions, setRevenueActions] =
+    useState([]);
+
+  const [executionLoading, setExecutionLoading] =
+    useState(null);
+
+  const [executionError, setExecutionError] =
+    useState(null);
+
+  const [executionMessage, setExecutionMessage] =
+    useState(null);
+
+  async function loadRevenueActions() {
+    try {
+      const result = await getOpportunityRevenueActions(
+        opportunity.id
+      );
+      setRevenueActions(result.data || []);
+    } catch (err) {
+      setExecutionError(
+        err.message || "Unable to load execution history."
+      );
+    }
+  }
+
   async function loadIntelligence({
     notifyOpportunityUpdated = true
   } = {}) {
@@ -159,6 +203,7 @@ export default function OpportunityCommandCenter({
 
   useEffect(() => {
     loadIntelligence();
+    loadRevenueActions();
   }, [opportunity.id]);
 
   const intelligence =
@@ -208,6 +253,113 @@ export default function OpportunityCommandCenter({
   const hasStaleRisk =
     Number(scoreData?.stale_risk) >=
     70;
+
+  const activeRevenueAction = revenueActions
+    .filter(action => ACTIVE_REVENUE_ACTION_STATUSES.has(action.status))
+    .sort((left, right) =>
+      String(right.updated_at || right.created_at || "").localeCompare(
+        String(left.updated_at || left.created_at || "")
+      ) || String(right.id).localeCompare(String(left.id))
+    )[0] || null;
+
+  const canPrepareRevenueAction =
+    SUPPORTED_REVENUE_ACTION_TYPES.has(nextAction?.type);
+
+  async function applyRevenueActionResult(result) {
+    const refreshed = result?.refreshed;
+
+    if (
+      refreshed?.opportunity &&
+      refreshed?.opportunity_intelligence
+    ) {
+      setPayload({
+        opportunity: refreshed.opportunity,
+        intelligence: refreshed.opportunity_intelligence
+      });
+      await onOpportunityUpdated?.(refreshed.opportunity);
+    }
+
+    await loadRevenueActions();
+  }
+
+  async function copyCommunicationDraft() {
+    const draft = activeRevenueAction?.proposed_execution;
+    if (!draft || draft.type !== "COMMUNICATION_DRAFT") return;
+
+    setExecutionError(null);
+    setExecutionMessage(null);
+
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Copy is unavailable in this browser.");
+      }
+      await navigator.clipboard.writeText(`${draft.subject}\n\n${draft.body}`);
+      setExecutionMessage("Draft copied for human review.");
+    } catch (err) {
+      setExecutionError(err.message || "Unable to copy the prepared draft.");
+    }
+  }
+
+  async function runRevenueActionTransition(
+    key,
+    transition,
+    body = {}
+  ) {
+    if (!activeRevenueAction) return;
+
+    setExecutionLoading(key);
+    setExecutionError(null);
+    setExecutionMessage(null);
+
+    try {
+      const result = await transitionRevenueAction(
+        activeRevenueAction.id,
+        transition,
+        body
+      );
+      await applyRevenueActionResult(result);
+      setExecutionMessage(
+        result.duplicate
+          ? "Execution state was already applied."
+          : "Execution state updated."
+      );
+    } catch (err) {
+      setExecutionError(err.message);
+      await loadRevenueActions();
+      await loadIntelligence();
+    } finally {
+      setExecutionLoading(null);
+    }
+  }
+
+  async function prepareCurrentRevenueAction() {
+    setExecutionLoading("prepare");
+    setExecutionError(null);
+    setExecutionMessage(null);
+
+    try {
+      const created = activeRevenueAction
+        ? { data: activeRevenueAction }
+        : await createRevenueAction(currentOpportunity.id);
+      const prepared = await transitionRevenueAction(
+        created.data.id,
+        "prepare",
+        {}
+      );
+      await applyRevenueActionResult(prepared);
+      setExecutionMessage(
+        prepared.duplicate
+          ? "Prepared execution already exists."
+          : "Execution prepared for review."
+      );
+    } catch (err) {
+      setExecutionError(err.message);
+      await loadRevenueActions();
+      await loadIntelligence();
+    } finally {
+      setExecutionLoading(null);
+    }
+  }
 
   async function performAction(
     key,
@@ -284,37 +436,11 @@ export default function OpportunityCommandCenter({
         });
       }
 
-      if (hasStaleRisk) {
-        actions.push({
-          key: "followup",
-          title:
-            "Create follow-up",
-          description:
-            "Activity signals indicate this opportunity may require follow-up.",
-          type: "followup"
-        });
-      }
-
-      if (
-        nextAction?.taskTitle
-      ) {
-        actions.push({
-          key: "task",
-          title:
-            nextAction.taskTitle,
-          description:
-            nextAction.reason ||
-            "Recommended next action from Deal Intelligence.",
-          type: "task"
-        });
-      }
-
       return actions;
     }, [
       hasContact,
       hasValue,
-      hasStaleRisk,
-      nextAction
+      hasStaleRisk
     ]);
 
   if (loading) {
@@ -537,36 +663,232 @@ export default function OpportunityCommandCenter({
                   : "Confirm Commercial Value"}
               </button>
             </div>
-          ) : nextAction?.taskTitle ? (
-            <button
-              className="oc-primary-button"
-              data-testid="create-intelligence-task"
-              disabled={
-                actionLoading ===
-                "task"
-              }
-              onClick={() =>
-                performAction(
-                  "task",
-                  "task",
-                  {
-                    title:
-                      nextAction.taskTitle,
-                    priority:
-                      nextAction.priority ||
-                      "MEDIUM",
-                    actionType:
-                      nextAction.type
-                  }
-                )
-              }
-            >
-              {actionLoading ===
-              "task"
-                ? "Creating…"
-                : "Create Task"}
-            </button>
+          ) : canPrepareRevenueAction ? (
+            <span className="oc-execution-pointer">
+              Prepare and review this action in the execution workflow below.
+            </span>
           ) : null}
+        </div>
+      </section>
+
+      <section
+        className="oc-panel oc-execution-panel"
+        data-testid="revenue-action-execution"
+      >
+        <div className="oc-card-label">
+          OPPORTUNITY EXECUTION
+        </div>
+
+        <h2>Human-controlled action lifecycle</h2>
+
+        <p className="oc-section-description">
+          TGE prepares the work. External communication is never sent by TGE
+          in this phase and requires explicit human approval and confirmation.
+        </p>
+
+        {executionError && (
+          <div className="oc-error" data-testid="revenue-action-error">
+            <strong>Execution action failed</strong>
+            <span>{executionError}</span>
+          </div>
+        )}
+
+        {executionMessage && (
+          <div className="oc-success-banner" data-testid="revenue-action-success">
+            ✓ {executionMessage}
+          </div>
+        )}
+
+        {!activeRevenueAction ? (
+          <div className="oc-execution-recommendation">
+            <div>
+              <span className="oc-status-badge">RECOMMENDED</span>
+              <strong>{nextAction?.title || "No executable recommendation"}</strong>
+              <p>{nextAction?.reason || "No deterministic recommendation is available."}</p>
+            </div>
+
+            {canPrepareRevenueAction && (
+              <button
+                className="oc-primary-button"
+                data-testid="prepare-revenue-action"
+                disabled={executionLoading === "prepare"}
+                onClick={prepareCurrentRevenueAction}
+              >
+                {executionLoading === "prepare" ? "Preparing…" : "Prepare action"}
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="oc-execution-current">
+            <div className="oc-execution-heading">
+              <div>
+                <span
+                  className="oc-status-badge"
+                  data-testid="revenue-action-status"
+                >
+                  {activeRevenueAction.status}
+                </span>
+                <strong>{activeRevenueAction.title}</strong>
+              </div>
+              <small>
+                {activeRevenueAction.action_type} · {activeRevenueAction.priority}
+              </small>
+            </div>
+
+            <p>{activeRevenueAction.reason}</p>
+
+            {activeRevenueAction.proposed_execution?.type ===
+              "COMMUNICATION_DRAFT" && (
+              <div
+                className="oc-execution-proposal"
+                data-testid="communication-draft"
+              >
+                <span>Email draft · not sent by TGE</span>
+                <strong>{activeRevenueAction.proposed_execution.subject}</strong>
+                <pre>{activeRevenueAction.proposed_execution.body}</pre>
+                <button
+                  className="oc-secondary-button"
+                  data-testid="copy-communication-draft"
+                  onClick={copyCommunicationDraft}
+                >
+                  Copy draft
+                </button>
+              </div>
+            )}
+
+            {activeRevenueAction.proposed_execution?.type ===
+              "INTERNAL_TASK" && (
+              <div
+                className="oc-execution-proposal"
+                data-testid="internal-task-proposal"
+              >
+                <span>Internal task</span>
+                <strong>{activeRevenueAction.proposed_execution.title}</strong>
+                <p>{activeRevenueAction.proposed_execution.description}</p>
+                <small>
+                  {activeRevenueAction.proposed_execution.priority} · No due date invented
+                </small>
+              </div>
+            )}
+
+            <div className="oc-execution-controls">
+              {activeRevenueAction.status === "RECOMMENDED" && (
+                <button
+                  className="oc-primary-button"
+                  disabled={executionLoading === "prepare"}
+                  onClick={prepareCurrentRevenueAction}
+                >
+                  Prepare action
+                </button>
+              )}
+
+              {activeRevenueAction.status === "PREPARED" && (
+                <>
+                  <button
+                    className="oc-primary-button"
+                    data-testid="approve-revenue-action"
+                    disabled={executionLoading === "approve"}
+                    onClick={() =>
+                      runRevenueActionTransition("approve", "approve")
+                    }
+                  >
+                    {executionLoading === "approve" ? "Approving…" : "Approve"}
+                  </button>
+                  <button
+                    className="oc-secondary-button"
+                    data-testid="reject-revenue-action"
+                    disabled={executionLoading === "reject"}
+                    onClick={() =>
+                      runRevenueActionTransition("reject", "reject")
+                    }
+                  >
+                    Reject
+                  </button>
+                </>
+              )}
+
+              {activeRevenueAction.status === "APPROVED" && (
+                <button
+                  className="oc-primary-button"
+                  data-testid="execute-revenue-action"
+                  disabled={executionLoading === "execute"}
+                  onClick={() =>
+                    runRevenueActionTransition(
+                      "execute",
+                      "execute",
+                      activeRevenueAction.execution_type === "COMMUNICATION_DRAFT"
+                        ? { executionMode: "MANUAL_CONFIRMED" }
+                        : {}
+                    )
+                  }
+                >
+                  {executionLoading === "execute"
+                    ? "Confirming…"
+                    : activeRevenueAction.execution_type === "COMMUNICATION_DRAFT"
+                      ? "Mark completed manually"
+                      : "Create internal task"}
+                </button>
+              )}
+
+              {activeRevenueAction.status === "EXECUTING" && (
+                <span className="oc-execution-pointer">
+                  Recovering linked CRM effects before allowing another execution.
+                </span>
+              )}
+
+              {activeRevenueAction.status === "FAILED" && (
+                <button
+                  className="oc-primary-button"
+                  data-testid="retry-revenue-action"
+                  disabled={executionLoading === "execute"}
+                  onClick={() =>
+                    runRevenueActionTransition(
+                      "execute",
+                      "execute",
+                      activeRevenueAction.execution_type === "COMMUNICATION_DRAFT"
+                        ? { executionMode: "MANUAL_CONFIRMED" }
+                        : {}
+                    )
+                  }
+                >
+                  Retry execution
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="oc-execution-history" data-testid="revenue-action-history">
+          <h3>Recent execution history</h3>
+          {revenueActions.length === 0 ? (
+            <div className="oc-empty">No durable revenue actions recorded.</div>
+          ) : (
+            revenueActions.slice(0, 5).map(action => (
+              <div className="oc-execution-history-item" key={action.id}>
+                <span>{action.status}</span>
+                <div>
+                  <strong>{action.title}</strong>
+                  <small>
+                    {action.executed_at || action.rejected_at || action.prepared_at || action.created_at}
+                  </small>
+                  <small>{action.reason}</small>
+                  {action.proposed_execution?.type === "COMMUNICATION_DRAFT" && (
+                    <small>Email draft prepared · not sent by TGE</small>
+                  )}
+                  {action.proposed_execution?.type === "INTERNAL_TASK" && (
+                    <small>Internal task: {action.proposed_execution.title}</small>
+                  )}
+                  {action.approved_at && <small>Human approval recorded</small>}
+                  {action.rejection_reason && <small>Rejected: {action.rejection_reason}</small>}
+                  {action.execution_result?.mode && (
+                    <small>Execution: {action.execution_result.mode} · {action.execution_result.outcome}</small>
+                  )}
+                  {action.resulting_activity_id && <small>CRM activity linked</small>}
+                  {action.resulting_task_id && <small>CRM task linked</small>}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </section>
 
@@ -673,41 +995,6 @@ export default function OpportunityCommandCenter({
                     : "Set Value"}
                 </button>
               </div>
-            </ActionCard>
-          )}
-
-          {hasStaleRisk && (
-            <ActionCard
-              title="Create follow-up"
-              description="Create a high-priority follow-up task for this opportunity."
-            >
-              <button
-                className="oc-secondary-button"
-                disabled={
-                  actionLoading ===
-                  "followup"
-                }
-                onClick={() =>
-                  performAction(
-                    "followup",
-                    "follow-up",
-                    {
-                      title:
-                        `Follow up — ${
-                          resolved?.business_name ||
-                          "opportunity"
-                        }`,
-                      priority:
-                        "HIGH"
-                    }
-                  )
-                }
-              >
-                {actionLoading ===
-                "followup"
-                  ? "Creating…"
-                  : "Create Follow-up"}
-              </button>
             </ActionCard>
           )}
 

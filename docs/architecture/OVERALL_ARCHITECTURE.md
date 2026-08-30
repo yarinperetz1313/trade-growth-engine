@@ -16,3 +16,6 @@ Trade Growth Engine is a local-first sales intelligence application.
 
 ## Boundary rule
 Keep intelligence deterministic unless a module explicitly performs AI/web research. Do not blend speculative market analysis into CRM health scoring.
+
+## Opportunity Execution Engine
+`src/revenueActions/` contains the durable execution domain and repository. `src/api/revenueActions.js` remains a thin Express boundary. It consumes deterministic opportunity intelligence and the read-only revenue snapshot, but does not change either scoring model. The Opportunity Command Center is the only detailed execution UI; the Revenue Command Center remains a projection/navigation surface.

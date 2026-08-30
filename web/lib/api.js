@@ -30,6 +30,7 @@ async function request(
 
   if (!response.ok) {
     throw new Error(
+      body?.message ||
       body?.error ||
       `Request failed: ${response.status}`
     );
@@ -222,6 +223,44 @@ export function runOpportunityIntelligenceAction(
 ) {
   return request(
     `/api/opportunities/${opportunityId}/intelligence/${action}`,
+    {
+      method: "POST",
+      body: JSON.stringify(body)
+    }
+  );
+}
+
+export function getOpportunityRevenueActions(
+  opportunityId
+) {
+  const query = new URLSearchParams({
+    opportunity_id: opportunityId
+  }).toString();
+
+  return request(
+    `/api/revenue-actions?${query}`
+  );
+}
+
+export function createRevenueAction(
+  opportunityId
+) {
+  return request(
+    `/api/opportunities/${opportunityId}/revenue-actions`,
+    {
+      method: "POST",
+      body: JSON.stringify({})
+    }
+  );
+}
+
+export function transitionRevenueAction(
+  actionId,
+  transition,
+  body = {}
+) {
+  return request(
+    `/api/revenue-actions/${actionId}/${transition}`,
     {
       method: "POST",
       body: JSON.stringify(body)

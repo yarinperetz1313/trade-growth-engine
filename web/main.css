@@ -1561,3 +1561,130 @@
   }
 }
 
+.oc-execution-pointer {
+  display: block;
+  margin-top: 14px;
+  color: #aeb5c1;
+  font-size: 12px;
+}
+
+.oc-execution-panel {
+  border-color: rgba(101, 211, 145, .2);
+}
+
+.oc-execution-recommendation,
+.oc-execution-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.oc-execution-recommendation > div,
+.oc-execution-heading > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.oc-status-badge {
+  width: fit-content;
+  padding: 5px 8px;
+  border: 1px solid rgba(101, 211, 145, .3);
+  border-radius: 999px;
+  color: #72d99a;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+.oc-execution-current > p,
+.oc-execution-recommendation p {
+  color: #9299a6;
+  line-height: 1.55;
+}
+
+.oc-execution-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 12px;
+  background: rgba(0,0,0,.16);
+}
+
+.oc-execution-proposal > span,
+.oc-execution-proposal > small {
+  color: #858d9b;
+  font-size: 11px;
+}
+
+.oc-execution-proposal pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #dfe3e8;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.oc-execution-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.oc-execution-controls .oc-secondary-button {
+  margin-top: 10px;
+}
+
+.oc-execution-history {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255,255,255,.07);
+}
+
+.oc-execution-history h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+
+.oc-execution-history-item {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(255,255,255,.05);
+}
+
+.oc-execution-history-item > span {
+  color: #72d99a;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.oc-execution-history-item > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.oc-execution-history-item small {
+  color: #737b89;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 700px) {
+  .oc-execution-recommendation,
+  .oc-execution-heading {
+    flex-direction: column;
+  }
+
+  .oc-execution-history-item {
+    grid-template-columns: 1fr;
+  }
+}
