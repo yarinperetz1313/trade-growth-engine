@@ -1,5 +1,8 @@
 # Test Notes
 
-Integration tests use Node's built-in test runner and isolated `LOCAL_STORE_DIR`. Browser E2E uses Playwright with temporary seeded JSON stores. Tests must never read or mutate developer `data/*.json`.
+Follow the repository workflow in [`../docs/ENGINEERING_HARNESS.md`](../docs/ENGINEERING_HARNESS.md).
 
-RevenueAction integration tests seed `revenue_actions` with the other JSON collections; E2E must keep it isolated.
+- Integration tests use Node's built-in runner and isolated `LOCAL_STORE_DIR` stores.
+- Run browser E2E only through `npm run test:e2e`. The wrapper creates and seeds `TGE_E2E_STORE_DIR`; Playwright passes it to the API as `LOCAL_STORE_DIR`; the wrapper removes it on success, failure, and supported parent-process exits.
+- Direct Playwright invocation is intentionally rejected. Tests must never read or mutate developer `data/*.json`.
+- E2E seed data includes empty `tasks` and `revenue_actions` collections; preserve that isolation when adding scenarios.
