@@ -14,6 +14,7 @@ Trade Growth Engine is a local-first CRM and deterministic deal-intelligence app
 - API layer: `src/api`.
 - Persistence: `src/services/localStore.js` and `data/*.json`.
 - Deterministic intelligence: `src/intelligence/dealIntelligence.js` plus action mutations in `src/api/intelligenceActions.js`.
+- Durable execution: `src/revenueActions` with routes in `src/api/revenueActions.js`; see `docs/architecture/REVENUE_ACTION_EXECUTION.md`.
 - UI: `web/main.jsx`, `web/components`, `web/hooks`, `web/lib`.
 - Tests: `test/*.test.js` for API/integration, `test/e2e/*.spec.js` for browser E2E.
 

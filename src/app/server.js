@@ -71,19 +71,19 @@ app.use(
     res,
     next
   ) => {
-    console.error(
-      err
-    );
+    if (err?.type === "entity.parse.failed") {
+      return res.status(400).json({
+        ok: false,
+        error: "INVALID_JSON_BODY",
+        message: "Request body must contain valid JSON."
+      });
+    }
 
-    res.status(
-      err.status ||
-      500
-    ).json({
+    console.error(err);
+    return res.status(err.status || 500).json({
       ok: false,
-
-      error:
-        err.message ||
-        "INTERNAL_SERVER_ERROR"
+      error: "INTERNAL_SERVER_ERROR",
+      message: "The server could not complete the request."
     });
   }
 );

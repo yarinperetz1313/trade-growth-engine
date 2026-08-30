@@ -37,6 +37,11 @@ const revenueIntelligence =
     "./revenueIntelligence"
   );
 
+const revenueActions =
+  require(
+    "./revenueActions"
+  );
+
 const router =
   express.Router();
 
@@ -66,6 +71,10 @@ router.use(
 
 router.use(
   revenueIntelligence
+);
+
+router.use(
+  revenueActions
 );
 
 router.get(
