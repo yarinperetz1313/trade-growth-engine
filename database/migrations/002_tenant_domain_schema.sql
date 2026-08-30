@@ -54,9 +54,10 @@ grant usage, create on schema tge_migration to tge_migrator;
 alter schema tge_migration owner to tge_migrator;
 alter table tge_migration.schema_migrations owner to tge_migrator;
 
+create schema if not exists tge authorization tge_owner;
+
 set local role tge_owner;
 
-create schema if not exists tge authorization tge_owner;
 revoke all on schema tge from public;
 
 alter default privileges in schema tge revoke all on tables from public;

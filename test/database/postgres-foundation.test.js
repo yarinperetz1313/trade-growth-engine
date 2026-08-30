@@ -179,7 +179,7 @@ if (!testDatabaseUrl) {
       copyMigrations(brokenDirectory);
       fs.writeFileSync(
         path.join(brokenDirectory, "004_broken_transaction.sql"),
-        "create table tge.must_rollback (id integer);\nthis is invalid sql;\n"
+        "create table tge.must_rollback (id integer);\nselect 1 / 0;\n"
       );
       await assert.rejects(
         runMigrations({
@@ -187,7 +187,40 @@ if (!testDatabaseUrl) {
           migrationsDirectory: brokenDirectory,
           logger: silentLogger
         }),
-        /004_broken_transaction\.sql failed/
+        error => {
+          assert.match(
+            error.message,
+            /Migration 004_broken_transaction\.sql failed \[22012\]: division by zero/
+          );
+          assert.equal(error.code, "22012");
+          assert.equal(error.migrationLine, undefined);
+          assert.deepEqual(error.migration, {
+            id: "004",
+            fileName: "004_broken_transaction.sql"
+          });
+          assert.equal(error.cause?.message, "division by zero");
+          for (const unsafeField of [
+            "sql",
+            "query",
+            "connectionString",
+            "password",
+            "parameters",
+            "config"
+          ]) {
+            assert.equal(Object.hasOwn(error, unsafeField), false, unsafeField);
+          }
+          const serialized = JSON.stringify(error);
+          assert.doesNotMatch(
+            serialized,
+            /create table tge\.must_rollback|select 1 \/ 0|TGE_TEST_DATABASE_URL/
+          );
+          assert.equal(serialized.includes(ephemeralUrl), false);
+          const databasePassword = new URL(ephemeralUrl).password;
+          if (databasePassword) {
+            assert.equal(serialized.includes(databasePassword), false);
+          }
+          return true;
+        }
       );
       const rolledBack = await adminClient.query(
         `

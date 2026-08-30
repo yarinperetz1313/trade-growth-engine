@@ -181,9 +181,14 @@ test("roles and RLS fail closed and keep runtime away from legacy and privileged
       < schema.indexOf("create schema if not exists tge")
   );
   assert.ok(
-    schema.indexOf("set local role tge_owner")
-      < schema.indexOf("create schema if not exists tge")
+    schema.indexOf("create schema if not exists tge authorization tge_owner")
+      < schema.indexOf("set local role tge_owner")
   );
+  assert.ok(
+    schema.indexOf("set local role tge_owner")
+      < schema.indexOf("revoke all on schema tge from public")
+  );
+  assert.doesNotMatch(schema, /grant\s+create\s+on\s+database/i);
   assert.match(schema, /grant tge_migrator to %I/);
   assert.match(schema, /create role tge_migrator nologin noinherit/);
   assert.match(schema, /nobypassrls/);

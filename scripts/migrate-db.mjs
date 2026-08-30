@@ -7,6 +7,7 @@ import {
   assertNoImplicitInitialBaseline,
   setMigrationExecutionRole
 } from "./migration-runner-policy.mjs";
+import { createMigrationError } from "./migration-error.mjs";
 
 const { Client } = pg;
 const repositoryRoot = path.resolve(
@@ -140,7 +141,7 @@ export async function runMigrations({
         logger.log(`Applied migration ${migration.fileName}`);
       } catch (error) {
         await client.query("rollback");
-        throw new Error(`Migration ${migration.fileName} failed`, { cause: error });
+        throw createMigrationError(error, migration);
       }
     }
 
@@ -226,7 +227,21 @@ const invokedAsScript = process.argv[1]
 if (invokedAsScript) {
   runMigrations({ connectionString: process.env.TGE_DATABASE_URL }).catch(error => {
     console.error(error.message);
-    if (error.cause) console.error(error.cause);
+    for (const field of [
+      "severity",
+      "detail",
+      "hint",
+      "schema",
+      "table",
+      "constraint",
+      "routine",
+      "position",
+      "migrationLine"
+    ]) {
+      if (error[field] !== undefined) {
+        console.error(`${field}: ${error[field]}`);
+      }
+    }
     process.exitCode = 1;
   });
 }
