@@ -115,13 +115,39 @@ if (!testDatabaseUrl) {
       [
         ["001", "001_initial_schema.sql"],
         ["002", "002_tenant_domain_schema.sql"],
-        ["003", "003_roles_rls_and_grants.sql"]
+        ["003", "003_roles_rls_and_grants.sql"],
+        ["004", "004_global_function_default_privileges.sql"]
       ]
     );
     assert.equal(
       ledgerBefore.rows[0].checksum,
       "d08f3b7e5c97e05a5ec7f96242543fbbf437d7af4edea34d22dc09db910cfc62"
     );
+
+    const functionDefaultAcl = await adminClient.query(
+      `
+        select
+          r.rolname as owner,
+          d.defaclobjtype as object_type,
+          d.defaclnamespace::integer as defaclnamespace,
+          exists (
+            select 1
+            from aclexplode(d.defaclacl) acl
+            where acl.grantee = 0 and acl.privilege_type = 'EXECUTE'
+          ) as public_execute
+        from pg_default_acl d
+        join pg_roles r on r.oid = d.defaclrole
+        where r.rolname = 'tge_owner'
+          and d.defaclobjtype = 'f'
+          and d.defaclnamespace = 0
+      `
+    );
+    assert.deepEqual(functionDefaultAcl.rows, [{
+      owner: "tge_owner",
+      object_type: "f",
+      defaclnamespace: 0,
+      public_execute: false
+    }]);
 
     const rerun = await runMigrations({
       connectionString: ephemeralUrl,
@@ -173,12 +199,12 @@ if (!testDatabaseUrl) {
           migrationsDirectory: retroactiveDirectory,
           logger: silentLogger
         }),
-        /retroactive; append-only migrations must follow 003/
+        /retroactive; append-only migrations must follow 004/
       );
 
       copyMigrations(brokenDirectory);
       fs.writeFileSync(
-        path.join(brokenDirectory, "004_broken_transaction.sql"),
+        path.join(brokenDirectory, "005_broken_transaction.sql"),
         "create table tge.must_rollback (id integer);\nselect 1 / 0;\n"
       );
       await assert.rejects(
@@ -190,13 +216,13 @@ if (!testDatabaseUrl) {
         error => {
           assert.match(
             error.message,
-            /Migration 004_broken_transaction\.sql failed \[22012\]: division by zero/
+            /Migration 005_broken_transaction\.sql failed \[22012\]: division by zero/
           );
           assert.equal(error.code, "22012");
           assert.equal(error.migrationLine, undefined);
           assert.deepEqual(error.migration, {
-            id: "004",
-            fileName: "004_broken_transaction.sql"
+            id: "005",
+            fileName: "005_broken_transaction.sql"
           });
           assert.equal(error.cause?.message, "division by zero");
           for (const unsafeField of [
@@ -228,7 +254,7 @@ if (!testDatabaseUrl) {
             to_regclass('tge.must_rollback') as relation,
             exists (
               select 1 from tge_migration.schema_migrations
-              where migration_id = '004'
+              where migration_id = '005'
             ) as ledger_row
         `
       );
@@ -239,7 +265,7 @@ if (!testDatabaseUrl) {
 
       copyMigrations(ownerDirectory);
       fs.writeFileSync(
-        path.join(ownerDirectory, "004_owner_default_probe.sql"),
+        path.join(ownerDirectory, "005_owner_default_probe.sql"),
         `
           create function tge.owner_default_probe()
           returns integer
@@ -252,7 +278,7 @@ if (!testDatabaseUrl) {
         migrationsDirectory: ownerDirectory,
         logger: silentLogger
       });
-      assert.deepEqual(ownerProbe.applied, ["004"]);
+      assert.deepEqual(ownerProbe.applied, ["005"]);
       const ownerProbeSecurity = await adminClient.query(
         `
           select
@@ -1133,6 +1159,13 @@ if (!testDatabaseUrl) {
     ]);
     await runtimeClient.query(
       `
+        insert into tge.prospects (tenant_id, id, business_name)
+        values ($1, 'prospect-unmapped', 'Unmapped Prospect')
+      `,
+      [tenantA]
+    );
+    await runtimeClient.query(
+      `
         insert into tge.import_batches (
           tenant_id, id, status, source_filename, source_sha256,
           authorized_by_subject_id, authorization_verified_at,
@@ -1279,7 +1312,8 @@ if (!testDatabaseUrl) {
       [11, "map-missing-target", "prospects"],
       [12, "map-no-target", "prospects"],
       [13, "map-two-targets", "prospects"],
-      [14, "map-type-match", "opportunities"]
+      [14, "map-type-match", "opportunities"],
+      [15, "map-duplicate-target", "prospects"]
     ]) {
       await runtimeClient.query(
         `
@@ -1355,6 +1389,17 @@ if (!testDatabaseUrl) {
         `
       },
       {
+        name: "duplicate_target",
+        code: "23505",
+        sql: `
+          insert into tge.import_id_map (
+            tenant_id, import_batch_id, source_collection, source_id,
+            source_ordinal, target_prospect_id
+          ) values ($1, 'batch-1', 'prospects', 'map-duplicate-target',
+            15, 'prospect-known')
+        `
+      },
+      {
         name: "missing_source",
         code: "23503",
         sql: `
@@ -1362,7 +1407,7 @@ if (!testDatabaseUrl) {
             tenant_id, import_batch_id, source_collection, source_id,
             source_ordinal, target_prospect_id
           ) values ($1, 'batch-1', 'prospects', 'map-missing-source',
-            99, 'prospect-known')
+            99, 'prospect-unmapped')
         `
       }
     ];

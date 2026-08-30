@@ -184,6 +184,9 @@ function validateDatabaseFoundationContract() {
   const initialMigration = readFile("database/migrations/001_initial_schema.sql");
   const tenantMigration = readFile("database/migrations/002_tenant_domain_schema.sql");
   const securityMigration = readFile("database/migrations/003_roles_rls_and_grants.sql");
+  const functionDefaultsMigration = readFile(
+    "database/migrations/004_global_function_default_privileges.sql"
+  );
   const migrationFiles = fs
     .readdirSync(path.join(rootDir, "database", "migrations"))
     .filter(fileName => /^\d{3}_[a-z0-9_]+\.sql$/.test(fileName))
@@ -250,6 +253,16 @@ function validateDatabaseFoundationContract() {
     "Migration 003 must execute under tge_owner"
   );
   requireText(
+    functionDefaultsMigration,
+    "alter default privileges for role tge_owner",
+    "Migration 004 must secure tge_owner function defaults"
+  );
+  requireText(
+    functionDefaultsMigration,
+    "revoke execute on functions from public",
+    "Migration 004 must revoke PUBLIC execute from future functions"
+  );
+  requireText(
     databaseTest,
     "TGE_TEST_DATABASE_URL",
     "Database tests must require an explicit real PostgreSQL URL"
@@ -267,7 +280,8 @@ function validateDatabaseFoundationContract() {
     !== JSON.stringify([
       "001_initial_schema.sql",
       "002_tenant_domain_schema.sql",
-      "003_roles_rls_and_grants.sql"
+      "003_roles_rls_and_grants.sql",
+      "004_global_function_default_privileges.sql"
     ])
   ) {
     failures.push(

@@ -21,7 +21,8 @@ test("migration 001 remains byte-for-byte unchanged and migrations are append-on
   assert.deepEqual(migrationFiles, [
     "001_initial_schema.sql",
     "002_tenant_domain_schema.sql",
-    "003_roles_rls_and_grants.sql"
+    "003_roles_rls_and_grants.sql",
+    "004_global_function_default_privileges.sql"
   ]);
   assert.equal(Buffer.byteLength(initialMigration), 2752);
   assert.equal(
@@ -220,6 +221,27 @@ test("roles and RLS fail closed and keep runtime away from legacy and privileged
     /alter default privileges for role tge_owner in schema tge[\s\S]*?revoke all on functions from public/
   );
   assert.match(security, /revoke all on all functions in schema tge from public/);
+});
+
+test("migration 004 revokes global PUBLIC function defaults as tge_owner", () => {
+  const security = read(
+    "database/migrations/004_global_function_default_privileges.sql"
+  );
+  const defaultPrivileges = security.match(
+    /alter default privileges[\s\S]*?;/
+  )?.[0];
+
+  assert.match(security, /^set local role tge_owner;/);
+  assert.ok(defaultPrivileges);
+  assert.match(
+    defaultPrivileges,
+    /alter default privileges for role tge_owner\s+revoke execute on functions from public;/
+  );
+  assert.doesNotMatch(defaultPrivileges, /\bin schema tge\b/i);
+  assert.match(
+    security,
+    /revoke execute on all functions in schema tge from public;/
+  );
 });
 
 test("runner, package scripts, Compose, and CI use the real pinned PostgreSQL gate", () => {
