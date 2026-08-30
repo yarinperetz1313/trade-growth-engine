@@ -8,6 +8,10 @@ Trade Growth Engine is a local-first sales intelligence application.
 - API composition: `src/api/index.js` mounts feature routers.
 - Persistence: JSON collection files through `src/services/localStore.js`.
 
+## Pilot identity boundary
+
+`src/auth/` validates Auth0 access tokens, resolves one active membership by `(issuer, subject)`, derives an immutable `TenantContext`, and applies the centralized OWNER/ADMIN/MEMBER policy. Assisted invitations persist only token hashes and require an exact provisioned identity match before atomic membership activation. The browser PKCE seam lives in `web/lib/auth.js`; production repositories compose through `PostgresAuthRepository.run(TenantContext, work)` when the locked PR-3 boundary is available. See [Authentication and TenantContext](AUTHENTICATION_AND_TENANT_CONTEXT.md).
+
 ## Main verticals
 - Prospects and qualification create source CRM evidence.
 - Opportunities and pipeline calculate stage, probability, value, and weighted value.

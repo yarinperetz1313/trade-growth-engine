@@ -42,7 +42,8 @@ For local database verification, start the pinned disposable service with `docke
 - executable/configuration and relevant untracked documentation have no developer-home absolute path;
 - `src/intelligence/` has no web-client dependency or `fetch` call;
 - E2E retains managed-store creation/seeding/cleanup, `LOCAL_STORE_DIR` injection, serial fixed-port configuration, and an empty seeded `revenue_actions` collection.
-- migration `001` retains its locked checksum; the migration sequence, checksum-ledger runner, audited-baseline refusal, post-bootstrap owner-role execution, pinned PostgreSQL 16.15 Compose/CI service, explicit database URL, and full-gate wiring remain present.
+- migration `001` retains its locked checksum; append-only migrations through PR-4 `005`, the checksum-ledger runner, audited-baseline refusal, post-bootstrap owner-role execution, pinned PostgreSQL 16.15 Compose/CI service, explicit database URL, and full-gate wiring remain present.
+- the PR-4 Auth0 decision, issuer-bound membership, hashed assisted invitations, memory-only browser SDK configuration, and deployment-gated real OTP acceptance contract remain aligned across code and canonical docs.
 - the active Pilot Readiness plan and its two canonical contracts agree on a small set of locked production facts; it does not scan historical plans or certify provisioned infrastructure.
 
 The Node test suite executes this gate too, so a broken gate is itself a test failure. These checks intentionally do not enforce file-size, style, or speculative architecture rules.
@@ -76,7 +77,7 @@ For parallel work, isolate writers in separate worktrees with disjoint file owne
 | Reviewer | Fresh-context review against authoritative contracts and the diff |
 | Final review | Confirm reviewer findings are resolved and report only executed verification |
 
-Security boundaries are deliberately narrow: local JSON is a development persistence mechanism; deterministic intelligence is offline; external communication is prepared and manually confirmed, never sent by this application. This harness does **not** certify authentication/authorization, secrets management, encryption, multi-user isolation, transactional durability, or production network hardening. Escalate those areas into a dedicated design and plan instead of inferring protection from these checks.
+Security boundaries are deliberately narrow: local JSON is a development persistence mechanism; deterministic intelligence is offline; external communication is prepared and manually confirmed, never sent by this application. PR-4 deterministic tests and the database gate verify code-level authentication, membership, invitation, and RLS contracts. They do **not** certify provisioned Auth0/SMTP behavior, secrets management, encryption, production multi-user isolation, transactional durability, or network hardening. Use the production gate instead of inferring external proof from local checks.
 
 Agent legibility comes from concise maps, canonical links, active plans, and executable gates—not duplicated instruction dumps. No repository-local vendor skill is added: this upgrade is a small, repo-specific policy that belongs in portable Markdown. Add a project skill only if repeated, tool-independent execution guidance demonstrably reduces repetition; then keep it portable and link it here.
 
@@ -89,6 +90,7 @@ Each plan records debt and follow-ups. Failed gates and review findings become e
 ## Known limitations
 
 - Phase 2 is locked for this upgrade; its code is not being extended here.
-- Pilot Readiness PR-2 schema implementation is present, but [final database verification](execution-plans/active/pilot-readiness.md) remains pending until the real PostgreSQL gate passes.
+- Pilot Readiness PR-3 production CRM repositories remain unavailable; PR-4 provides only the trusted transaction seam.
+- Real Auth0 AU email-OTP E2E remains deployment-gated until tenant and SMTP/email-capture credentials are provisioned.
 - Browser CI is configured locally; a green CI outcome cannot be established from this checkout alone.
 - Fixed-port serial E2E limits safe local parallelism.

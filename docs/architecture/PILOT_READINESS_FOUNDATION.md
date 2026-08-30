@@ -15,17 +15,15 @@ Google documents Cloud Run as regional and lists Melbourne as `australia-southea
 
 ## Identity, authorization, and isolation
 
-Auth0 Australia (AU) provides magic-link **identity**; TGE remains the authorization authority. The server validates issuer, audience, signature/JWKS, expiry, and required claims, then resolves `TenantContext` from server-side membership. It never accepts a client-supplied tenant ID as authority. Auth0 documents Australia (AU) tenant locality and passwordless magic-link behavior: [Create tenants](https://auth0.com/docs/get-started/auth0-overview/create-tenants) and [Email magic links](https://auth0.com/docs/authenticate/passwordless/authentication-methods/email-magic-link) — **verified 2026-08-30; reverify plan/features before provisioning**.
+Auth0 Australia (AU) provides **identity** through New Universal Login and passwordless email OTP. The SPA uses Authorization Code Flow with PKCE. TGE remains the authorization authority. The server validates the exact issuer, audience, RS256/JWKS signature, expiry, issued-at time, and subject, then resolves `TenantContext` from server-side membership by `(issuer, subject)` and requires exactly one active result. It never accepts a client-supplied tenant ID as authority. The detailed boundary is [Authentication and TenantContext](AUTHENTICATION_AND_TENANT_CONTEXT.md).
 
-### Auth0 magic-link delivery decision (before PR-4)
-
-**PR-4 is blocked** pending a documented product-owner decision that validates: (1) the Auth0 AU plan supports passwordless magic links; (2) the flow is **Classic Login with same-browser/device completion**, or a tenant setting or alternative is separately approved; (3) mobile/email-client behavior, callback/redirect allowlists, and phishing/resend/session protections; and (4) a deterministic E2E acceptance test for the selected path. Do not assume cross-browser tenant configuration. If magic-link UX is rejected, PR-4 stops for an explicit product decision. There is no implicit OTP fallback.
+The prior magic-link decision gate is resolved by GitHub Issue #5's accepted Pilot decision. Classic Login, magic links, cross-browser magic-link flags, Auth0 Organizations invitations, and public self-service signup are out of scope. Actual AU tenant/plan entitlement, custom domain, transactional SMTP, sender authentication, exact callback/logout/origin configuration, and the real OTP acceptance test remain deployment evidence under the [production gate](../operations/PILOT_PRODUCTION_GATE.md); they are not guessed in code.
 
 | Role | Tenant authority |
 | --- | --- |
-| OWNER | Manage tenant membership and roles; approve high-impact tenant operations. |
-| ADMIN | Operate tenant CRM and approved administration; cannot transfer ownership. |
-| MEMBER | Operate only the tenant CRM permissions explicitly granted by server policy. |
+| OWNER | Operate CRM and administer assisted invitations/membership behind a reauthentication/MFA-ready sensitive-action boundary. |
+| ADMIN | Operate CRM and approved operational administration; cannot administer membership or assume ownership powers. |
+| MEMBER | Perform ordinary CRM work; cannot administer tenant security or membership. |
 
 Every production repository query is tenant-scoped. PostgreSQL RLS is applied transaction-locally, using the server-resolved tenant context. The runtime database role is nonprivileged; a narrowly scoped, server-only migration/operations role performs migrations and operational work. Server authorization, RLS, and cross-tenant negative tests are all required: none substitutes for another.
 
@@ -58,8 +56,8 @@ The environment contract names the public app URL, API URL, Auth0 domain/issuer/
 ## Implementation checklist
 
 - [x] PR-1 characterized the legacy JSON compatibility contract without production changes; see [Legacy JSON Compatibility Contract](LEGACY_JSON_COMPATIBILITY.md).
-- [ ] PR-2 implementation is present, but completion requires the real PostgreSQL 16.15 final gate recorded in the [active plan](../execution-plans/active/pilot-readiness.md). Vendor gates still block provisioning, not schema-only work.
+- [x] PR-2 schema/security and its real PostgreSQL 16.15 final gate are recorded in the [active plan](../execution-plans/active/pilot-readiness.md).
 - [ ] PR-3 supplies tenant-aware repositories and transactional RevenueAction mutations; PR-2 does not switch the runtime adapter.
-- [ ] PR-4 starts only after the Auth0 magic-link delivery decision is documented and its deterministic E2E acceptance test is defined.
+- [x] PR-4 implements exact Auth0 token validation, membership-backed immutable `TenantContext`, centralized role policy, assisted invitation contracts, and the PR-3 transaction seam. Real Auth0/email acceptance remains deployment-gated.
 - [ ] Every production tenant operation has server authorization, RLS, and a negative cross-tenant test.
 - [ ] Restore and tenant extraction runbooks are proven under the [production gate](../operations/PILOT_PRODUCTION_GATE.md).
