@@ -1,33 +1,34 @@
 # Project State
 
-_Last verified for Revenue Intelligence / Revenue Command Center Phase 1 on 2026-08-29._
+_Last verified for Opportunity Execution Engine Phase 2 on 2026-08-30._
 
 ## Current verified shape
-Trade Growth Engine is an existing Vite React + Express application. The web UI lives under `web/`, the API under `src/api/`, and the server starts from `src/index.js` through `src/app/server.js`.
+Trade Growth Engine is a Vite React + Express local-first CRM. `src/index.js` starts the server, `src/api/` exposes thin structured HTTP boundaries, and `web/main.jsx` provides hash-routed UI. Local JSON persistence flows through `src/services/localStore.js`; tests and E2E use isolated `LOCAL_STORE_DIR` stores.
 
-Persistence currently uses local JSON collections through `src/services/localStore.js`. The store path defaults to `data/`, and tests/E2E can isolate it with `LOCAL_STORE_DIR`.
+Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 
-The main closed-loop feature is the Opportunity Command Center. It loads opportunities, opens an exact opportunity via `#opportunities/:id`, fetches deterministic deal intelligence, performs action mutations, and refreshes UI state from API responses. The Opportunity Intelligence portfolio adds a read-only Revenue Command Center with active/weighted pipeline accounting, deterministic classifications, and links into that same Command Center.
+## Execution lifecycle
+`RECOMMENDED → PREPARED → APPROVED → EXECUTING → EXECUTED`, with `REJECTED`, `CANCELLED`, and recoverable `FAILED`. Server-side fingerprint checks supersede stale actions. Communication is deterministic email-draft preparation plus explicit manual confirmation, never external sending. Internal-task execution creates or reuses one linked open task and one linked activity.
 
-## Verified commands
-- `npm test` maps to `npm run test:integration`.
-- `npm run test:integration` maps to `node --test test/*.test.js`.
-- `npm run test:e2e` maps to `node scripts/run-e2e.mjs`.
-- `npm run build` maps to `node node_modules/vite/bin/vite.js build`.
-- `npm run server` maps to `node src/index.js`.
-- `npm run dev` maps to `node node_modules/vite/bin/vite.js`.
-- `npm run verify` maps to `npm run test:integration && npm run test:e2e && npm run build`.
+## Commands
+- `npm run test:integration` — Node isolated API/integration suite.
+- `npm run test:e2e` — Playwright temporary-store browser suite.
+- `npm run build` — production Vite build.
+- `npm run verify` — integration, E2E, then build.
+
+On this Codex host commands require `OPENSSL_CONF=/dev/null`; local Chromium may abort before page creation. Ubuntu GitHub Actions is the browser authority.
 
 ## Current test coverage
-- API/integration coverage is in `test/intelligence-api.test.js` and `test/revenue-intelligence-api.test.js`; `OPENSSL_CONF=/dev/null npm run test:integration` passes 24 tests.
-- Browser E2E coverage is in `test/e2e/opportunity-command-center.spec.js`, including portfolio → Command Center → mutation → refreshed portfolio navigation. The local suite discovers 5 specs but Chromium aborts with `SIGABRT` before page creation, so the new flow is covered but not locally executed.
+- Integration tests cover deterministic intelligence, revenue portfolio intelligence, lifecycle validation, snapshots, unknown evidence, stale/closed actions, approval/rejection, manual confirmation, internal task creation/reuse, linked-effect reconciliation, duplicate execution, and structured body errors.
+- Seven isolated-store Playwright specs are defined for Command Center closed loops, Revenue Command Center navigation/refresh, manual communication lifecycle, and failure states preserving the prepared draft. Phase 2 browser execution remains pending on Ubuntu CI; local listing is not a green browser run.
 
-## Known environment constraint
-In this Codex host, Node/npm fails unless `OPENSSL_CONF=/dev/null` is set because the sandbox cannot read `/System/Library/OpenSSL/openssl.cnf`. This is an execution environment constraint, not an application invariant.
+## Do not break
+- Unknown evidence stays unknown; unknown/zero commercial value is not known `$0`.
+- Health is not close probability.
+- Deal/revenue intelligence remains deterministic and read-only.
+- External communication needs explicit human approval and confirmation; Phase 2 never sends it.
+- RevenueAction idempotency is semantic and recovery-oriented, not a substitute for future transactional persistence.
+- Developer `data/*.json` must never be touched by tests/E2E.
 
-This host also cannot launch Playwright Chromium: the browser process aborts before any E2E page interaction. That is a verified local-host failure, not a claim about application behavior. `.github/workflows/verify.yml` configures Ubuntu CI to install Chromium and run `npm run verify`; CI has not been run from this local task, and no CI execution result is claimed here.
-
-## Not verified / not claimed
-- Supabase-backed persistence is configured in code, but this harness does not verify a live Supabase database.
-- OpenAI-backed analysis modules exist, but deterministic Opportunity Command Center intelligence does not require OpenAI.
-- Repo-local Codex skills are not verified as supported in this app. Recommended workflow is to keep repository instructions in `AGENTS.md` and project docs, and use installed user/global skills when explicitly injected.
+## Next recommended phase
+Run the seven-spec browser suite in GitHub Actions after push and resolve any real browser failures before considering a narrowly scoped adapter/policy phase. Do not add external sending or a persistence migration without a dedicated design phase.

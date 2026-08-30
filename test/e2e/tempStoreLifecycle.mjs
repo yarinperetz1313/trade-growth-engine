@@ -166,6 +166,38 @@ export function seedE2eStore(storeDir) {
       probability: 0.2,
       weighted_value: 3000,
       next_action: "Begin qualified outreach"
+    },
+    {
+      id: "e2e-opp-execution",
+      created_at: now,
+      updated_at: now,
+      business_name: "E2E Execution Electrical",
+      contact_name: "Morgan Lee",
+      service: "Commercial Electrical",
+      location: "Melbourne",
+      stage: "PROPOSAL",
+      priority: "HIGH",
+      qualification_score: 88,
+      value: 42000,
+      probability: 0.75,
+      weighted_value: 31500,
+      next_action: "Follow up on proposal"
+    },
+    {
+      id: "e2e-opp-execution-failure",
+      created_at: now,
+      updated_at: now,
+      business_name: "E2E Failure Electrical",
+      contact_name: "Taylor Reed",
+      service: "Commercial Electrical",
+      location: "Melbourne",
+      stage: "PROPOSAL",
+      priority: "HIGH",
+      qualification_score: 88,
+      value: 36000,
+      probability: 0.75,
+      weighted_value: 27000,
+      next_action: "Follow up on proposal"
     }
   ]);
 
@@ -192,10 +224,33 @@ export function seedE2eStore(storeDir) {
       metadata: {
         source: "e2e-seed"
       }
+    },
+    {
+      id: "e2e-execution-activity-created",
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+      opportunity_id: "e2e-opp-execution",
+      type: "OPPORTUNITY_CREATED",
+      description: "Seeded stale execution opportunity",
+      metadata: {
+        source: "e2e-seed"
+      }
+    },
+    {
+      id: "e2e-execution-failure-activity-created",
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+      opportunity_id: "e2e-opp-execution-failure",
+      type: "OPPORTUNITY_CREATED",
+      description: "Seeded independent failure-path opportunity",
+      metadata: {
+        source: "e2e-seed"
+      }
     }
   ]);
 
   writeCollection(storeDir, "tasks", []);
+  writeCollection(storeDir, "revenue_actions", []);
 }
 
 export function cleanupPlaywrightStore(config) {

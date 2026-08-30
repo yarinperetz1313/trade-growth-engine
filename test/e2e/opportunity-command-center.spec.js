@@ -68,19 +68,25 @@ test("opens exact seeded opportunity, closes the intelligence loop, and preserve
   expect(before.data.intelligence.activity.count).toBe(1);
   expect(before.data.intelligence.evidence.unknown).toContain("Decision maker/contact identified");
 
-  await page.getByTestId("create-intelligence-task").click();
+  await page.getByTestId("prepare-revenue-action").click();
+  await expect(page.getByTestId("internal-task-proposal")).toBeVisible();
+  await page.getByTestId("approve-revenue-action").click();
+  await expect(page.getByTestId("revenue-action-status")).toHaveText("APPROVED");
+  await page.getByTestId("execute-revenue-action").click();
 
-  await expect(page.getByTestId("action-success")).toContainText("Action completed successfully.");
+  await expect(page.getByTestId("revenue-action-success")).toContainText("Execution state updated.");
   await expect(page.getByTestId("open-task-count")).toHaveText(/1/);
   await expect(page.getByTestId("activity-count")).toHaveText(/2/);
+  await expect(page.getByTestId("revenue-action-history")).toContainText("EXECUTED");
 
   const tasks = await api(`/api/tasks/opportunity/${opportunityId}`);
   expect(tasks.count).toBe(1);
   expect(tasks.data[0].metadata.action_type).toBe("RESEARCH");
+  expect(tasks.data[0].metadata.revenue_action_id).toBeTruthy();
 
   const activities = await api(`/api/opportunities/${opportunityId}/activities`);
   expect(activities.count).toBe(2);
-  expect(activities.data.map(item => item.type)).toContain("INTELLIGENCE_TASK_CREATED");
+  expect(activities.data.map(item => item.type)).toContain("REVENUE_ACTION_TASK_EXECUTED");
 
   const after = await api(`/api/opportunities/${opportunityId}/intelligence`);
   expect(after.data.intelligence.tasks.open).toBe(1);
@@ -236,4 +242,69 @@ test("opens a ranked portfolio action, applies a safe Command Center mutation, a
   await expect(action).toContainText("Begin qualified outreach");
 
   expect(browserErrors).toEqual([]);
+});
+
+test("prepares, approves, and manually confirms a ranked communication action with refreshed portfolio state", async ({ page }) => {
+  const browserErrors = watchUnexpectedBrowserErrors(page);
+
+  await page.goto("/#opportunities");
+
+  const rankedAction = page.getByTestId("revenue-action-e2e-opp-execution");
+  await expect(rankedAction).toContainText("FOLLOW_UP");
+  await rankedAction.click();
+
+  await expect(page).toHaveURL(/#opportunities\/e2e-opp-execution$/);
+  await page.getByTestId("prepare-revenue-action").click();
+  await expect(page.getByTestId("communication-draft")).toContainText("Email draft · not sent by TGE");
+  await expect(page.getByTestId("communication-draft")).toContainText("Morgan Lee");
+
+  await page.getByTestId("approve-revenue-action").click();
+  await expect(page.getByTestId("revenue-action-status")).toHaveText("APPROVED");
+  await page.getByTestId("execute-revenue-action").click();
+
+  await expect(page.getByTestId("revenue-action-history")).toContainText("EXECUTED");
+  await expect(page.getByTestId("revenue-action-history")).toContainText("CRM activity linked");
+  await expect(page.getByTestId("activity-count")).toHaveText(/2/);
+
+  const activities = await api("/api/opportunities/e2e-opp-execution/activities");
+  expect(activities.data.map(item => item.type)).toContain(
+    "REVENUE_ACTION_MANUALLY_CONFIRMED"
+  );
+
+  await page.getByRole("button", { name: "← Back to opportunities" }).click();
+  await expect(page).toHaveURL(/#opportunities$/);
+  await expect(rankedAction).toContainText("ADVANCE");
+
+  expect(browserErrors).toEqual([]);
+});
+
+test("keeps a prepared draft visible when approval fails without crashing", async ({ page }) => {
+  const browserErrors = watchUnexpectedBrowserErrors(page);
+
+  await page.goto("/#opportunities/e2e-opp-execution-failure");
+  await page.getByTestId("prepare-revenue-action").click();
+  await expect(page.getByTestId("communication-draft")).toContainText("Taylor Reed");
+
+  await page.route(
+    `${apiBaseUrl}/api/revenue-actions/*/approve`,
+    async route => {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: false,
+          error: "E2E_REVENUE_ACTION_APPROVE_FAILED",
+          message: "Approval is temporarily unavailable."
+        })
+      });
+    }
+  );
+
+  await page.getByTestId("approve-revenue-action").click();
+  await expect(page.getByTestId("revenue-action-error")).toContainText(
+    "Approval is temporarily unavailable."
+  );
+  await expect(page.getByTestId("communication-draft")).toContainText("Taylor Reed");
+  await expect(page.getByTestId("approve-revenue-action")).toBeVisible();
+  expectOnlyExpectedFailedResourceError(browserErrors, 500);
 });
