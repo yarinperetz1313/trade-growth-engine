@@ -3,7 +3,7 @@
 ## Outcome
 - **PR-0 is COMPLETE.** The Pilot architecture and production-operation contracts are canonical and harness-protected.
 - **PR-1 is COMPLETE.** Deterministic fixtures characterize the legacy JSON compatibility boundary.
-- **PR-2 implementation and the narrow CI remediation are present; final database verification is PENDING.** The first PostgreSQL 16 CI run exposed migration `002` creating the `tge` schema after `SET LOCAL ROLE tge_owner`; PostgreSQL rejected that non-database-owner role with SQLSTATE `42501`, causing all 11 database tests to fail in their shared setup hook. Migration `002` now creates the schema as the migration administrator with owner `tge_owner`, then selects `tge_owner` before all application-schema objects. Safe migration diagnostics now retain SQLSTATE and migration metadata without exposing connection or SQL payloads. This host has no `TGE_TEST_DATABASE_URL`, so CI or another real PostgreSQL 16.15 host must re-run the database gate.
+- **PR-2 is COMPLETE.** Commit `8f1b373` fixed PostgreSQL role-creation parameter typing with explicit text casts. CI run `33303061173` then executed all 11 database tests (8 passed, 3 failed), exposing one function-default ACL schema defect and one import negative-fixture defect. Commit `d54d6f1` added append-only migration `004_global_function_default_privileges.sql`, globally revoked future `tge_owner` function `PUBLIC EXECUTE`, re-protected existing functions, isolated SQLSTATE `23503` missing-source coverage from `23505` duplicate-target coverage, and advanced harness/static/real-database expectations. [GitHub Actions run 33304131266](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33304131266) on `d54d6f1` passed the full gate.
 - The user explicitly authorized schema-only PR-2 work before vendor provisioning decisions. Those unresolved gates still block provisioning and release; they do not block append-only schema and test-harness work.
 - Explicit PR-2 non-goals: production repositories, Auth0 middleware, onboarding UI, file upload/parsing, import commit execution, JSON cutover, deployment/provisioning, and PR-3–PR-7 behavior.
 
@@ -11,7 +11,7 @@
 | Area | Locked baseline | Verified evidence / owner |
 | --- | --- | --- |
 | Current product | Local JSON remains the current runtime/local-test persistence authority; deterministic intelligence and manual RevenueAction approval are unchanged. | [`PROJECT_STATE.md`](../../PROJECT_STATE.md), [`LEGACY_JSON_COMPATIBILITY.md`](../../architecture/LEGACY_JSON_COMPATIBILITY.md), and unchanged integration fixtures. |
-| Database foundation | PostgreSQL 16.15 uses append-only `001_initial_schema.sql`, `002_tenant_domain_schema.sql`, and `003_roles_rls_and_grants.sql`. `001` remains 2,752 bytes with SHA-256 `d08f3b7e5c97e05a5ec7f96242543fbbf437d7af4edea34d22dc09db910cfc62`. | `scripts/migrate-db.mjs`, static tests, and the CI-required real-PostgreSQL suite. |
+| Database foundation | PostgreSQL 16.15 uses append-only migrations `001_initial_schema.sql` through `004_global_function_default_privileges.sql`. Final remediation appended only `004`; migrations `001`–`003` remained unchanged. `001` remains 2,752 bytes with SHA-256 `d08f3b7e5c97e05a5ec7f96242543fbbf437d7af4edea34d22dc09db910cfc62`. | `scripts/migrate-db.mjs`, static tests, and the passing [GitHub Actions run 33304131266](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33304131266). |
 | Tenant identity | Tenant IDs are UUIDs; operational/source record IDs and Auth0 subjects are text. Tenant membership roles are exactly `OWNER`, `ADMIN`, and `MEMBER`. | Migration `002` constraints and database tests. |
 | Isolation | Tenant-owned tables use explicit `tenant_id`, composite keys/FKs, `RESTRICT`, forced RLS, and a non-bypass runtime group role. Legacy `public` tables from `001` are quarantined from runtime. | Migration `003` plus non-superuser runtime tests. |
 | Commercial evidence | Numeric value is nullable and paired with `KNOWN`, `ZERO`, `NULL`, `MISSING`, `BLANK`, `UNKNOWN_LITERAL`, or `NON_NUMERIC`; raw payload, source ordinal, and source timestamps remain reproducible. | Migration `002` and PR-1 fixture mapping tests. |
@@ -22,7 +22,7 @@
 ## PR-2 implementation decisions
 | Topic | Decision |
 | --- | --- |
-| Migration discipline | The runner discovers numbered SQL files, serializes with an advisory lock, applies each file and ledger row in one transaction, rejects missing/applied files and filename/checksum drift, and no-ops on rerun. It applies a clean `001` but refuses to infer or record `001` when any known baseline object already exists. Migration `002` bootstraps roles, creates the `tge` schema under the migration administrator with authorization assigned to `tge_owner`, then selects `tge_owner` before creating application objects; `003` and later files must run as `tge_owner`. |
+| Migration discipline | The runner discovers numbered SQL files, serializes with an advisory lock, applies each file and ledger row in one transaction, rejects missing/applied files and filename/checksum drift, and no-ops on rerun. It applies a clean `001` but refuses to infer or record `001` when any known baseline object already exists. Migration `002` bootstraps roles, creates the `tge` schema under the migration administrator with authorization assigned to `tge_owner`, then selects `tge_owner` before creating application objects; `003` and later files run as `tge_owner`. Migration `004` globally revokes `PUBLIC EXECUTE` for future functions created by `tge_owner` and re-protects existing functions. |
 | Production namespace | New tenant data lives in `tge`; historical tables created by `001` remain in `public` and receive no runtime schema/table access. |
 | Source identity | Legacy operational IDs remain the row `id` as text inside `(tenant_id, id)` primary keys. No replacement UUID hides a source ID. |
 | RevenueAction | Active uniqueness is exactly tenant + opportunity + action type + basis fingerprint for `RECOMMENDED`, `PREPARED`, `APPROVED`, `EXECUTING`, and `FAILED`. Terminal history can repeat. Deferred reciprocal composite FKs enforce tenant/opportunity effect ownership and at most one task/activity effect; application code remains authoritative for lifecycle semantics and authorization. |
@@ -43,26 +43,28 @@ There is no implicit OTP fallback and no assumed cross-browser tenant configurat
 ## Slices
 - [x] **PR-0 — foundation contract:** architecture, operations, project-state, and harness contracts.
 - [x] **PR-1 — contract characterization:** deterministic legacy fixtures, compatibility tests, and migration handoff.
-- [ ] **PR-2 — IMPLEMENTATION COMPLETE; FINAL DATABASE VERIFICATION PENDING:** schema/security/runner/tests/CI/docs are implemented; mark complete only after `npm run test:db` and the full final gate pass against real PostgreSQL 16.15.
-- [ ] **PR-3 — NOT STARTED:** implement tenant-aware production repositories and transactional RevenueAction persistence; do not add Auth0 middleware here.
+- [x] **PR-2 — COMPLETE:** schema/security/runner/tests/CI/docs are implemented, and GitHub Actions run `33304131266` passed the PostgreSQL 16.15 database gate and full final gate.
+- [ ] **PR-3 — NEXT, NOT STARTED:** implement tenant-aware production repositories and transactional RevenueAction persistence; do not add Auth0 middleware here.
 - [ ] **PR-4 — NOT STARTED/BLOCKED:** implement identity and server-side membership authorization only after the magic-link decision gate is resolved.
 - [ ] **PR-5–PR-7 — NOT STARTED:** remain outside this work unit.
 
 ## Verification
 | Level | Command or inspection | Evidence |
 | --- | --- | --- |
-| Targeted static/syntax | `node --check scripts/migration-error.mjs && node --check scripts/migrate-db.mjs && node --check test/database/postgres-foundation.test.js && node --test test/database-migrations-static.test.js test/database-migration-runner.test.js` | Executed after regression-first failures: pass (9/9 static/unit tests). |
-| Integration | `OPENSSL_CONF=/dev/null npm run test:integration` | Executed: pass (67/67). |
-| Harness | `OPENSSL_CONF=/dev/null npm run test:harness` | Executed: pass. |
-| Build | `OPENSSL_CONF=/dev/null npm run build` | Executed: pass; 21 modules transformed. |
-| Database | `npm run test:db` | Re-run pending: `TGE_TEST_DATABASE_URL` is unset on this host. The prior CI run failed all 11 tests during shared migration setup with SQLSTATE `42501`; the confirmed migration-role ordering defect and diagnostics gap are now remediated locally but require PostgreSQL 16.15 proof. |
-| Browser discovery | `npm run test:e2e -- --list` | Not required: DB-gate insertion does not change Playwright discovery or the managed E2E runner. |
-| Hygiene | `git diff --check` | Executed: pass. Migration `001` checksum also matches `HEAD`. |
+| Final CI | [GitHub Actions run 33304131266](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33304131266) on `d54d6f1` | **SUCCESS:** harness passed; integration 68/68; PostgreSQL 16.15 database 11/11; Chromium E2E 7/7; production build passed with 21 modules transformed in 102 ms. |
+| Historical database diagnosis | CI run `33303061173` after `8f1b373` | All 11 database tests executed: 8 passed and 3 failed, revealing the function-default ACL schema defect and import negative-fixture defect fixed by `d54d6f1`. |
+| Targeted static/syntax | `node --check scripts/migration-error.mjs && node --check scripts/migrate-db.mjs && node --check test/database/postgres-foundation.test.js && node --test test/database-migrations-static.test.js test/database-migration-runner.test.js` | Local pre-push checks passed: syntax and targeted static/unit tests 10/10. |
+| Integration | `OPENSSL_CONF=/dev/null npm run test:integration` | Local pre-push pass: 68/68. Final CI pass: 68/68. |
+| Harness | `OPENSSL_CONF=/dev/null npm run test:harness` | Local pre-push pass; final CI pass. |
+| Build | `OPENSSL_CONF=/dev/null npm run build` | Local pre-push pass with 21 modules transformed; final CI pass with 21 modules transformed in 102 ms. |
+| Database | `npm run test:db` | Not run locally because this host has no PostgreSQL endpoint. Final CI is the real-database proof: PostgreSQL 16.15 passed 11/11. |
+| Browser E2E | `npm run test:e2e` | Final CI passed 7/7 in Chromium. |
+| Hygiene | `git diff --check` | Local pre-push syntax and diff checks passed; migration `001` checksum still matches `HEAD`. |
 
 ## Review and handoff
-- Implementer self-check: **COMPLETE FOR AVAILABLE LOCAL GATES** — static, integration, harness, build, and hygiene pass; scope excludes repositories/auth/UI/import execution/cutover/deployment. Real PostgreSQL remains the explicit blocker to PR-2 completion.
-- Security review: **CONFIRMED FINDINGS AND CI MIGRATION DEFECT REMEDIATED IN CODE; REAL DATABASE RECHECK PENDING** — schema creation now remains under the migration administrator without granting database-wide `CREATE` to `tge_owner`; later application objects still run under `tge_owner`. Ownership/default privileges, audited baseline refusal, reciprocal effect links, typed ID maps, immutable runtime evidence, and safe migration diagnostics have regression coverage. Do not close this item until the real database gate passes.
-- Final database review: **Placeholder** — requires a passing PostgreSQL 16.15 `npm run test:db`/CI run before PR-2 is marked complete.
-- PR-3 handoff: build production repositories on `(tenant_id, id)` keys and transaction boundaries; preserve JSON compatibility until explicit cutover. Add any controlled import status or retention-deletion path only through a reviewed append-only migration and narrow function/repository API—never by restoring unrestricted runtime table mutation.
+- Implementer self-check: **COMPLETE** — local pre-push targeted tests 10/10, integration 68/68, harness, build, syntax, and diff checks passed. Scope still excludes repositories, Auth0 middleware, UI, import execution, JSON cutover, and deployment/provisioning.
+- Security review: **COMPLETE FOR PR-2** — schema creation remains under the migration administrator without granting database-wide `CREATE` to `tge_owner`; later application objects run under `tge_owner`. Migration `004` closes current and future function `PUBLIC EXECUTE` exposure, while ownership/default privileges, audited baseline refusal, reciprocal effect links, typed ID maps, immutable runtime evidence, and safe migration diagnostics retain regression coverage.
+- Final database review: **COMPLETE** — [GitHub Actions run 33304131266](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33304131266) passed PostgreSQL 16.15 database tests 11/11 and the complete CI gate. Local `npm run test:db` was not run because this host has no PostgreSQL endpoint.
+- PR-3 handoff (**NEXT, NOT STARTED**): build production repositories on `(tenant_id, id)` keys and transaction boundaries; preserve JSON compatibility until explicit cutover. Add any controlled import status or retention-deletion path only through a reviewed append-only migration and narrow function/repository API—never by restoring unrestricted runtime table mutation.
 - PR-4 handoff: validate Auth0 identity, resolve membership server-side, then set transaction-local DB context. Client input and custom GUCs are not authorization evidence.
 - Unresolved vendor/provisioning gates remain: static host/privacy posture, transactional SMTP, production domain/registrar, Auth0 AU plan/features, privacy/DPA review, backup/recovery proof, and release infrastructure.

@@ -2,7 +2,7 @@
 
 ## Active plan
 
-- [`active/pilot-readiness.md`](active/pilot-readiness.md) — **PR-0 is COMPLETE. PR-1 is COMPLETE. PR-2 implementation is COMPLETE; final database verification is PENDING.**
+- [`active/pilot-readiness.md`](active/pilot-readiness.md) — **PR-0 is COMPLETE. PR-1 is COMPLETE. PR-2 is COMPLETE. PR-3 is NEXT and NOT STARTED.**
 
 ## When to create a plan
 Create a plan before work that spans sessions, changes a safety boundary, has multiple dependent slices, or needs reviewable verification evidence. Use [`TEMPLATE.md`](TEMPLATE.md), place in-progress plans in `active/`, and move completed plans to `completed/` with final evidence and follow-ups.

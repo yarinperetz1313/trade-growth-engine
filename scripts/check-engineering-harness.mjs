@@ -317,8 +317,13 @@ function validatePilotReadinessContract() {
   );
   requireText(
     executionPlansIndex,
-    "PR-2 implementation is COMPLETE; final database verification is PENDING",
-    "Execution-plan index must report the exact Pilot PR-2 verification state"
+    "PR-2 is COMPLETE",
+    "Execution-plan index must mark Pilot PR-2 complete"
+  );
+  requireText(
+    executionPlansIndex,
+    "PR-3 is NEXT and NOT STARTED",
+    "Execution-plan index must mark Pilot PR-3 next and not started"
   );
   requireText(
     plan,
@@ -338,8 +343,13 @@ function validatePilotReadinessContract() {
   );
   requireText(
     plan,
-    "PR-2 — IMPLEMENTATION COMPLETE; FINAL DATABASE VERIFICATION PENDING",
-    "Pilot plan must distinguish PR-2 implementation from final database verification"
+    "PR-2 — COMPLETE",
+    "Pilot plan must mark PR-2 complete"
+  );
+  requireText(
+    plan,
+    "PR-3 — NEXT, NOT STARTED",
+    "Pilot plan must mark PR-3 next and not started"
   );
 
   const canonicalDocuments = {
