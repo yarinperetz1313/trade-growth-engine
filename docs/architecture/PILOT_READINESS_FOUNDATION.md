@@ -49,7 +49,8 @@ The environment contract names the public app URL, API URL, Auth0 domain/issuer/
 
 ## Implementation checklist
 
-- [ ] PR-1 starts only after the [active plan](../execution-plans/active/pilot-readiness.md) gates are resolved.
+- [x] PR-1 characterized the legacy JSON compatibility contract without production changes; see [Legacy JSON Compatibility Contract](LEGACY_JSON_COMPATIBILITY.md).
+- [ ] PR-2 starts only after the [active plan](../execution-plans/active/pilot-readiness.md) gates are resolved.
 - [ ] PR-4 starts only after the Auth0 magic-link delivery decision is documented and its deterministic E2E acceptance test is defined.
 - [ ] Every production tenant operation has server authorization, RLS, and a negative cross-tenant test.
 - [ ] Restore and tenant extraction runbooks are proven under the [production gate](../operations/PILOT_PRODUCTION_GATE.md).

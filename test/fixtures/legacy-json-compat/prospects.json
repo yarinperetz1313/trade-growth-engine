@@ -1,0 +1,10 @@
+[
+  {
+    "id": "prospect-known",
+    "business_name": "Known Trade Co",
+    "service": "Commercial Plumbing",
+    "location": "Melbourne",
+    "created_at": "2026-01-01T09:00:00.000Z",
+    "updated_at": "2026-01-01T09:00:00.000Z"
+  }
+]

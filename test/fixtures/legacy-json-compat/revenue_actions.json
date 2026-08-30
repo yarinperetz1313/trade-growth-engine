@@ -1,0 +1,146 @@
+[
+  {
+    "id": "action-history-executed",
+    "opportunity_id": "opp-known",
+    "action_type": "FOLLOW_UP",
+    "execution_type": "COMMUNICATION_DRAFT",
+    "approval_requirement": "HUMAN",
+    "risk_class": "EXTERNAL_CONSEQUENTIAL",
+    "status": "EXECUTED",
+    "priority": "HIGH",
+    "title": "Follow up on proposal",
+    "reason": "Recorded proposal evidence requires a human follow-up.",
+    "evidence": {
+      "factual": {
+        "stage": "PROPOSAL"
+      }
+    },
+    "recommendation_snapshot": {
+      "action_type": "FOLLOW_UP",
+      "title": "Follow up on proposal",
+      "reason": "Recorded proposal evidence requires a human follow-up.",
+      "priority": "HIGH",
+      "task_title": "Follow up on proposal",
+      "generated_at": "2026-01-05T09:00:00.000Z"
+    },
+    "basis_fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "proposed_execution": {
+      "type": "COMMUNICATION_DRAFT",
+      "channel": "EMAIL"
+    },
+    "execution_result": {
+      "mode": "MANUAL_CONFIRMED",
+      "outcome": "USER_CONFIRMED_COMPLETION",
+      "external_send_performed": false
+    },
+    "source": "DEAL_INTELLIGENCE",
+    "created_at": "2026-01-05T08:00:00.000Z",
+    "updated_at": "2026-01-05T09:00:00.000Z",
+    "prepared_at": "2026-01-05T08:10:00.000Z",
+    "approved_at": "2026-01-05T08:20:00.000Z",
+    "executed_at": "2026-01-05T09:00:00.000Z",
+    "rejected_at": null,
+    "cancelled_at": null,
+    "failed_at": null,
+    "rejection_reason": null,
+    "resulting_task_id": null,
+    "resulting_activity_id": "activity-history-executed",
+    "audit": [
+      {
+        "transition": "CREATED_AS_RECOMMENDED",
+        "at": "2026-01-05T08:00:00.000Z",
+        "source": "DEAL_INTELLIGENCE"
+      },
+      {
+        "transition": "PREPARED",
+        "at": "2026-01-05T08:10:00.000Z"
+      },
+      {
+        "transition": "APPROVED",
+        "at": "2026-01-05T08:20:00.000Z",
+        "approval": "HUMAN"
+      },
+      {
+        "transition": "EXECUTED",
+        "at": "2026-01-05T09:00:00.000Z",
+        "execution_mode": "MANUAL_CONFIRMED",
+        "resulting_task_id": null,
+        "resulting_activity_id": "activity-history-executed"
+      }
+    ]
+  },
+  {
+    "id": "action-history-task",
+    "opportunity_id": "opp-known",
+    "action_type": "CREATE_TASK",
+    "execution_type": "INTERNAL_TASK",
+    "approval_requirement": "HUMAN",
+    "risk_class": "INTERNAL",
+    "status": "EXECUTED",
+    "priority": "HIGH",
+    "title": "Follow up on proposal",
+    "reason": "Legacy task execution evidence.",
+    "evidence": {
+      "factual": {
+        "stage": "PROPOSAL"
+      }
+    },
+    "recommendation_snapshot": {
+      "action_type": "CREATE_TASK",
+      "title": "Follow up on proposal",
+      "reason": "Legacy task execution evidence.",
+      "priority": "HIGH",
+      "task_title": "Follow up on proposal",
+      "generated_at": "2026-01-05T09:00:00.000Z"
+    },
+    "basis_fingerprint": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "proposed_execution": {
+      "type": "INTERNAL_TASK",
+      "title": "Follow up on proposal",
+      "normalized_title": "follow up on proposal",
+      "semantic_task_key": "opp-known:CREATE_TASK:follow up on proposal",
+      "priority": "HIGH",
+      "due_at": null
+    },
+    "execution_result": {
+      "mode": "SYSTEM_INTERNAL",
+      "outcome": "TASK_CREATED",
+      "external_send_performed": false
+    },
+    "source": "DEAL_INTELLIGENCE",
+    "created_at": "2026-01-05T09:00:00.000Z",
+    "updated_at": "2026-01-05T09:12:00.000Z",
+    "prepared_at": "2026-01-05T09:02:00.000Z",
+    "approved_at": "2026-01-05T09:04:00.000Z",
+    "executed_at": "2026-01-05T09:12:00.000Z",
+    "rejected_at": null,
+    "cancelled_at": null,
+    "failed_at": null,
+    "rejection_reason": null,
+    "resulting_task_id": "task-history-executed",
+    "resulting_activity_id": "activity-history-task",
+    "audit": [
+      {
+        "transition": "CREATED_AS_RECOMMENDED",
+        "at": "2026-01-05T09:00:00.000Z",
+        "source": "DEAL_INTELLIGENCE"
+      },
+      {
+        "transition": "PREPARED",
+        "at": "2026-01-05T09:02:00.000Z"
+      },
+      {
+        "transition": "APPROVED",
+        "at": "2026-01-05T09:04:00.000Z",
+        "approval": "HUMAN"
+      },
+      {
+        "transition": "EXECUTED",
+        "at": "2026-01-05T09:12:00.000Z",
+        "execution_mode": "SYSTEM_INTERNAL",
+        "resulting_task_id": "task-history-executed",
+        "resulting_activity_id": "activity-history-task"
+      }
+    ]
+  }
+]

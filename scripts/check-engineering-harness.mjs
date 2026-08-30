@@ -195,8 +195,8 @@ function validatePilotReadinessContract() {
   );
   requireText(
     executionPlansIndex,
-    "PR-1 is NOT STARTED and is next",
-    "Execution-plan index must mark Pilot PR-1 not started and next"
+    "PR-1 is COMPLETE",
+    "Execution-plan index must mark Pilot PR-1 complete"
   );
   requireText(
     plan,
@@ -211,8 +211,13 @@ function validatePilotReadinessContract() {
   requireText(plan, "PR-0 is COMPLETE", "Pilot plan must mark PR-0 complete");
   requireText(
     plan,
-    "PR-1 is NOT STARTED and is next",
-    "Pilot plan must name PR-1 as next and not started"
+    "PR-1 is COMPLETE",
+    "Pilot plan must mark PR-1 complete"
+  );
+  requireText(
+    plan,
+    "PR-2 — NOT STARTED (next)",
+    "Pilot plan must name PR-2 as next and not started"
   );
 
   const canonicalDocuments = {

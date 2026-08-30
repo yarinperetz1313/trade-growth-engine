@@ -33,8 +33,13 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
     },
     {
       relativePath: "docs/execution-plans/active/pilot-readiness.md",
-      expected: "PR-1 is NOT STARTED and is next",
-      error: /Pilot plan must name PR-1 as next and not started/
+      expected: "PR-1 is COMPLETE",
+      error: /Pilot plan must mark PR-1 complete/
+    },
+    {
+      relativePath: "docs/execution-plans/active/pilot-readiness.md",
+      expected: "PR-2 — NOT STARTED (next)",
+      error: /Pilot plan must name PR-2 as next and not started/
     },
     {
       relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
