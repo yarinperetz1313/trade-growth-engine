@@ -16,6 +16,8 @@ coverage/
 test-results/
 playwright-report/
 blob-report/
+artifacts/
+test-artifacts/
 playwright/.cache/
 
 # Logs and caches

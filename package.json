@@ -11,7 +11,10 @@
     "server": "node src/index.js",
     "test:integration": "node --test test/*.test.js",
     "test:e2e": "node scripts/run-e2e.mjs",
-    "verify": "npm run test:integration && npm run test:e2e && npm run build"
+    "verify": "npm run test:harness && npm run test:integration && npm run test:e2e && npm run build",
+    "test:harness": "node scripts/check-engineering-harness.mjs",
+    "verify:fast": "npm run test:harness && npm run test:integration",
+    "verify:browser": "npm run test:harness && npm run test:e2e"
   },
   "keywords": [],
   "author": "",

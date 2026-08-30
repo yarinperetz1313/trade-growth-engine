@@ -30,6 +30,7 @@ export async function runE2e(options = {}) {
   const childEnv = {
     ...env,
     TGE_E2E_STORE_DIR: storeDir,
+    TGE_E2E_INVOCATION_ID: getInvocationIdentity(env),
     TGE_E2E_STORE_STATE_FILE: getE2eStoreStateFile(),
     OPENSSL_CONF: env.OPENSSL_CONF || "/dev/null"
   };
@@ -71,6 +72,18 @@ export async function runE2e(options = {}) {
     cleanupOnce();
     removeParentHandlers();
   }
+}
+
+function getInvocationIdentity(env) {
+  if (env.TGE_E2E_INVOCATION_ID) {
+    return env.TGE_E2E_INVOCATION_ID;
+  }
+
+  if (env.GITHUB_RUN_ID) {
+    return ["github", env.GITHUB_RUN_ID, env.GITHUB_RUN_ATTEMPT || "1"].join("-");
+  }
+
+  return ["local", process.pid, Date.now()].join("-");
 }
 
 function signalToExitCode(signal) {

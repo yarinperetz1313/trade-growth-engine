@@ -19,6 +19,7 @@ test("E2E temp-store lifecycle cleans only managed tge-e2e stores", async () => 
     cleanupE2eStore,
     cleanupPlaywrightStore,
     createE2eStore,
+    seedE2eStore,
     writeCollection
   } = await import("./e2e/tempStoreLifecycle.mjs");
 
@@ -32,10 +33,12 @@ test("E2E temp-store lifecycle cleans only managed tge-e2e stores", async () => 
   try {
     const firstStoreDir = createE2eStore();
     const secondStoreDir = createE2eStore();
-    writeCollection(firstStoreDir, "tasks", []);
+    seedE2eStore(firstStoreDir);
 
     assert.equal(assertManagedE2eStore(firstStoreDir), true);
-    assert.equal(fs.existsSync(path.join(firstStoreDir, "tasks.json")), true);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(firstStoreDir, "opportunities.json"), "utf8")).length, 4);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(firstStoreDir, "tasks.json"), "utf8")), []);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(firstStoreDir, "revenue_actions.json"), "utf8")), []);
     assert.equal(cleanupE2eStore(firstStoreDir), true);
     assert.equal(fs.existsSync(firstStoreDir), false);
 
@@ -47,14 +50,24 @@ test("E2E temp-store lifecycle cleans only managed tge-e2e stores", async () => 
       fs.rmSync(unmanagedDir, { recursive: true, force: true });
     }
 
-    cleanupPlaywrightStore({
-      config: {
-        outputDir: path.join(secondStoreDir, "test-results")
-      }
-    });
+    const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "tge-e2e-artifacts-"));
+    try {
+      const artifactOutputDir = path.join(artifactDir, "test-results");
+      fs.mkdirSync(artifactOutputDir, { recursive: true });
+      fs.writeFileSync(path.join(artifactOutputDir, "trace.zip"), "evidence");
 
-    assert.equal(fs.existsSync(secondStoreDir), false);
-    assert.equal(fs.existsSync(stateFile), false);
+      cleanupPlaywrightStore({
+        config: {
+          outputDir: artifactOutputDir
+        }
+      });
+
+      assert.equal(fs.existsSync(secondStoreDir), false);
+      assert.equal(fs.existsSync(path.join(artifactOutputDir, "trace.zip")), true);
+      assert.equal(fs.existsSync(stateFile), false);
+    } finally {
+      fs.rmSync(artifactDir, { recursive: true, force: true });
+    }
   } finally {
     if (previousStateFile) {
       process.env.TGE_E2E_STORE_STATE_FILE = previousStateFile;
@@ -64,7 +77,7 @@ test("E2E temp-store lifecycle cleans only managed tge-e2e stores", async () => 
   }
 });
 
-test("E2E parent runner removes its managed store after a failing child", async () => {
+test("E2E parent runner removes its managed store after successful and failing children", async () => {
   const before = listTgeE2eDirs();
   const previousStateFile = process.env.TGE_E2E_STORE_STATE_FILE;
   const stateFile = path.join(
@@ -75,21 +88,24 @@ test("E2E parent runner removes its managed store after a failing child", async 
 
   try {
     const { runE2e } = await import("../scripts/run-e2e.mjs");
-    const result = await runE2e({
-      childCommand: process.execPath,
-      childArgs: [
-        "-e",
-        "const fs=require('node:fs');const path=require('node:path');if(!process.env.TGE_E2E_STORE_DIR) process.exit(9);fs.mkdirSync(path.join(process.env.TGE_E2E_STORE_DIR,'test-results'),{recursive:true});fs.writeFileSync(path.join(process.env.TGE_E2E_STORE_DIR,'test-results','.last-run.json'),'{}');process.exit(7);"
-      ],
-      env: {
-        ...process.env,
-        OPENSSL_CONF: "/dev/null"
-      },
-      stdio: "ignore"
-    });
+    for (const expectedCode of [0, 7]) {
+      const result = await runE2e({
+        childCommand: process.execPath,
+        childArgs: [
+          "-e",
+          `const fs=require('node:fs');const path=require('node:path');if(!process.env.TGE_E2E_STORE_DIR) process.exit(9);fs.mkdirSync(path.join(process.env.TGE_E2E_STORE_DIR,'test-results'),{recursive:true});fs.writeFileSync(path.join(process.env.TGE_E2E_STORE_DIR,'test-results','.last-run.json'),'{}');process.exit(${expectedCode});`
+        ],
+        env: {
+          ...process.env,
+          OPENSSL_CONF: "/dev/null"
+        },
+        stdio: "ignore"
+      });
 
-    assert.equal(result.code, 7);
-    assert.equal(fs.existsSync(result.storeDir), false);
+      assert.equal(result.code, expectedCode);
+      assert.equal(fs.existsSync(result.storeDir), false);
+    }
+
     assert.equal(fs.existsSync(stateFile), false);
 
     const after = listTgeE2eDirs();
