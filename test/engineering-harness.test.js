@@ -17,6 +17,16 @@ test("engineering harness gate passes for the repository contract", () => {
 test("engineering harness gate rejects removal of every Pilot Readiness contract rule", () => {
   const contractRemovals = [
     {
+      relativePath: "docs/execution-plans/README.md",
+      expected: "PR-2 is COMPLETE",
+      error: /Execution-plan index must mark Pilot PR-2 complete/
+    },
+    {
+      relativePath: "docs/execution-plans/README.md",
+      expected: "PR-3 is NEXT and NOT STARTED",
+      error: /Execution-plan index must mark Pilot PR-3 next and not started/
+    },
+    {
       relativePath: "docs/execution-plans/active/pilot-readiness.md",
       expected: "[foundation](../../architecture/PILOT_READINESS_FOUNDATION.md)",
       error: /Pilot plan must link the canonical readiness foundation/
@@ -38,8 +48,13 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
     },
     {
       relativePath: "docs/execution-plans/active/pilot-readiness.md",
-      expected: "PR-2 — IMPLEMENTATION COMPLETE; FINAL DATABASE VERIFICATION PENDING",
-      error: /Pilot plan must distinguish PR-2 implementation from final database verification/
+      expected: "PR-2 — COMPLETE",
+      error: /Pilot plan must mark PR-2 complete/
+    },
+    {
+      relativePath: "docs/execution-plans/active/pilot-readiness.md",
+      expected: "PR-3 — NEXT, NOT STARTED",
+      error: /Pilot plan must mark PR-3 next and not started/
     },
     {
       relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
