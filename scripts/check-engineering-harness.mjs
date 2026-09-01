@@ -187,6 +187,21 @@ function validateDatabaseFoundationContract() {
   const functionDefaultsMigration = readFile(
     "database/migrations/004_global_function_default_privileges.sql"
   );
+  const taskStatusMigration = readFile(
+    "database/migrations/005_task_in_progress_status.sql"
+  );
+  const runtimeIntegrityMigration = readFile(
+    "database/migrations/006_runtime_revenue_action_integrity.sql"
+  );
+  const lifecycleIntegrityMigration = readFile(
+    "database/migrations/007_revenue_action_lifecycle_integrity.sql"
+  );
+  const executionOutcomeIntegrityMigration = readFile(
+    "database/migrations/008_revenue_action_outcome_integrity.sql"
+  );
+  const cancellationIntegrityMigration = readFile(
+    "database/migrations/009_revenue_action_cancellation_integrity.sql"
+  );
   const migrationFiles = fs
     .readdirSync(path.join(rootDir, "database", "migrations"))
     .filter(fileName => /^\d{3}_[a-z0-9_]+\.sql$/.test(fileName))
@@ -263,6 +278,11 @@ function validateDatabaseFoundationContract() {
     "Migration 004 must revoke PUBLIC execute from future functions"
   );
   requireText(
+    taskStatusMigration,
+    "'IN_PROGRESS'",
+    "Migration 005 must preserve the existing IN_PROGRESS task status"
+  );
+  requireText(
     databaseTest,
     "TGE_TEST_DATABASE_URL",
     "Database tests must require an explicit real PostgreSQL URL"
@@ -281,12 +301,95 @@ function validateDatabaseFoundationContract() {
       "001_initial_schema.sql",
       "002_tenant_domain_schema.sql",
       "003_roles_rls_and_grants.sql",
-      "004_global_function_default_privileges.sql"
+      "004_global_function_default_privileges.sql",
+      "005_task_in_progress_status.sql",
+      "006_runtime_revenue_action_integrity.sql",
+      "007_revenue_action_lifecycle_integrity.sql",
+      "008_revenue_action_outcome_integrity.sql",
+      "009_revenue_action_cancellation_integrity.sql"
     ])
   ) {
     failures.push(
-      `Pilot PR-2 migration sequence drift: ${migrationFiles.join(", ")}`
+      `Pilot migration sequence drift: ${migrationFiles.join(", ")}`
     );
+  }
+
+  requireText(
+    runtimeIntegrityMigration,
+    "RevenueAction audit history is append-only.",
+    "Migration 006 must protect append-only RevenueAction audit history"
+  );
+  requireText(
+    runtimeIntegrityMigration,
+    "current_payload jsonb",
+    "Migration 006 must separate mutable record shape from legacy evidence"
+  );
+  requireText(
+    runtimeIntegrityMigration,
+    "live_ordinal bigint",
+    "Migration 006 must persist deterministic live insertion order"
+  );
+  if (/security\s+definer/i.test(runtimeIntegrityMigration)) {
+    failures.push("Migration 006 must not add SECURITY DEFINER functions");
+  }
+  requireText(
+    lifecycleIntegrityMigration,
+    "guard_runtime_revenue_action_lifecycle",
+    "Migration 007 must guard RevenueAction lifecycle transition evidence"
+  );
+  requireText(
+    lifecycleIntegrityMigration,
+    "new_audit_length <> old_audit_length + 2",
+    "Migration 007 must bind failed execution to its two-entry audit suffix"
+  );
+  requireText(
+    lifecycleIntegrityMigration,
+    "Runtime RevenueAction lifecycle evidence is incoherent.",
+    "Migration 007 must reject incoherent runtime lifecycle evidence"
+  );
+  if (/security\s+definer/i.test(lifecycleIntegrityMigration)) {
+    failures.push("Migration 007 must not add SECURITY DEFINER functions");
+  }
+  requireText(
+    executionOutcomeIntegrityMigration,
+    "old.status = 'EXECUTING'",
+    "Migration 008 must resume an existing EXECUTING attempt"
+  );
+  requireText(
+    executionOutcomeIntegrityMigration,
+    "USER_CONFIRMED_COMPLETION",
+    "Migration 008 must guard communication execution outcomes"
+  );
+  requireText(
+    executionOutcomeIntegrityMigration,
+    "linked_task_source",
+    "Migration 008 must bind task outcomes to create/reuse evidence"
+  );
+  if (/security\s+definer/i.test(executionOutcomeIntegrityMigration)) {
+    failures.push("Migration 008 must not add SECURITY DEFINER functions");
+  }
+  requireText(
+    cancellationIntegrityMigration,
+    "guard_runtime_revenue_action_cancellation",
+    "Migration 009 must guard cancellation evidence independently"
+  );
+  requireText(
+    cancellationIntegrityMigration,
+    "new.execution_attempts is distinct from old.execution_attempts",
+    "Migration 009 must preserve pre-cancellation execution attempts"
+  );
+  requireText(
+    cancellationIntegrityMigration,
+    "new.resulting_activity_id is distinct from old.resulting_activity_id",
+    "Migration 009 must preserve pre-cancellation effect identities"
+  );
+  requireText(
+    cancellationIntegrityMigration,
+    "Runtime RevenueAction cancellation evidence is incoherent.",
+    "Migration 009 must reject cancellation evidence smuggling"
+  );
+  if (/security\s+definer/i.test(cancellationIntegrityMigration)) {
+    failures.push("Migration 009 must not add SECURITY DEFINER functions");
   }
 }
 

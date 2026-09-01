@@ -1,4 +1,5 @@
 const {
+  createApp,
   startServer
 } = require(
   "./server"
@@ -12,5 +13,6 @@ if (
 }
 
 module.exports = {
+  createApp,
   startServer
 };

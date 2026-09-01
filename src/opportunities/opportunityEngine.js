@@ -289,12 +289,9 @@ function nextActionForStage(
   );
 }
 
-function getPipelineMetrics() {
-  const opportunities =
-    readCollection(
-      "opportunities"
-    );
-
+function buildPipelineMetrics(
+  opportunities = []
+) {
   const active =
     opportunities.filter(
       opportunity =>
@@ -401,9 +398,18 @@ function getPipelineMetrics() {
   };
 }
 
+function getPipelineMetrics() {
+  return buildPipelineMetrics(
+    readCollection(
+      "opportunities"
+    )
+  );
+}
+
 module.exports = {
   STAGES,
   DEFAULT_PROBABILITIES,
+  buildPipelineMetrics,
   createOpportunityFromProspect,
   updateOpportunityStage,
   getPipelineMetrics
