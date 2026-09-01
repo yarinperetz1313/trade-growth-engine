@@ -18,13 +18,13 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
   const contractRemovals = [
     {
       relativePath: "docs/execution-plans/README.md",
-      expected: "PR-2 is COMPLETE",
-      error: /Execution-plan index must mark Pilot PR-2 complete/
+      expected: "PR-0 through PR-2 are COMPLETE",
+      error: /Execution-plan index must mark Pilot PR-0 through PR-2 complete/
     },
     {
       relativePath: "docs/execution-plans/README.md",
-      expected: "PR-3 is NEXT and NOT STARTED",
-      error: /Execution-plan index must mark Pilot PR-3 next and not started/
+      expected: "PR-3 and PR-4 are integrated in code",
+      error: /Execution-plan index must mark Pilot PR-3 and PR-4 integrated/
     },
     {
       relativePath: "docs/execution-plans/active/pilot-readiness.md",
@@ -38,23 +38,18 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
     },
     {
       relativePath: "docs/execution-plans/active/pilot-readiness.md",
-      expected: "PR-0 is COMPLETE",
-      error: /Pilot plan must mark PR-0 complete/
+      expected: "PR-0 through PR-2 are COMPLETE",
+      error: /Pilot plan must mark PR-0 through PR-2 complete/
     },
     {
       relativePath: "docs/execution-plans/active/pilot-readiness.md",
-      expected: "PR-1 is COMPLETE",
-      error: /Pilot plan must mark PR-1 complete/
+      expected: "PR-3 — persistence implemented and integrated",
+      error: /Pilot plan must mark PR-3 persistence integrated/
     },
     {
       relativePath: "docs/execution-plans/active/pilot-readiness.md",
-      expected: "PR-2 — COMPLETE",
-      error: /Pilot plan must mark PR-2 complete/
-    },
-    {
-      relativePath: "docs/execution-plans/active/pilot-readiness.md",
-      expected: "PR-3 — NEXT, NOT STARTED",
-      error: /Pilot plan must mark PR-3 next and not started/
+      expected: "PR-4 — auth implemented and integrated",
+      error: /Pilot plan must mark PR-4 auth integrated/
     },
     {
       relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
@@ -108,18 +103,18 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
     },
     {
       relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
-      expected: "**PR-4 is blocked**",
-      error: /Auth0 magic-link pre-PR-4 blocker/
+      expected: "prior magic-link decision gate is resolved",
+      error: /Auth0 email-OTP PR-4 decision and deployment gate/
     },
     {
       relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
-      expected: "mobile/email-client behavior",
-      error: /Auth0 magic-link pre-PR-4 blocker/
+      expected: "Classic Login, magic links",
+      error: /Auth0 email-OTP PR-4 decision and deployment gate/
     },
     {
       relativePath: "docs/architecture/PILOT_READINESS_FOUNDATION.md",
-      expected: "callback/redirect allowlists",
-      error: /Auth0 magic-link pre-PR-4 blocker/
+      expected: "exact callback/logout/origin configuration",
+      error: /Auth0 email-OTP PR-4 decision and deployment gate/
     },
     {
       relativePath: "package.json",
@@ -135,6 +130,21 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
       relativePath: "database/migrations/001_initial_schema.sql",
       expected: "create extension if not exists pgcrypto;",
       error: /database migration 001 must remain byte-for-byte unchanged/
+    },
+    {
+      relativePath: "src/auth/authentication.js",
+      expected: 'algorithms: ["RS256"]',
+      error: /Auth0 tokens must pin RS256/
+    },
+    {
+      relativePath: "web/lib/auth.js",
+      expected: 'cacheLocation: "memory"',
+      error: /Browser token storage must remain memory-only/
+    },
+    {
+      relativePath: "database/migrations/010_auth_membership_and_invitations.sql",
+      expected: "create function tge.consume_assisted_invitation",
+      error: /Migration 010 must provide atomic invitation consumption/
     }
   ];
 

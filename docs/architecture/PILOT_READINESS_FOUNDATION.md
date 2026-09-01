@@ -15,17 +15,15 @@ Google documents Cloud Run as regional and lists Melbourne as `australia-southea
 
 ## Identity, authorization, and isolation
 
-Auth0 Australia (AU) provides magic-link **identity**; TGE remains the authorization authority. The server validates issuer, audience, signature/JWKS, expiry, and required claims, then resolves `TenantContext` from server-side membership. It never accepts a client-supplied tenant ID as authority. Auth0 documents Australia (AU) tenant locality and passwordless magic-link behavior: [Create tenants](https://auth0.com/docs/get-started/auth0-overview/create-tenants) and [Email magic links](https://auth0.com/docs/authenticate/passwordless/authentication-methods/email-magic-link) — **verified 2026-08-30; reverify plan/features before provisioning**.
+Auth0 Australia (AU) provides **identity** through New Universal Login and passwordless email OTP. The SPA uses Authorization Code Flow with PKCE. TGE remains the authorization authority. The server validates the exact issuer, audience, RS256/JWKS signature, expiry, issued-at time, and subject, then resolves `TenantContext` from server-side membership by `(issuer, subject)` and requires exactly one active result. It never accepts a client-supplied tenant ID as authority. The detailed boundary is [Authentication and TenantContext](AUTHENTICATION_AND_TENANT_CONTEXT.md).
 
-### Auth0 magic-link delivery decision (before PR-4)
-
-**PR-4 is blocked** pending a documented product-owner decision that validates: (1) the Auth0 AU plan supports passwordless magic links; (2) the flow is **Classic Login with same-browser/device completion**, or a tenant setting or alternative is separately approved; (3) mobile/email-client behavior, callback/redirect allowlists, and phishing/resend/session protections; and (4) a deterministic E2E acceptance test for the selected path. Do not assume cross-browser tenant configuration. If magic-link UX is rejected, PR-4 stops for an explicit product decision. There is no implicit OTP fallback.
+The prior magic-link decision gate is resolved by GitHub Issue #5's accepted Pilot decision. Classic Login, magic links, cross-browser magic-link flags, Auth0 Organizations invitations, and public self-service signup are out of scope. Actual AU tenant/plan entitlement, custom domain, transactional SMTP, sender authentication, exact callback/logout/origin configuration, and the real OTP acceptance test remain deployment evidence under the [production gate](../operations/PILOT_PRODUCTION_GATE.md); they are not guessed in code.
 
 | Role | Tenant authority |
 | --- | --- |
-| OWNER | Manage tenant membership and roles; approve high-impact tenant operations. |
-| ADMIN | Operate tenant CRM and approved administration; cannot transfer ownership. |
-| MEMBER | Operate only the tenant CRM permissions explicitly granted by server policy. |
+| OWNER | Operate CRM and administer assisted invitations/membership behind a reauthentication/MFA-ready sensitive-action boundary. |
+| ADMIN | Operate CRM and approved operational administration; cannot administer membership or assume ownership powers. |
+| MEMBER | Perform ordinary CRM work; cannot administer tenant security or membership. |
 
 Every production repository query is tenant-scoped. PostgreSQL RLS is applied transaction-locally, using the server-resolved tenant context. The runtime database role is nonprivileged; a narrowly scoped, server-only migration/operations role performs migrations and operational work. Server authorization, RLS, and cross-tenant negative tests are all required: none substitutes for another.
 
@@ -33,19 +31,19 @@ Every production repository query is tenant-scoped. PostgreSQL RLS is applied tr
 
 Local JSON remains compatible for local development and tests. **Supabase is not the production Pilot target.** Production persistence uses append-only migrations and a one-way, verified legacy JSON snapshot cutover; there is no dual write. The cutover must verify counts, identifiers, required relationships, unknown-data preservation, and rollback evidence before the legacy snapshot becomes read-only historical evidence.
 
-RevenueAction semantics remain deterministic and manually approved: no automated external sending, no client-side bypass of approval, and no change to recommendation/evidence meaning. The future database implementation makes the related mutations transactional without changing those contracts.
+RevenueAction semantics remain deterministic and manually approved: no automated external sending, no client-side bypass of approval, and no change to recommendation/evidence meaning. The PR-3 PostgreSQL adapter makes the related mutations transactional without changing those contracts; JSON remains the default local/test adapter.
 
 ### PR-2 PostgreSQL foundation
 
 PR-2 implements the schema/security foundation without switching runtime persistence. Migration `001` remains unchanged and quarantined in `public`; migration `002` bootstraps the non-login owner/migrator/runtime roles before creating `tge` objects as `tge_owner`, and migration `003` plus every later migration executes under that owner role. The runner refuses to infer an applied `001` from pre-existing legacy objects; an audited baseline is required instead. Legacy operational identifiers remain text IDs in `(tenant_id, id)` keys. Tenant relationships use composite foreign keys with `RESTRICT`, and imported records retain raw payload, source timestamps, and source ordinal.
 
-Forced RLS reads transaction-local `app.tenant_id` and `app.subject_id`. These custom settings are trusted server-only inputs that PR-4 may set only after validating identity and membership; they are not accepted API fields. RLS is defense in depth and does not replace repository predicates or PR-4 authorization. The runtime role is non-bypass and receives no access to the legacy `public` tables, migrations, role/schema administration, truncation, or mutation/deletion of import and audit evidence.
+Forced RLS reads transaction-local `app.tenant_id` and `app.subject_id`. These custom settings are trusted server-only inputs set only after PR-4 validates identity and membership and the server bridges the branded auth context into a separately branded PR-3 persistence context; they are not accepted API fields. RLS is defense in depth and does not replace repository predicates or PR-4 authorization. The runtime role is non-bypass and receives no access to the legacy `public` tables, migrations, role/schema administration, truncation, or mutation/deletion of import and audit evidence.
 
 ## Import safety, retention, and deletion
 
 Imports are tenant-scoped and staged: CSV/XLSX upload → preview → explicit commit. Exact duplicates are skipped; ambiguous records require explicit user resolution; imports never merge into or overwrite existing CRM data implicitly. Every PR-2 ID-map row references its exact staging source and exactly one real tenant-owned prospect, opportunity, task, activity, or RevenueAction through a typed foreign key. Runtime may only select and insert batch, staging, ID-map, and audit evidence.
 
-Controlled import status transitions and retention deletion are deliberately deferred. PR-3 or a later authorized slice must add them through a reviewed append-only migration and narrow function/repository boundary; unrestricted runtime `UPDATE` or `DELETE` is not an acceptable shortcut.
+Controlled import status transitions and retention deletion are deliberately deferred. A later authorized slice must add them through a reviewed append-only migration and narrow function/repository boundary; unrestricted runtime `UPDATE` or `DELETE` is not an acceptable shortcut.
 
 Validate MIME type, file signature, file size, row count, sheet count, cell count, decompression expansion, and parser resource limits before preview or commit. Treat spreadsheet formula-like values as data: neutralize formula injection on export/display paths and never evaluate formulas as executable content.
 
@@ -58,8 +56,8 @@ The environment contract names the public app URL, API URL, Auth0 domain/issuer/
 ## Implementation checklist
 
 - [x] PR-1 characterized the legacy JSON compatibility contract without production changes; see [Legacy JSON Compatibility Contract](LEGACY_JSON_COMPATIBILITY.md).
-- [ ] PR-2 implementation is present, but completion requires the real PostgreSQL 16.15 final gate recorded in the [active plan](../execution-plans/active/pilot-readiness.md). Vendor gates still block provisioning, not schema-only work.
-- [ ] PR-3 supplies tenant-aware repositories and transactional RevenueAction mutations; PR-2 does not switch the runtime adapter.
-- [ ] PR-4 starts only after the Auth0 magic-link delivery decision is documented and its deterministic E2E acceptance test is defined.
+- [x] PR-2 schema/security and its real PostgreSQL 16.15 final gate are recorded in the [active plan](../execution-plans/active/pilot-readiness.md).
+- [x] PR-3 supplies tenant-aware PostgreSQL repositories and transactional RevenueAction mutations while JSON remains the default local/test adapter.
+- [x] PR-4 implements exact Auth0 token validation, membership-backed immutable `TenantContext`, centralized role policy, assisted invitation contracts, and a server-only bridge into PR-3 persistence. Real Auth0/email acceptance remains deployment-gated.
 - [ ] Every production tenant operation has server authorization, RLS, and a negative cross-tenant test.
 - [ ] Restore and tenant extraction runbooks are proven under the [production gate](../operations/PILOT_PRODUCTION_GATE.md).

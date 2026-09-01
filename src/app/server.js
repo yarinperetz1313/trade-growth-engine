@@ -12,13 +12,36 @@ const {
   createPostgresCoreRouter
 } = require("../api/postgresCore");
 const {
+  assertTrustedTenantContext
+} = require("../auth/authorization");
+const {
   createPostgresCoreService
 } = require("../persistence/postgres/coreService");
+const {
+  createTenantContext: createPersistenceTenantContext
+} = require("../persistence/tenantContext");
 const {
   createPostgresRevenueActionService
 } = require("../revenueActions/postgresRevenueActionService");
 
+function bridgeAuthTenantContext(authTenantContext) {
+  const trustedAuthContext = assertTrustedTenantContext(authTenantContext);
+  return createPersistenceTenantContext({
+    tenantId: trustedAuthContext.tenantId,
+    subjectId: trustedAuthContext.subject
+  });
+}
+
+function sendTenantPersistenceUnavailable(res) {
+  return res.status(503).json({
+    ok: false,
+    error: "TENANT_PERSISTENCE_UNAVAILABLE",
+    message: "Tenant-scoped persistence is unavailable."
+  });
+}
+
 function createApp({
+  authRuntime = null,
   persistence,
   revenueActionService,
   resolveTenantContext
@@ -29,31 +52,76 @@ function createApp({
     );
   }
 
+  const authPersistenceAvailable = Boolean(
+    authRuntime
+    && persistence?.adapter === "postgres"
+    && typeof persistence.forTenant === "function"
+  );
+  let requestTenantContext = resolveTenantContext;
+  if (authRuntime && authPersistenceAvailable) {
+    requestTenantContext = req => req.persistenceTenantContext;
+  }
+
   let api = defaultApi;
-  const injectedService = persistence
-    ? createPostgresRevenueActionService({ persistence })
-    : revenueActionService;
+  let injectedService;
+  if (!authRuntime || authPersistenceAvailable) {
+    injectedService = persistence
+      ? createPostgresRevenueActionService({ persistence })
+      : revenueActionService;
+  }
   if (injectedService) {
     const postgresCoreRouter = persistence
       ? createPostgresCoreRouter({
         service: createPostgresCoreService({ persistence }),
-        resolveTenantContext
+        resolveTenantContext: requestTenantContext
       })
       : null;
     api = createApiRouter({
       postgresCoreRouter,
       revenueActionsRouter: createRevenueActionsRouter({
         service: injectedService,
-        resolveTenantContext
+        resolveTenantContext: requestTenantContext
       })
     });
   }
 
   const app = express();
   app.disable("x-powered-by");
-  app.use(cors());
+  app.use(cors(authRuntime?.corsOptions));
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true }));
+
+  if (authRuntime) {
+    app.use("/api/auth", authRuntime.publicRouter);
+    app.use(
+      "/api/auth",
+      authRuntime.authenticateIdentity,
+      authRuntime.deriveTenantContext,
+      authRuntime.protectedRouter
+    );
+    app.use("/api/auth", (req, res) => {
+      res.status(404).json({ ok: false, error: "ROUTE_NOT_FOUND" });
+    });
+    app.use(
+      "/api",
+      authRuntime.authenticateIdentity,
+      authRuntime.deriveTenantContext,
+      (req, res, next) => {
+        if (!authPersistenceAvailable) {
+          return sendTenantPersistenceUnavailable(res);
+        }
+        try {
+          req.persistenceTenantContext = bridgeAuthTenantContext(
+            req.tenantContext
+          );
+          return next();
+        } catch {
+          return sendTenantPersistenceUnavailable(res);
+        }
+      }
+    );
+  }
+
   app.use(api);
 
   app.use((req, res) => {
@@ -82,10 +150,11 @@ function createApp({
 
 const app = createApp();
 
-function startServer() {
+function startServer(options = {}) {
   setServiceStatus("ai", Boolean(process.env.OPENAI_API_KEY));
 
-  return app.listen(config.port, () => {
+  const serverApp = Object.keys(options).length > 0 ? createApp(options) : app;
+  return serverApp.listen(config.port, () => {
     console.log("\n==========================================");
     console.log("       TRADE GROWTH ENGINE API");
     console.log("==========================================");
@@ -98,6 +167,7 @@ function startServer() {
 
 module.exports = {
   app,
+  bridgeAuthTenantContext,
   createApp,
   startServer
 };

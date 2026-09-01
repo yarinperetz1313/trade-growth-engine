@@ -126,7 +126,8 @@ if (!testDatabaseUrl) {
         ["006", "006_runtime_revenue_action_integrity.sql"],
         ["007", "007_revenue_action_lifecycle_integrity.sql"],
         ["008", "008_revenue_action_outcome_integrity.sql"],
-        ["009", "009_revenue_action_cancellation_integrity.sql"]
+        ["009", "009_revenue_action_cancellation_integrity.sql"],
+        ["010", "010_auth_membership_and_invitations.sql"]
       ]
     );
     assert.equal(
@@ -138,7 +139,7 @@ if (!testDatabaseUrl) {
       sha256(fs.readFileSync(
         path.join(
           repositoryRoot,
-          "database/migrations/009_revenue_action_cancellation_integrity.sql"
+          "database/migrations/010_auth_membership_and_invitations.sql"
         )
       ))
     );
@@ -218,12 +219,12 @@ if (!testDatabaseUrl) {
           migrationsDirectory: retroactiveDirectory,
           logger: silentLogger
         }),
-        /retroactive; append-only migrations must follow 009/
+        /retroactive; append-only migrations must follow 010/
       );
 
       copyMigrations(brokenDirectory);
       fs.writeFileSync(
-        path.join(brokenDirectory, "010_broken_transaction.sql"),
+        path.join(brokenDirectory, "011_broken_transaction.sql"),
         "create table tge.must_rollback (id integer);\nselect 1 / 0;\n"
       );
       await assert.rejects(
@@ -235,13 +236,13 @@ if (!testDatabaseUrl) {
         error => {
           assert.match(
             error.message,
-            /Migration 010_broken_transaction\.sql failed \[22012\]: division by zero/
+            /Migration 011_broken_transaction\.sql failed \[22012\]: division by zero/
           );
           assert.equal(error.code, "22012");
           assert.equal(error.migrationLine, undefined);
           assert.deepEqual(error.migration, {
-            id: "010",
-            fileName: "010_broken_transaction.sql"
+            id: "011",
+            fileName: "011_broken_transaction.sql"
           });
           assert.equal(error.cause?.message, "division by zero");
           for (const unsafeField of [
@@ -273,7 +274,7 @@ if (!testDatabaseUrl) {
             to_regclass('tge.must_rollback') as relation,
             exists (
               select 1 from tge_migration.schema_migrations
-              where migration_id = '010'
+              where migration_id = '011'
             ) as ledger_row
         `
       );
@@ -284,7 +285,7 @@ if (!testDatabaseUrl) {
 
       copyMigrations(ownerDirectory);
       fs.writeFileSync(
-        path.join(ownerDirectory, "010_owner_default_probe.sql"),
+        path.join(ownerDirectory, "011_owner_default_probe.sql"),
         `
           create function tge.owner_default_probe()
           returns integer
@@ -297,7 +298,7 @@ if (!testDatabaseUrl) {
         migrationsDirectory: ownerDirectory,
         logger: silentLogger
       });
-      assert.deepEqual(ownerProbe.applied, ["010"]);
+      assert.deepEqual(ownerProbe.applied, ["011"]);
       const ownerProbeSecurity = await adminClient.query(
         `
           select
@@ -888,6 +889,259 @@ if (!testDatabaseUrl) {
       actionType: "FOLLOW_UP",
       fingerprint: "b".repeat(64)
     });
+  });
+
+  test("issuer-bound membership and assisted invitation consumption fail closed", async () => {
+    const issuer = "https://pilot.au.auth0.com/";
+    const subject = "auth0|invited-member";
+    const tokenHash = "c".repeat(64);
+    const mismatchHash = "d".repeat(64);
+
+    await adminClient.query(
+      `
+        insert into tge.assisted_invitations (
+          tenant_id, token_hash, normalized_email, intended_role,
+          expected_identity_issuer, expected_subject_id,
+          created_by_subject_id, expires_at
+        ) values
+          ($1, $2, 'invited@example.test', 'MEMBER', $3, $4,
+           'auth0|owner-a', now() + interval '1 hour'),
+          ($1, $5, 'mismatch@example.test', 'ADMIN', $3, 'auth0|expected-other',
+           'auth0|owner-a', now() + interval '1 hour')
+      `,
+      [tenantA, tokenHash, issuer, subject, mismatchHash]
+    );
+
+    assert.equal(
+      (
+        await runtimeClient.query(
+          "select tge.invitation_available($1) as available",
+          [tokenHash]
+        )
+      ).rows[0].available,
+      true
+    );
+
+    const consumed = await runtimeClient.query(
+      `
+        select resolved_tenant_id, resolved_role
+        from tge.consume_assisted_invitation($1, $2, $3, $4, $5)
+      `,
+      [tokenHash, issuer, subject, "membership-auth-audit", "invitation-auth-audit"]
+    );
+    assert.deepEqual(consumed.rows, [{
+      resolved_tenant_id: tenantA,
+      resolved_role: "MEMBER"
+    }]);
+
+    const replay = await runtimeClient.query(
+      `
+        select resolved_tenant_id, resolved_role
+        from tge.consume_assisted_invitation($1, $2, $3, $4, $5)
+      `,
+      [tokenHash, issuer, subject, "membership-replay-audit", "invitation-replay-audit"]
+    );
+    assert.deepEqual(replay.rows, []);
+
+    const mismatch = await runtimeClient.query(
+      `
+        select resolved_tenant_id, resolved_role
+        from tge.consume_assisted_invitation($1, $2, $3, $4, $5)
+      `,
+      [mismatchHash, issuer, subject, "membership-mismatch-audit", "invitation-mismatch-audit"]
+    );
+    assert.deepEqual(mismatch.rows, []);
+
+    await runtimeClient.query("begin");
+    await runtimeClient.query("select tge.set_identity_context($1, $2)", [
+      issuer,
+      subject
+    ]);
+    const memberships = await runtimeClient.query(
+      `
+        select tenant_id, identity_issuer, subject_id, role, status
+        from tge.tenant_memberships
+        where identity_issuer = $1 and subject_id = $2
+      `,
+      [issuer, subject]
+    );
+    await runtimeClient.query("commit");
+    assert.deepEqual(memberships.rows, [{
+      tenant_id: tenantA,
+      identity_issuer: issuer,
+      subject_id: subject,
+      role: "MEMBER",
+      status: "ACTIVE"
+    }]);
+
+    const evidence = await adminClient.query(
+      `
+        select event_type
+        from tge.audit_events
+        where id in ('membership-auth-audit', 'invitation-auth-audit')
+        order by event_type
+      `
+    );
+    assert.deepEqual(
+      evidence.rows.map(row => row.event_type),
+      ["INVITATION_CONSUMED", "MEMBERSHIP_ACTIVATED"]
+    );
+    assert.equal(
+      (
+        await adminClient.query(
+          "select status from tge.assisted_invitations where token_hash = $1",
+          [mismatchHash]
+        )
+      ).rows[0].status,
+      "PENDING"
+    );
+  });
+
+  test("concurrent invitations serialize activation by issuer and subject", async () => {
+    const issuer = "https://pilot.au.auth0.com/";
+    const subject = "auth0|concurrent-invite";
+    const tokenHashes = ["e".repeat(64), "f".repeat(64)];
+    const barrierLock = [17497, 4];
+    const secondRuntimeClient = new Client({ connectionString: runtimeUrl });
+    let barrierHeld = false;
+    let consumeAttempts = [];
+
+    await secondRuntimeClient.connect();
+    try {
+      await adminClient.query(
+        `
+          create function tge.test_invitation_activation_barrier()
+          returns trigger
+          language plpgsql
+          as $$
+          begin
+            if new.identity_issuer = 'https://pilot.au.auth0.com/'
+              and new.subject_id = 'auth0|concurrent-invite' then
+              perform pg_advisory_xact_lock(17497, 4);
+            end if;
+            return new;
+          end
+          $$;
+
+          create trigger test_invitation_activation_barrier
+          before insert on tge.tenant_memberships
+          for each row execute function tge.test_invitation_activation_barrier();
+        `
+      );
+      await adminClient.query(
+        `
+          insert into tge.assisted_invitations (
+            tenant_id, token_hash, normalized_email, intended_role,
+            expected_identity_issuer, expected_subject_id,
+            created_by_subject_id, expires_at
+          ) values
+            ($1, $3, 'concurrent-a@example.test', 'MEMBER', $5, $6,
+             'auth0|owner-a', now() + interval '1 hour'),
+            ($2, $4, 'concurrent-b@example.test', 'MEMBER', $5, $6,
+             'auth0|owner-b', now() + interval '1 hour')
+        `,
+        [tenantA, tenantB, ...tokenHashes, issuer, subject]
+      );
+
+      await adminClient.query("select pg_advisory_lock($1, $2)", barrierLock);
+      barrierHeld = true;
+
+      const runtimePids = await Promise.all([
+        runtimeClient.query("select pg_backend_pid()::int as pid"),
+        secondRuntimeClient.query("select pg_backend_pid()::int as pid")
+      ]);
+      const consumeSql = `
+        select resolved_tenant_id, resolved_role
+        from tge.consume_assisted_invitation($1, $2, $3, $4, $5)
+      `;
+      consumeAttempts = [
+        runtimeClient.query(consumeSql, [
+          tokenHashes[0], issuer, subject,
+          "membership-concurrency-audit-a", "invitation-concurrency-audit-a"
+        ]),
+        secondRuntimeClient.query(consumeSql, [
+          tokenHashes[1], issuer, subject,
+          "membership-concurrency-audit-b", "invitation-concurrency-audit-b"
+        ])
+      ];
+
+      await waitForLockWaiters(
+        adminClient,
+        runtimePids.map(result => result.rows[0].pid)
+      );
+      await adminClient.query("select pg_advisory_unlock($1, $2)", barrierLock);
+      barrierHeld = false;
+
+      const results = await Promise.all(consumeAttempts);
+      consumeAttempts = [];
+      assert.deepEqual(
+        results.map(result => result.rows.length).sort(),
+        [0, 1]
+      );
+      const activated = results.flatMap(result => result.rows);
+      assert.equal(activated[0].resolved_role, "MEMBER");
+      assert.ok(
+        [tenantA, tenantB].includes(activated[0].resolved_tenant_id),
+        "one invited tenant wins activation"
+      );
+
+      const memberships = await adminClient.query(
+        `
+          select tenant_id, role, status
+          from tge.tenant_memberships
+          where identity_issuer = $1 and subject_id = $2
+        `,
+        [issuer, subject]
+      );
+      assert.equal(memberships.rows.length, 1);
+      assert.deepEqual(memberships.rows[0], {
+        tenant_id: activated[0].resolved_tenant_id,
+        role: "MEMBER",
+        status: "ACTIVE"
+      });
+
+      const invitations = await adminClient.query(
+        `
+          select status
+          from tge.assisted_invitations
+          where token_hash = any($1::text[])
+          order by status
+        `,
+        [tokenHashes]
+      );
+      assert.deepEqual(
+        invitations.rows.map(row => row.status),
+        ["CONSUMED", "PENDING"]
+      );
+
+      const evidence = await adminClient.query(
+        `
+          select event_type
+          from tge.audit_events
+          where id like '%-concurrency-audit-%'
+          order by event_type
+        `
+      );
+      assert.deepEqual(
+        evidence.rows.map(row => row.event_type),
+        ["INVITATION_CONSUMED", "MEMBERSHIP_ACTIVATED"]
+      );
+    } finally {
+      if (barrierHeld) {
+        await adminClient.query("select pg_advisory_unlock($1, $2)", barrierLock);
+      }
+      if (consumeAttempts.length > 0) {
+        await Promise.allSettled(consumeAttempts);
+      }
+      await secondRuntimeClient.end();
+      await adminClient.query(
+        `
+          drop trigger if exists test_invitation_activation_barrier
+            on tge.tenant_memberships;
+          drop function if exists tge.test_invitation_activation_barrier();
+        `
+      );
+    }
   });
 
   test("RevenueAction effect links are reciprocal, opportunity-scoped, and singular", async () => {

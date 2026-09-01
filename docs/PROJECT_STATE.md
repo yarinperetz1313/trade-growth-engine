@@ -1,6 +1,6 @@
 # Project State
 
-_Last locally audited on 2026-08-30. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+_Last locally audited on 2026-09-01. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
 ## Current verified shape
 Trade Growth Engine is a Vite React + Express local-first CRM. `src/index.js` starts the server, `src/api/` exposes thin structured HTTP boundaries, and `web/main.jsx` provides hash-routed UI. Local JSON persistence flows through `src/services/localStore.js`; tests and E2E use isolated stores. The [Legacy JSON Compatibility Contract](architecture/LEGACY_JSON_COMPATIBILITY.md) and deterministic fixtures characterize that adapter for the future persistence cutover.
@@ -9,7 +9,9 @@ Pilot PR-2 is **complete** and adds a PostgreSQL foundation without changing tha
 
 Commit `8f1b373` fixed PostgreSQL role-creation parameter typing with explicit text casts. CI run `33303061173` then executed all 11 database tests (8 passed, 3 failed), revealing one function-default ACL schema defect and one import negative-fixture defect. Commit `d54d6f1` added `004_global_function_default_privileges.sql`, globally revoked future `tge_owner` function `PUBLIC EXECUTE`, re-protected existing functions, isolated SQLSTATE `23503` missing-source coverage from `23505` duplicate-target coverage, and advanced harness/static/real-database expectations. [GitHub Actions run 33304131266](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33304131266) on `d54d6f1` succeeded: harness passed; integration 68/68; PostgreSQL 16.15 database 11/11; Chromium E2E 7/7; production build passed with 21 modules transformed in 102 ms.
 
-Available local pre-push checks also passed: targeted tests 10/10, integration 68/68, harness, production build with 21 modules transformed, syntax, and `git diff --check`. Local `npm run test:db` was not run because this host has no PostgreSQL endpoint; the successful CI run is the real-database proof. Production repositories, Auth0 middleware/authorization, provisioning, controlled import transitions/deletion, import execution, and JSON cutover do not exist yet.
+PR-3 and PR-4 are integrated in code. PR-3 supplies tenant-aware PostgreSQL repositories, transaction-scoped persistence, and transactional RevenueAction execution while preserving JSON as the default local/test adapter and preserving unknown JSON-compatible values. Its migrations remain append-only and unchanged at `005`–`009`. PR-4 adds exact Auth0 validation, active-membership authorization, immutable auth `TenantContext`, centralized role policy, assisted invitations, browser PKCE boundaries, and the renumbered append-only migration `010_auth_membership_and_invitations.sql`.
+
+The server validates the independently branded PR-4 auth context, mints a separate trusted PR-3 persistence context from only its tenant ID and subject, and injects it into the PostgreSQL routers and transactions. Auth-enabled business APIs still return `503 TENANT_PERSISTENCE_UNAVAILABLE` when the PostgreSQL adapter/bridge is absent. Production provisioning, controlled import transitions/deletion, import execution, and JSON cutover do not exist yet. A provisioned Auth0 AU tenant, SMTP/domain evidence, and real external-email OTP E2E remain release gates.
 
 Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 
@@ -27,7 +29,7 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - Health is not close probability.
 - Deal/revenue intelligence remains deterministic and read-only.
 - External communication needs explicit human approval and confirmation; Phase 2 never sends it.
-- RevenueAction idempotency is semantic and recovery-oriented, not a substitute for future transactional persistence.
+- RevenueAction idempotency remains semantic and recovery-oriented. PostgreSQL mode encloses the closed loop in one tenant transaction; JSON mode remains the compatible non-transactional local default.
 - Tenant custom GUCs are trusted server-only transaction inputs, not API authorization; RLS does not replace PR-4 membership checks.
 - Legacy operational IDs remain text inside `(tenant_id, id)` keys; unknown commercial evidence and source ordinal/timestamps must survive cutover.
 - Developer `data/*.json` must never be touched by tests/E2E.
@@ -37,4 +39,4 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - Pilot Readiness **PR-0 is complete**: its architecture, operations, and harness consistency contracts are documented. This does **not** mean production infrastructure, authentication, authorization, tenancy, backups, imports, or deployment have been provisioned or implemented.
 - **PR-1 is complete**: it characterized legacy JSON compatibility, including deterministic fixtures, observable ordering/value semantics, RevenueAction lifecycle/effect links, and the migration manifest/handoff. It did not implement production persistence or tenancy.
 - **PR-2 is complete**: schema/security/migrations `001`–`004`, tests, and CI are present, and GitHub Actions run `33304131266` passed the full PostgreSQL 16.15 gate. This completion does not imply production repositories, Auth0 middleware, provisioning, import execution, or JSON cutover. Vendor decisions still gate provisioning and release.
-- **PR-3 is NEXT but NOT STARTED**: production repositories and transactional RevenueAction persistence. **PR-4 is NOT STARTED/BLOCKED** on identity/membership and magic-link product decisions.
+- **PR-3 and PR-4 are integrated in code**: tenant-aware PostgreSQL repositories and transactional RevenueAction persistence now consume the membership-derived auth boundary through a server-only trusted-context bridge. Real Auth0/SMTP acceptance and combined GitHub `verify` remain release evidence before merge/release. PR-5 and later product work remain not started.

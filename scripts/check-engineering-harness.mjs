@@ -26,6 +26,7 @@ validateNoMachinePaths(listMachinePathCheckFiles(trackedFiles));
 validateOfflineIntelligence();
 validateE2eContract();
 validateDatabaseFoundationContract();
+validateAuthBoundaryContract();
 validatePilotReadinessContract();
 
 if (failures.length > 0) {
@@ -202,6 +203,9 @@ function validateDatabaseFoundationContract() {
   const cancellationIntegrityMigration = readFile(
     "database/migrations/009_revenue_action_cancellation_integrity.sql"
   );
+  const authMigration = readFile(
+    "database/migrations/010_auth_membership_and_invitations.sql"
+  );
   const migrationFiles = fs
     .readdirSync(path.join(rootDir, "database", "migrations"))
     .filter(fileName => /^\d{3}_[a-z0-9_]+\.sql$/.test(fileName))
@@ -283,6 +287,21 @@ function validateDatabaseFoundationContract() {
     "Migration 005 must preserve the existing IN_PROGRESS task status"
   );
   requireText(
+    authMigration,
+    "identity_issuer = tge.current_identity_issuer()",
+    "Migration 010 membership lookup must bind issuer and subject"
+  );
+  requireText(
+    authMigration,
+    "create table tge.assisted_invitations",
+    "Migration 010 must add assisted invitation storage"
+  );
+  requireText(
+    authMigration,
+    "create function tge.consume_assisted_invitation",
+    "Migration 010 must provide atomic invitation consumption"
+  );
+  requireText(
     databaseTest,
     "TGE_TEST_DATABASE_URL",
     "Database tests must require an explicit real PostgreSQL URL"
@@ -306,7 +325,8 @@ function validateDatabaseFoundationContract() {
       "006_runtime_revenue_action_integrity.sql",
       "007_revenue_action_lifecycle_integrity.sql",
       "008_revenue_action_outcome_integrity.sql",
-      "009_revenue_action_cancellation_integrity.sql"
+      "009_revenue_action_cancellation_integrity.sql",
+      "010_auth_membership_and_invitations.sql"
     ])
   ) {
     failures.push(
@@ -393,6 +413,53 @@ function validateDatabaseFoundationContract() {
   }
 }
 
+function validateAuthBoundaryContract() {
+  const authentication = readFile("src/auth/authentication.js");
+  const authorization = readFile("src/auth/authorization.js");
+  const invitations = readFile("src/auth/invitations.js");
+  const browserAuth = readFile("web/lib/auth.js");
+
+  requireText(
+    packageJson.dependencies.jose || "",
+    "^6.",
+    "Server token verification must retain JOSE/JWKS support"
+  );
+  requireText(
+    packageJson.dependencies["@auth0/auth0-spa-js"] || "",
+    "^2.",
+    "Browser authentication must retain the Auth0 PKCE SDK"
+  );
+  requireText(authentication, 'algorithms: ["RS256"]', "Auth0 tokens must pin RS256");
+  requireText(
+    authentication,
+    'requiredClaims: ["exp", "iat", "sub"]',
+    "Auth0 tokens must require expiry, issued-at, and subject claims"
+  );
+  requireText(
+    authorization,
+    'INVITATION_ADMIN: "security:invitations"',
+    "Role policy must keep invitation administration centralized"
+  );
+  requireText(
+    invitations,
+    'createHash("sha256")',
+    "Assisted invitation tokens must be hashed"
+  );
+  requireText(
+    browserAuth,
+    'cacheLocation: "memory"',
+    "Browser token storage must remain memory-only"
+  );
+  requireText(
+    browserAuth,
+    "handleRedirectCallback()",
+    "Browser callback must use the SDK state/PKCE handler"
+  );
+  if (/localStorage|clientSecret|managementApi|otp/i.test(browserAuth)) {
+    failures.push("browser auth must not contain token persistence, secrets, management API, or OTP handling");
+  }
+}
+
 function validatePilotReadinessContract() {
   const planPath = "docs/execution-plans/active/pilot-readiness.md";
   const executionPlansIndexPath = "docs/execution-plans/README.md";
@@ -410,23 +477,13 @@ function validatePilotReadinessContract() {
   );
   requireText(
     executionPlansIndex,
-    "PR-0 is COMPLETE",
-    "Execution-plan index must mark Pilot PR-0 complete"
+    "PR-0 through PR-2 are COMPLETE",
+    "Execution-plan index must mark Pilot PR-0 through PR-2 complete"
   );
   requireText(
     executionPlansIndex,
-    "PR-1 is COMPLETE",
-    "Execution-plan index must mark Pilot PR-1 complete"
-  );
-  requireText(
-    executionPlansIndex,
-    "PR-2 is COMPLETE",
-    "Execution-plan index must mark Pilot PR-2 complete"
-  );
-  requireText(
-    executionPlansIndex,
-    "PR-3 is NEXT and NOT STARTED",
-    "Execution-plan index must mark Pilot PR-3 next and not started"
+    "PR-3 and PR-4 are integrated in code",
+    "Execution-plan index must mark Pilot PR-3 and PR-4 integrated"
   );
   requireText(
     plan,
@@ -438,21 +495,20 @@ function validatePilotReadinessContract() {
     "[production gate](../../operations/PILOT_PRODUCTION_GATE.md)",
     "Pilot plan must link the canonical production gate"
   );
-  requireText(plan, "PR-0 is COMPLETE", "Pilot plan must mark PR-0 complete");
   requireText(
     plan,
-    "PR-1 is COMPLETE",
-    "Pilot plan must mark PR-1 complete"
+    "PR-0 through PR-2 are COMPLETE",
+    "Pilot plan must mark PR-0 through PR-2 complete"
   );
   requireText(
     plan,
-    "PR-2 — COMPLETE",
-    "Pilot plan must mark PR-2 complete"
+    "PR-3 — persistence implemented and integrated",
+    "Pilot plan must mark PR-3 persistence integrated"
   );
   requireText(
     plan,
-    "PR-3 — NEXT, NOT STARTED",
-    "Pilot plan must mark PR-3 next and not started"
+    "PR-4 — auth implemented and integrated",
+    "Pilot plan must mark PR-4 auth integrated"
   );
 
   const canonicalDocuments = {
@@ -473,7 +529,8 @@ function validatePilotReadinessContract() {
       name: "Auth0 AU identity with TGE-owned authorization",
       document: "foundation",
       requirements: [
-        "Auth0 Australia (AU) provides magic-link **identity**",
+        "Auth0 Australia (AU) provides **identity** through New Universal Login and passwordless email OTP.",
+        "Authorization Code Flow with PKCE",
         "TGE remains the authorization authority."
       ]
     },
@@ -545,22 +602,20 @@ function validatePilotReadinessContract() {
         "Cloudflare Pages is recommended, subject to static-host vendor/privacy approval.",
         "approve the production domain/registrar",
         "custom transactional SMTP, SPF, DKIM, and DMARC",
-        "confirm AU tenancy, selected plan, magic-link/custom-domain capabilities",
+        "confirm the AU tenant and plan support New Universal Login passwordless email OTP",
+        "dedicated AU non-production tenant and test SMTP/email-capture provider",
         "complete privacy/DPA review for every selected vendor"
       ]
     },
     {
-      name: "Auth0 magic-link pre-PR-4 blocker",
+      name: "Auth0 email-OTP PR-4 decision and deployment gate",
       document: "foundation",
       requirements: [
-        "**PR-4 is blocked**",
-        "Auth0 AU plan supports passwordless magic links",
-        "Classic Login with same-browser/device completion",
-        "mobile/email-client behavior",
-        "callback/redirect allowlists",
-        "phishing/resend/session protections",
-        "deterministic E2E acceptance test",
-        "There is no implicit OTP fallback."
+        "prior magic-link decision gate is resolved",
+        "Classic Login, magic links",
+        "public self-service signup are out of scope",
+        "exact callback/logout/origin configuration",
+        "real OTP acceptance test remain deployment evidence"
       ]
     }
   ];
