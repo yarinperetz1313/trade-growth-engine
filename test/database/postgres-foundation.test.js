@@ -2544,6 +2544,24 @@ async function assertSqlState(promise, expectedCode) {
   });
 }
 
+async function waitForLockWaiters(client, pids) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const waiting = await client.query(
+      `
+        select count(*)::int as count
+        from pg_stat_activity
+        where pid = any($1::int[])
+          and wait_event_type = 'Lock'
+      `,
+      [pids]
+    );
+    if (waiting.rows[0].count === pids.length) return;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.fail("concurrent invitation clients did not reach the lock barrier");
+}
+
 function replaceDatabase(connectionString, databaseName) {
   const url = new URL(connectionString);
   url.pathname = `/${databaseName}`;

@@ -12,6 +12,7 @@ const documentedFiles = [
   "test/AGENTS.md",
   "docs/ENGINEERING_HARNESS.md",
   "docs/PROJECT_STATE.md",
+  "docs/architecture/AUTHENTICATION_AND_TENANT_CONTEXT.md",
   "docs/execution-plans/README.md",
   "docs/execution-plans/TEMPLATE.md"
 ];
