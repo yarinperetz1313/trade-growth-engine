@@ -6,7 +6,10 @@ import {
   runOpportunityIntelligenceAction,
   transitionRevenueAction
 } from "../lib/api";
-import { formatCommercialValue } from "../lib/commercialValue";
+import {
+  formatCommercialValue,
+  isKnownCommercialValue
+} from "../lib/commercialValue";
 
 const ACTIVE_REVENUE_ACTION_STATUSES = new Set([
   "RECOMMENDED",
@@ -222,12 +225,12 @@ export default function OpportunityCommandCenter({
       "Unknown";
 
   const hasValue =
-    currentOpportunity.value !==
-      null &&
-    currentOpportunity.value !==
-      undefined &&
-    currentOpportunity.value !== "" &&
-    Number(currentOpportunity.value) > 0;
+    isKnownCommercialValue(
+      currentOpportunity.value
+    );
+
+  const hasValidValueInput =
+    isKnownCommercialValue(value);
 
   const hasStaleRisk =
     Number(scoreData?.stale_risk) >=
@@ -620,8 +623,7 @@ export default function OpportunityCommandCenter({
               <button
                 className="oc-primary-button"
                 disabled={
-                  !value ||
-                  Number(value) <= 0 ||
+                  !hasValidValueInput ||
                   actionLoading ===
                     "value"
                 }
@@ -941,7 +943,8 @@ export default function OpportunityCommandCenter({
               <div className="oc-action-form">
                 <input
                   type="number"
-                  min="0"
+                  min="1"
+                  step="100"
                   value={value}
                   onChange={e =>
                     setValue(
@@ -954,7 +957,7 @@ export default function OpportunityCommandCenter({
                 <button
                   className="oc-secondary-button"
                   disabled={
-                    !value ||
+                    !hasValidValueInput ||
                     actionLoading ===
                       "value"
                   }
@@ -963,7 +966,8 @@ export default function OpportunityCommandCenter({
                       "value",
                       "value",
                       {
-                        value
+                        value:
+                          Number(value)
                       }
                     )
                   }

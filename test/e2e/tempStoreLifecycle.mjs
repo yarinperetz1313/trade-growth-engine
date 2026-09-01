@@ -132,6 +132,16 @@ export function seedE2eStore(storeDir) {
       source: "e2e-seed",
       qualification_score: 86,
       qualification_status: "HIGH"
+    },
+    {
+      id: "e2e-prospect-unconverted",
+      business_name: "E2E Unconverted Roofing",
+      website: "https://example.test/e2e-unconverted-roofing",
+      service: "Commercial Roofing",
+      location: "Geelong",
+      source: "e2e-seed",
+      qualification_score: 78,
+      qualification_status: "HIGH"
     }
   ]);
 

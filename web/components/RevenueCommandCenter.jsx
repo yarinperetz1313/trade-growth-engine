@@ -29,6 +29,7 @@ export default function RevenueCommandCenter({
   revenue,
   loading,
   error,
+  actionsUnavailable = false,
   onRefresh,
   onOpenOpportunity
 }) {
@@ -152,7 +153,11 @@ export default function RevenueCommandCenter({
 
       <div className="revenue-actions">
         <h4>Top actions</h4>
-        {topActions.length === 0 ? (
+        {actionsUnavailable ? (
+          <div className="pipeline-loading">
+            Opportunity actions are unavailable until opportunity data can be loaded.
+          </div>
+        ) : topActions.length === 0 ? (
           <div className="pipeline-loading">
             No active opportunities need review.
           </div>

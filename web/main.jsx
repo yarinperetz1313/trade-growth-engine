@@ -41,6 +41,24 @@ function commercialAmount(value) {
     : 0;
 }
 
+function fractionalProbability(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  const probability = Number(value);
+
+  return Number.isFinite(probability) &&
+    probability >= 0 &&
+    probability <= 1
+    ? probability
+    : null;
+}
+
 function pageFromHash() {
   const hash = window.location.hash.replace(/^#\/?/, "");
 
@@ -177,10 +195,6 @@ function App() {
               />
             </div>
 
-            <button className="avatar">
-              Y
-            </button>
-
           </div>
 
         </header>
@@ -223,7 +237,7 @@ function Dashboard({ onNavigate }) {
         item.stage !== "LOST"
     );
 
-  const qualifiedLeads =
+  const qualifiedOpportunities =
     opportunities.filter(
       item =>
         Number(
@@ -283,7 +297,7 @@ function Dashboard({ onNavigate }) {
       <div className="welcome">
         <div>
           <h2>
-            Good morning.
+            Growth overview.
           </h2>
 
           <p>
@@ -301,23 +315,39 @@ function Dashboard({ onNavigate }) {
           value={
             loading
               ? "..."
+              : error
+                ? "Unknown"
               : money(
                   metrics?.pipeline_value
                 )
           }
-          change="Live"
+          change={
+            loading
+              ? "Loading"
+              : error
+                ? "Unavailable"
+                : "Live"
+          }
         />
 
         <Metric
-          label="Qualified Leads"
+          label="Qualified Opportunities"
           value={
             loading
               ? "..."
+              : error
+                ? "Unknown"
               : String(
-                  qualifiedLeads
+                  qualifiedOpportunities
                 )
           }
-          change="Live"
+          change={
+            loading
+              ? "Loading"
+              : error
+                ? "Unavailable"
+                : "Live"
+          }
         />
 
         <Metric
@@ -325,9 +355,17 @@ function Dashboard({ onNavigate }) {
           value={
             loading
               ? "..."
+              : error
+                ? "Unknown"
               : averageScore
           }
-          change="Live"
+          change={
+            loading
+              ? "Loading"
+              : error
+                ? "Unavailable"
+                : "Live"
+          }
         />
 
         <Metric
@@ -335,11 +373,19 @@ function Dashboard({ onNavigate }) {
           value={
             loading
               ? "..."
+              : error
+                ? "Unknown"
               : money(
                   projectedRevenue
                 )
           }
-          change="Weighted pipeline"
+          change={
+            loading
+              ? "Loading"
+              : error
+                ? "Unavailable"
+                : "Weighted pipeline"
+          }
         />
 
       </div>
@@ -355,8 +401,8 @@ function Dashboard({ onNavigate }) {
               </h3>
 
               <p>
-                Highest-value prospects
-                requiring attention.
+                Highest-scoring opportunities,
+                with estimated value as the tie-breaker.
               </p>
             </div>
 
@@ -575,60 +621,56 @@ function Dashboard({ onNavigate }) {
 
         </div>
 
-        <div className="intelligence-grid">
+        {loading ? (
+          <div className="pipeline-loading">
+            Loading growth intelligence...
+          </div>
+        ) : error ? (
+          <div className="pipeline-loading">
+            Growth intelligence unavailable.
+          </div>
+        ) : (
+          <div className="intelligence-grid">
 
-          <Insight
-            title="Best ICP"
-            value={
-              activeOpportunities.length
-                ? "Active Trade Opportunities"
-                : "—"
-            }
-            text={
-              activeOpportunities.length
-                ? "Based on the current active opportunity set."
-                : "Waiting for opportunity data."
-            }
-          />
+            <Insight
+              title="Best Channel"
+              value="—"
+              text="Channel performance will become data-driven once outreach experiments are connected."
+            />
 
-          <Insight
-            title="Best Channel"
-            value="—"
-            text="Channel performance will become data-driven once outreach experiments are connected."
-          />
+            <Insight
+              title="Biggest Opportunity"
+              value={
+                money(
+                  biggestOpportunity?.value
+                )
+              }
+              text={
+                biggestOpportunity &&
+                isKnownCommercialValue(
+                  biggestOpportunity.value
+                )
+                  ? `${biggestOpportunity.business_name || "Opportunity"} currently has the highest estimated value.`
+                  : "No known opportunity value is currently recorded."
+              }
+            />
 
-          <Insight
-            title="Biggest Opportunity"
-            value={
-              money(
-                biggestOpportunity?.value
-              )
-            }
-            text={
-              biggestOpportunity &&
-              isKnownCommercialValue(
-                biggestOpportunity.value
-              )
-                ? `${biggestOpportunity.business_name || "Opportunity"} currently has the highest estimated value.`
-                : "No known opportunity value is currently recorded."
-            }
-          />
+            <Insight
+              title="Priority Review"
+              value={
+                priorityOpportunities.length
+                  ? `${priorityOpportunities.length} Opportunities`
+                  : "None"
+              }
+              text={
+                priorityOpportunities.length
+                  ? "Review the highest-scoring active opportunities."
+                  : "No active opportunities are available to review."
+              }
+            />
 
-          <Insight
-            title="Next Action"
-            value={
-              priorityOpportunities.length
-                ? `${priorityOpportunities.length} Leads`
-                : "None"
-            }
-            text={
-              priorityOpportunities.length
-                ? "Review the highest-priority opportunities and prepare the next action."
-                : "No priority opportunities currently require attention."
-            }
-          />
-
-        </div>
+          </div>
+        )}
 
       </section>
 
@@ -687,14 +729,15 @@ function Insight({
 function Prospects({ searchTerm = "" }) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [createError, setCreateError] = useState(null);
   const [creating, setCreating] = useState(null);
   const [created, setCreated] = useState({});
 
   async function loadProspects() {
     try {
       setLoading(true);
-      setError(null);
+      setLoadError(null);
 
       const result = await getProspects();
 
@@ -707,7 +750,7 @@ function Prospects({ searchTerm = "" }) {
       setData(prospects);
     } catch (err) {
       console.error(err);
-      setError(
+      setLoadError(
         err?.message ||
         "Unable to load prospects."
       );
@@ -743,23 +786,29 @@ function Prospects({ searchTerm = "" }) {
   async function handleCreateOpportunity(prospect) {
     try {
       setCreating(prospect.id);
-      setError(null);
+      setCreateError(null);
 
-      await createOpportunityFromProspect(
-        prospect.id
-      );
+      const result =
+        await createOpportunityFromProspect(
+          prospect.id
+        );
 
       setCreated(prev => ({
         ...prev,
-        [prospect.id]: true
+        [prospect.id]:
+          result?.created === false
+            ? "existing"
+            : "created"
       }));
     } catch (err) {
       console.error(err);
 
-      setError(
-        err?.message ||
-        "Unable to create opportunity."
-      );
+      setCreateError({
+        prospectId: prospect.id,
+        message:
+          err?.message ||
+          "Unable to create opportunity."
+      });
     } finally {
       setCreating(null);
     }
@@ -786,9 +835,9 @@ function Prospects({ searchTerm = "" }) {
         </button>
       </div>
 
-      {error && (
-        <div className="pipeline-loading">
-          {error}
+      {createError && (
+        <div className="pipeline-loading" role="status">
+          {createError.message}
         </div>
       )}
 
@@ -797,6 +846,16 @@ function Prospects({ searchTerm = "" }) {
         {loading ? (
           <div className="pipeline-loading">
             Loading live prospects...
+          </div>
+        ) : loadError ? (
+          <div className="pipeline-loading">
+            {loadError}
+            <button
+              className="text-button"
+              onClick={loadProspects}
+            >
+              Retry
+            </button>
           </div>
         ) : filteredData.length === 0 ? (
           <div className="pipeline-loading">
@@ -817,10 +876,8 @@ function Prospects({ searchTerm = "" }) {
 
             {filteredData.map(prospect => {
 
-              const wasCreated =
-                Boolean(
-                  created[prospect.id]
-                );
+              const creationStatus =
+                created[prospect.id];
 
               return (
                 <div
@@ -846,9 +903,11 @@ function Prospects({ searchTerm = "" }) {
 
                   <span>
 
-                    {wasCreated ? (
+                    {creationStatus ? (
                       <span className="status qualified">
-                        Opportunity created
+                        {creationStatus === "existing"
+                          ? "Opportunity already exists"
+                          : "Opportunity created"}
                       </span>
                     ) : (
                       <button
@@ -864,7 +923,9 @@ function Prospects({ searchTerm = "" }) {
                       >
                         {creating === prospect.id
                           ? "Creating..."
-                          : "Create opportunity →"}
+                          : createError?.prospectId === prospect.id
+                            ? "Retry opportunity creation →"
+                            : "Create opportunity →"}
                       </button>
                     )}
 
@@ -886,7 +947,8 @@ function Prospects({ searchTerm = "" }) {
 function Pipeline() {
   const [opportunities, setOpportunities] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [updateError, setUpdateError] = useState(null);
   const [updating, setUpdating] = useState(null);
 
   const stages = [
@@ -903,7 +965,8 @@ function Pipeline() {
   const loadPipeline = async () => {
     try {
       setLoading(true);
-      setError(null);
+      setLoadError(null);
+      setUpdateError(null);
 
       const result = await getOpportunities();
 
@@ -918,7 +981,7 @@ function Pipeline() {
     } catch (err) {
       console.error(err);
 
-      setError(
+      setLoadError(
         err?.message ||
         "Unable to load pipeline."
       );
@@ -945,7 +1008,7 @@ function Pipeline() {
           opportunity.id
         );
 
-        setError(null);
+        setUpdateError(null);
 
         const result =
           await updateOpportunityStage(
@@ -974,7 +1037,7 @@ function Pipeline() {
       } catch (err) {
         console.error(err);
 
-        setError(
+        setUpdateError(
           err?.message ||
           "Unable to update stage."
         );
@@ -1003,11 +1066,11 @@ function Pipeline() {
       (sum, item) => {
         const candidate =
           item.weighted_value ??
-          (
-            commercialAmount(item.value) *
-            Number(item.probability || 0) /
-            100
-          );
+          (isKnownCommercialValue(item.value) &&
+          fractionalProbability(item.probability) !== null
+            ? Number(item.value) *
+              fractionalProbability(item.probability)
+            : null);
 
         return sum +
           commercialAmount(candidate);
@@ -1047,33 +1110,73 @@ function Pipeline() {
 
         <Insight
           title="Open Pipeline"
-          value={money(totalValue)}
-          text="Total value of active opportunities."
+          value={
+            loading
+              ? "..."
+              : loadError
+                ? "Unknown"
+                : money(totalValue)
+          }
+          text={
+            loadError
+              ? "Pipeline data is unavailable."
+              : "Total value of active opportunities."
+          }
         />
 
         <Insight
           title="Weighted Pipeline"
-          value={money(weightedValue)}
-          text="Pipeline value adjusted by stage probability."
+          value={
+            loading
+              ? "..."
+              : loadError
+                ? "Unknown"
+                : money(weightedValue)
+          }
+          text={
+            loadError
+              ? "Pipeline data is unavailable."
+              : "Pipeline value adjusted by stage probability."
+          }
         />
 
         <Insight
           title="Active Opportunities"
-          value={active.length}
-          text="Opportunities currently in progress."
+          value={
+            loading
+              ? "..."
+              : loadError
+                ? "Unknown"
+                : active.length
+          }
+          text={
+            loadError
+              ? "Pipeline data is unavailable."
+              : "Opportunities currently in progress."
+          }
         />
 
       </div>
 
-      {error && (
+      {updateError && (
         <div className="pipeline-loading">
-          {error}
+          {updateError}
         </div>
       )}
 
       {loading ? (
         <div className="pipeline-loading">
           Loading live pipeline...
+        </div>
+      ) : loadError ? (
+        <div className="pipeline-loading">
+          {loadError}
+          <button
+            className="text-button"
+            onClick={loadPipeline}
+          >
+            Retry
+          </button>
         </div>
       ) : (
         <div className="pipeline-board">
@@ -1290,6 +1393,9 @@ function Opportunities() {
         revenue={revenue}
         loading={revenueLoading}
         error={revenueError}
+        actionsUnavailable={
+          loading || Boolean(error)
+        }
         onRefresh={refreshRevenue}
         onOpenOpportunity={opportunityId => {
           const opportunity = opportunities.find(
@@ -1311,7 +1417,7 @@ function Opportunities() {
           </h2>
 
           <p>
-            Qualified opportunities and their commercial potential.
+            Opportunities and their commercial potential.
           </p>
 
         </div>
@@ -1330,20 +1436,24 @@ function Opportunities() {
 
       </div>
 
-      {error && (
-
-        <div className="pipeline-loading">
-          {error}
-        </div>
-
-      )}
-
       <section className="card">
 
         {loading ? (
 
           <div className="pipeline-loading">
             Loading opportunities...
+          </div>
+
+        ) : error ? (
+
+          <div className="pipeline-loading">
+            {error}
+            <button
+              className="text-button"
+              onClick={refresh}
+            >
+              Retry
+            </button>
           </div>
 
         ) : opportunities.length === 0 ? (
@@ -1394,17 +1504,19 @@ function Opportunities() {
                   );
 
                 const probability =
-                  Number(
-                    opportunity.probability ||
-                    0
+                  fractionalProbability(
+                    opportunity.probability
                   );
 
                 const weighted =
                   opportunity.weighted_value ??
-                  commercialAmount(
+                  (isKnownCommercialValue(
                     opportunity.value
-                  ) *
-                    (probability / 100);
+                  ) && probability !== null
+                    ? Number(
+                        opportunity.value
+                      ) * probability
+                    : null);
 
                 return (
 
@@ -1446,7 +1558,11 @@ function Opportunities() {
                     </span>
 
                     <span>
-                      {probability}%
+                      {probability === null
+                        ? "Unknown"
+                        : `${Math.round(
+                            probability * 100
+                          )}%`}
                     </span>
 
                     <span>
