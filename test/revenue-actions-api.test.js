@@ -219,6 +219,11 @@ test("enforces lifecycle transitions and preserves rejection history", async () 
     assert.equal(rejected.data.data.status, "REJECTED");
     assert.equal(rejected.data.data.rejection_reason, "Timing is not appropriate.");
     assert.ok(rejected.data.data.rejected_at);
+    assert.deepEqual(rejected.data.data.audit.at(-1), {
+      transition: "REJECTED",
+      at: rejected.data.data.rejected_at,
+      reason: "Timing is not appropriate."
+    });
 
     const approveRejected = await transition(
       baseUrl,
@@ -247,6 +252,11 @@ test("requires approval and records manual-confirmed communication without claim
     const approved = await transition(baseUrl, actionId, "approve");
     assert.equal(approved.data.data.status, "APPROVED");
     assert.ok(approved.data.data.approved_at);
+    assert.deepEqual(approved.data.data.audit.at(-1), {
+      transition: "APPROVED",
+      at: approved.data.data.approved_at,
+      approval: "HUMAN"
+    });
 
     const missingMode = await transition(baseUrl, actionId, "execute");
     assert.equal(missingMode.status, 400);

@@ -42,8 +42,11 @@ const revenueActions =
     "./revenueActions"
   );
 
-const router =
-  express.Router();
+function createApiRouter({
+  revenueActionsRouter = revenueActions
+} = {}) {
+  const router =
+    express.Router();
 
 router.use(
   health
@@ -74,10 +77,10 @@ router.use(
 );
 
 router.use(
-  revenueActions
+  revenueActionsRouter
 );
 
-router.get(
+  router.get(
   "/api",
   (req, res) => {
     res.json({
@@ -102,7 +105,15 @@ router.get(
       }
     });
   }
-);
+  );
+
+  return router;
+}
+
+const router = createApiRouter();
 
 module.exports =
   router;
+
+module.exports.createApiRouter =
+  createApiRouter;

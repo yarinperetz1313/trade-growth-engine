@@ -187,6 +187,12 @@ function validateDatabaseFoundationContract() {
   const functionDefaultsMigration = readFile(
     "database/migrations/004_global_function_default_privileges.sql"
   );
+  const taskStatusMigration = readFile(
+    "database/migrations/005_task_in_progress_status.sql"
+  );
+  const runtimeIntegrityMigration = readFile(
+    "database/migrations/006_runtime_revenue_action_integrity.sql"
+  );
   const migrationFiles = fs
     .readdirSync(path.join(rootDir, "database", "migrations"))
     .filter(fileName => /^\d{3}_[a-z0-9_]+\.sql$/.test(fileName))
@@ -263,6 +269,11 @@ function validateDatabaseFoundationContract() {
     "Migration 004 must revoke PUBLIC execute from future functions"
   );
   requireText(
+    taskStatusMigration,
+    "'IN_PROGRESS'",
+    "Migration 005 must preserve the existing IN_PROGRESS task status"
+  );
+  requireText(
     databaseTest,
     "TGE_TEST_DATABASE_URL",
     "Database tests must require an explicit real PostgreSQL URL"
@@ -281,12 +292,33 @@ function validateDatabaseFoundationContract() {
       "001_initial_schema.sql",
       "002_tenant_domain_schema.sql",
       "003_roles_rls_and_grants.sql",
-      "004_global_function_default_privileges.sql"
+      "004_global_function_default_privileges.sql",
+      "005_task_in_progress_status.sql",
+      "006_runtime_revenue_action_integrity.sql"
     ])
   ) {
     failures.push(
-      `Pilot PR-2 migration sequence drift: ${migrationFiles.join(", ")}`
+      `Pilot migration sequence drift: ${migrationFiles.join(", ")}`
     );
+  }
+
+  requireText(
+    runtimeIntegrityMigration,
+    "RevenueAction audit history is append-only.",
+    "Migration 006 must protect append-only RevenueAction audit history"
+  );
+  requireText(
+    runtimeIntegrityMigration,
+    "current_payload jsonb",
+    "Migration 006 must separate mutable record shape from legacy evidence"
+  );
+  requireText(
+    runtimeIntegrityMigration,
+    "live_ordinal bigint",
+    "Migration 006 must persist deterministic live insertion order"
+  );
+  if (/security\s+definer/i.test(runtimeIntegrityMigration)) {
+    failures.push("Migration 006 must not add SECURITY DEFINER functions");
   }
 }
 
