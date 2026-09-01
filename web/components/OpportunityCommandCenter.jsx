@@ -6,6 +6,7 @@ import {
   runOpportunityIntelligenceAction,
   transitionRevenueAction
 } from "../lib/api";
+import { formatCommercialValue } from "../lib/commercialValue";
 
 const ACTIVE_REVENUE_ACTION_STATUSES = new Set([
   "RECOMMENDED",
@@ -22,28 +23,6 @@ const SUPPORTED_REVENUE_ACTION_TYPES = new Set([
   "QUALIFY",
   "ADVANCE"
 ]);
-
-function money(value) {
-  if (
-    value === null ||
-    value === undefined ||
-    value === ""
-  ) {
-    return "Unknown";
-  }
-
-  const numeric = Number(value);
-
-  if (!Number.isFinite(numeric)) {
-    return "Unknown";
-  }
-
-  return new Intl.NumberFormat("en-AU", {
-    style: "currency",
-    currency: "AUD",
-    maximumFractionDigits: 0
-  }).format(numeric);
-}
 
 function score(value) {
   if (
@@ -547,7 +526,7 @@ export default function OpportunityCommandCenter({
           </div>
 
           <div className="oc-value" data-testid="opportunity-value">
-            {money(
+            {formatCommercialValue(
               currentOpportunity.value
             )}
           </div>
@@ -1084,7 +1063,7 @@ export default function OpportunityCommandCenter({
             <div>
               <span>Value</span>
               <strong>
-                {money(
+                {formatCommercialValue(
                   currentOpportunity.value
                 )}
               </strong>
@@ -1093,7 +1072,7 @@ export default function OpportunityCommandCenter({
             <div>
               <span>Weighted value</span>
               <strong>
-                {money(
+                {formatCommercialValue(
                   currentOpportunity.weighted_value
                 )}
               </strong>
