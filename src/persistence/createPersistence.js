@@ -63,7 +63,8 @@ function bindTenantRepositories(repositories, context) {
     "opportunities",
     "tasks",
     "activities",
-    "revenueActions"
+    "revenueActions",
+    "imports"
   ]) {
     bound[name] = Object.fromEntries(
       Object.entries(repositories[name]).map(([method, operation]) => [

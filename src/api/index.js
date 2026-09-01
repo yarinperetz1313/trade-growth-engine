@@ -43,6 +43,7 @@ const revenueActions =
   );
 
 function createApiRouter({
+  importsRouter = null,
   revenueActionsRouter = revenueActions,
   postgresCoreRouter = null
 } = {}) {
@@ -80,6 +81,12 @@ if (postgresCoreRouter) {
 
   router.use(
     revenueIntelligence
+  );
+}
+
+if (importsRouter) {
+  router.use(
+    importsRouter
   );
 }
 

@@ -12,6 +12,9 @@ const {
   createPostgresCoreRouter
 } = require("../api/postgresCore");
 const {
+  createImportsRouter
+} = require("../api/imports");
+const {
   assertTrustedTenantContext
 } = require("../auth/authorization");
 const {
@@ -23,6 +26,9 @@ const {
 const {
   createPostgresRevenueActionService
 } = require("../revenueActions/postgresRevenueActionService");
+const {
+  createImportService
+} = require("../imports/importService");
 
 function bridgeAuthTenantContext(authTenantContext) {
   const trustedAuthContext = assertTrustedTenantContext(authTenantContext);
@@ -42,8 +48,10 @@ function sendTenantPersistenceUnavailable(res) {
 
 function createApp({
   authRuntime = null,
+  importService,
   persistence,
   revenueActionService,
+  resolveAuthorizationContext,
   resolveTenantContext
 } = {}) {
   if (persistence && revenueActionService) {
@@ -76,7 +84,24 @@ function createApp({
         resolveTenantContext: requestTenantContext
       })
       : null;
+    const requestAuthorizationContext = authRuntime
+      ? req => req.tenantContext
+      : resolveAuthorizationContext;
+    const injectedImportService = importService || (
+      persistence ? createImportService({ persistence }) : null
+    );
+    const importsRouter = (
+      injectedImportService
+      && typeof requestAuthorizationContext === "function"
+      && typeof requestTenantContext === "function"
+    ) ? createImportsRouter({
+        service: injectedImportService,
+        resolveAuthorizationContext: requestAuthorizationContext,
+        resolvePersistenceContext: requestTenantContext
+      })
+      : null;
     api = createApiRouter({
+      importsRouter,
       postgresCoreRouter,
       revenueActionsRouter: createRevenueActionsRouter({
         service: injectedService,
