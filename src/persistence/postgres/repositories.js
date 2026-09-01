@@ -33,6 +33,9 @@ const {
 const {
   withTenantTransaction
 } = require("./transaction");
+const {
+  createImportRepository
+} = require("./importRepository");
 
 const ACTIVE_ACTION_STATUSES = [
   "RECOMMENDED",
@@ -202,6 +205,16 @@ function createPostgresRepositories({
     run(context, scoped => scoped.revenueActions.transition(id, transition));
   publicRepositories.revenueActions.executeAtomic = (context, id, plan) =>
     executeRevenueActionAtomic(context, id, plan);
+  publicRepositories.imports = {
+    stagePreview: (context, draft) => run(
+      context,
+      scoped => scoped.imports.stagePreview(draft)
+    ),
+    findPreview: (context, batchId) => run(
+      context,
+      scoped => scoped.imports.findPreview(batchId)
+    )
+  };
 
   async function executeRevenueActionAtomic(
     context,
@@ -624,6 +637,10 @@ function createPostgresRepositories({
     );
     scoped.revenueActions.executeAtomic = (id, plan) =>
       executeRevenueActionAtomic(null, id, plan, transaction);
+    scoped.imports = createImportRepository(
+      transaction.client,
+      transaction.tenantId
+    );
     return scoped;
   }
 

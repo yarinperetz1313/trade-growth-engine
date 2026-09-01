@@ -17,6 +17,9 @@ const {
   createPostgresCoreService
 } = require("../../src/persistence/postgres/coreService");
 const {
+  hashImportEvidence
+} = require("../../src/imports/csvParser");
+const {
   activityToRow,
   encodeColumnValue,
   opportunityToRow,
@@ -2857,6 +2860,112 @@ function registerPostgresRepositoryContractTests({
       })).length,
       3
     );
+  });
+
+  test("PostgreSQL import preview is atomic, tenant-isolated, and leaves canonical records unchanged", async () => {
+    const pool = createPool();
+    const repositories = createPostgresRepositories({ pool });
+    const tenantA = await createTenant("import-a");
+    const tenantB = await createTenant("import-b");
+    const batchId = `batch-${randomUUID()}`;
+    const before = await getAdminClient().query(
+      `select
+         (select count(*)::int from tge.prospects where tenant_id = $1) as prospects,
+         (select count(*)::int from tge.opportunities where tenant_id = $1) as opportunities,
+         (select count(*)::int from tge.tasks where tenant_id = $1) as tasks,
+         (select count(*)::int from tge.activities where tenant_id = $1) as activities,
+         (select count(*)::int from tge.revenue_actions where tenant_id = $1) as revenue_actions`,
+      [tenantA.tenantId]
+    );
+    const at = "2026-09-01T00:00:00.000Z";
+    const rawPayload = {
+      sourceRowNumber: 2,
+      cells: [{
+        columnOrdinal: 0,
+        present: true,
+        raw: "0",
+        valueKind: "KNOWN_ZERO"
+      }]
+    };
+    const rawHash = hashImportEvidence(rawPayload);
+    const created = await repositories.imports.stagePreview(tenantA.context, {
+      batch: {
+        id: batchId,
+        status: "PREVIEWED",
+        sourceFilename: "untrusted.xlsx",
+        sourceSha256: "a".repeat(64),
+        authorizedBySubjectId: tenantA.context.subjectId,
+        authorizationVerifiedAt: at,
+        previewSummary: {
+          format: "CSV",
+          rowCount: 1,
+          valueKindCounts: { KNOWN_ZERO: 1 }
+        },
+        rawStorageKey: null,
+        rawExpiresAt: "2026-09-08T00:00:00.000Z",
+        metadataRetainUntil: "2027-09-01T00:00:00.000Z",
+        createdAt: at
+      },
+      records: [{
+        id: "row:0",
+        sourceCollection: "prospects",
+        sourceId: `csv-row:0:${rawHash}`,
+        sourceOrdinal: 0,
+        rawPayload,
+        rawPayloadSha256: rawHash,
+        disposition: "PENDING",
+        idempotencyKey: "c".repeat(64),
+        metadata: { source_id_kind: "SYNTHETIC_ROW_EVIDENCE" }
+      }],
+      auditEvent: {
+        id: `import-preview:${batchId}`,
+        eventType: "IMPORT_PREVIEW_CREATED",
+        subjectId: tenantA.context.subjectId,
+        entityType: "import_batch",
+        entityId: batchId,
+        payload: { row_count: 1, external_action_performed: false },
+        occurredAt: at,
+        retainUntil: "2027-09-01T00:00:00.000Z"
+      }
+    });
+
+    assert.equal(created.batch.id, batchId);
+    assert.equal(created.records[0].sourceOrdinal, 0);
+    assert.equal(created.records[0].rawPayload.cells[0].raw, "0");
+    assert.equal(created.records[0].rawPayload.cells[0].valueKind, "KNOWN_ZERO");
+    assert.equal(
+      hashImportEvidence(created.records[0].rawPayload),
+      created.records[0].rawPayloadSha256
+    );
+    assert.equal(
+      (await repositories.imports.findPreview(tenantA.context, batchId)).batch.id,
+      batchId
+    );
+    assert.equal(
+      await repositories.imports.findPreview(tenantB.context, batchId),
+      null
+    );
+
+    const evidence = await getAdminClient().query(
+      `select
+         (select count(*)::int from tge.import_staging_records
+          where tenant_id = $1 and import_batch_id = $2) as staged,
+         (select count(*)::int from tge.audit_events
+          where tenant_id = $1 and entity_id = $2
+            and event_type = 'IMPORT_PREVIEW_CREATED') as audited`,
+      [tenantA.tenantId, batchId]
+    );
+    assert.deepEqual(evidence.rows[0], { staged: 1, audited: 1 });
+    const after = await getAdminClient().query(
+      `select
+         (select count(*)::int from tge.prospects where tenant_id = $1) as prospects,
+         (select count(*)::int from tge.opportunities where tenant_id = $1) as opportunities,
+         (select count(*)::int from tge.tasks where tenant_id = $1) as tasks,
+         (select count(*)::int from tge.activities where tenant_id = $1) as activities,
+         (select count(*)::int from tge.revenue_actions where tenant_id = $1) as revenue_actions`,
+      [tenantA.tenantId]
+    );
+    assert.deepEqual(after.rows[0], before.rows[0]);
   });
 
   async function createApprovedTaskAction(

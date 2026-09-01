@@ -39,6 +39,13 @@ function findAttemptedId(result) {
     return result.record.id;
   }
   if (
+    result.batch &&
+    typeof result.batch.id === "string" &&
+    result.batch.id.length > 0
+  ) {
+    return result.batch.id;
+  }
+  if (
     result.failedAction &&
     typeof result.failedAction.id === "string" &&
     result.failedAction.id.length > 0

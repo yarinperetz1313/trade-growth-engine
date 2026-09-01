@@ -216,6 +216,33 @@ test("tenant transaction ambiguity captures a service success envelope action ID
   );
 });
 
+test("tenant transaction ambiguity captures an import preview batch ID", async () => {
+  const context = createTenantContext({
+    tenantId: "a0e8a2a0-9c44-4d84-9263-7d417ac00b8e",
+    subjectId: "auth0|member"
+  });
+  const attempted = { batch: { id: "attempted-import-batch" }, records: [] };
+  const client = {
+    async query(sql) {
+      if (sql === "COMMIT") throw new Error("commit acknowledgement lost");
+      return { rows: [] };
+    },
+    release() {}
+  };
+
+  await assert.rejects(
+    withTenantTransaction(
+      { connect: async () => client },
+      context,
+      async () => attempted
+    ),
+    error =>
+      error instanceof PostgresTransactionOutcomeUnknownError &&
+      error.attemptedId === "attempted-import-batch" &&
+      error.details.attemptedId === "attempted-import-batch"
+  );
+});
+
 test("tenant transactions discard a client when rollback fails", async () => {
   const context = createTenantContext({
     tenantId: "a0e8a2a0-9c44-4d84-9263-7d417ac00b8e",
