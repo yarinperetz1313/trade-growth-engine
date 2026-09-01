@@ -24,7 +24,10 @@ test("migration 001 remains byte-for-byte unchanged and migrations are append-on
     "003_roles_rls_and_grants.sql",
     "004_global_function_default_privileges.sql",
     "005_task_in_progress_status.sql",
-    "006_runtime_revenue_action_integrity.sql"
+    "006_runtime_revenue_action_integrity.sql",
+    "007_revenue_action_lifecycle_integrity.sql",
+    "008_revenue_action_outcome_integrity.sql",
+    "009_revenue_action_cancellation_integrity.sql"
   ]);
   assert.equal(Buffer.byteLength(initialMigration), 2752);
   assert.equal(
@@ -318,6 +321,104 @@ test("migration 006 enforces runtime history integrity and durable live ordering
   assert.match(
     integrity,
     /new\.current_payload is distinct from[\s\S]*?jsonb_set\(old\.current_payload, '\{metadata\}', new\.metadata, true\)/
+  );
+  assert.doesNotMatch(integrity, /security\s+definer/i);
+});
+
+test("migration 007 binds runtime lifecycle transitions to coherent audit suffixes", () => {
+  const lifecycle = read(
+    "database/migrations/007_revenue_action_lifecycle_integrity.sql"
+  );
+
+  assert.match(lifecycle, /^set local role tge_owner;/);
+  assert.match(lifecycle, /create function tge\.guard_runtime_revenue_action_lifecycle\(\)/);
+  assert.match(
+    lifecycle,
+    /create trigger revenue_actions_runtime_lifecycle_integrity\s+before update on tge\.revenue_actions/
+  );
+  assert.match(lifecycle, /new_audit_length <> old_audit_length \+ 2/);
+  for (const transition of [
+    "PREPARED",
+    "APPROVED",
+    "REJECTED",
+    "EXECUTION_STARTED",
+    "FAILED",
+    "EXECUTED"
+  ]) {
+    assert.match(lifecycle, new RegExp(`'${transition}'`));
+  }
+  assert.match(lifecycle, /new\.execution_attempts <> old\.execution_attempts \+ 1/);
+  assert.match(lifecycle, /new\.execution_request->>'requested_at'/);
+  assert.match(lifecycle, /new\.execution_result->>'external_send_performed'/);
+  assert.match(lifecycle, /new\.resulting_activity_id is null/);
+  assert.match(lifecycle, /Runtime RevenueAction lifecycle evidence is incoherent/);
+  assert.doesNotMatch(lifecycle, /security\s+definer/i);
+});
+
+test("migration 008 guards resumed attempts and execution outcome semantics", () => {
+  const integrity = read(
+    "database/migrations/008_revenue_action_outcome_integrity.sql"
+  );
+
+  assert.match(integrity, /^set local role tge_owner;/);
+  assert.match(
+    integrity,
+    /create or replace function tge\.guard_runtime_revenue_action_lifecycle\(\)/
+  );
+  assert.match(
+    integrity,
+    /old\.status = 'EXECUTING'[\s\S]*?new_audit_length <> old_audit_length \+ 1/
+  );
+  assert.match(integrity, /new\.execution_attempts <> old\.execution_attempts/);
+  assert.match(integrity, /'USER_CONFIRMED_COMPLETION'/);
+  assert.match(integrity, /'TASK_CREATED'/);
+  assert.match(integrity, /'TASK_REUSED'/);
+  assert.match(integrity, /'RECOVERED_LINKED_EFFECTS'/);
+  assert.match(integrity, /linked_task_source/);
+  assert.match(integrity, /suffix_last->>'error' is distinct from new\.execution_result->>'error'/);
+  assert.doesNotMatch(integrity, /security\s+definer/i);
+});
+
+test("migration 009 prevents cancellation from smuggling lifecycle or effect evidence", () => {
+  const integrity = read(
+    "database/migrations/009_revenue_action_cancellation_integrity.sql"
+  );
+
+  assert.match(integrity, /^set local role tge_owner;/);
+  assert.match(
+    integrity,
+    /create function tge\.guard_runtime_revenue_action_cancellation\(\)/
+  );
+  assert.match(
+    integrity,
+    /create trigger revenue_actions_runtime_cancellation_integrity\s+before update on tge\.revenue_actions/
+  );
+  for (const field of [
+    "proposed_execution",
+    "execution_request",
+    "execution_result",
+    "execution_attempts",
+    "prepared_at",
+    "approved_at",
+    "executed_at",
+    "rejected_at",
+    "failed_at",
+    "rejection_reason",
+    "resulting_task_id",
+    "resulting_activity_id"
+  ]) {
+    assert.match(
+      integrity,
+      new RegExp(`new\\.${field} is distinct from old\\.${field}`),
+      field
+    );
+  }
+  assert.match(integrity, /new_audit_length <> old_audit_length \+ 1/);
+  assert.match(integrity, /new\.cancelled_at is distinct from suffix_at/);
+  assert.match(integrity, /new\.updated_at is distinct from suffix_at/);
+  assert.match(
+    integrity,
+    /Runtime RevenueAction cancellation evidence is incoherent\./
   );
   assert.doesNotMatch(integrity, /security\s+definer/i);
 });

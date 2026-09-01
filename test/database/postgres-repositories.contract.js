@@ -14,6 +14,9 @@ const {
   createPostgresRepositories
 } = require("../../src/persistence/postgres/repositories");
 const {
+  createPostgresCoreService
+} = require("../../src/persistence/postgres/coreService");
+const {
   activityToRow,
   encodeColumnValue,
   opportunityToRow,
@@ -224,12 +227,32 @@ function registerPostgresRepositoryContractTests({
       await client.query(
         `update tge.revenue_actions
          set status = 'FAILED', failed_at = $3,
-           execution_request = '{"mode":"SYSTEM_INTERNAL"}'::jsonb,
+           execution_request = $4::jsonb,
+           execution_result = $5::jsonb,
+           audit = $6::jsonb,
            execution_attempts = 1,
-           resulting_task_id = $4, resulting_activity_id = $5,
+           resulting_task_id = $7, resulting_activity_id = $8,
            updated_at = $3
          where tenant_id = $1 and id = $2`,
-        [tenantId, action.id, at, taskId, taskOnly ? null : activityId]
+        [
+          tenantId,
+          action.id,
+          at,
+          JSON.stringify({ mode: "SYSTEM_INTERNAL", requested_at: at }),
+          JSON.stringify({
+            mode: "SYSTEM_INTERNAL",
+            outcome: "FAILED",
+            external_send_performed: false,
+            error: "EXECUTION_EFFECT_FAILED"
+          }),
+          JSON.stringify([
+            ...action.audit,
+            { transition: "EXECUTION_STARTED", at, attempt: 1 },
+            { transition: "FAILED", at, error: "EXECUTION_EFFECT_FAILED" }
+          ]),
+          taskId,
+          taskOnly ? null : activityId
+        ]
       );
       await client.query("commit");
     } catch (error) {
@@ -271,14 +294,28 @@ function registerPostgresRepositoryContractTests({
       await client.query(
         `update tge.revenue_actions
          set status = 'FAILED', failed_at = $3,
-           execution_request = $4::jsonb, execution_attempts = 1,
-           resulting_activity_id = $5, updated_at = $3
+           execution_request = $4::jsonb,
+           execution_result = $5::jsonb,
+           audit = $6::jsonb,
+           execution_attempts = 1,
+           resulting_activity_id = $7, updated_at = $3
          where tenant_id = $1 and id = $2`,
         [
           tenantId,
           action.id,
           at,
           JSON.stringify({ mode: "MANUAL_CONFIRMED", requested_at: at }),
+          JSON.stringify({
+            mode: "MANUAL_CONFIRMED",
+            outcome: "FAILED",
+            external_send_performed: false,
+            error: "EXECUTION_EFFECT_FAILED"
+          }),
+          JSON.stringify([
+            ...action.audit,
+            { transition: "EXECUTION_STARTED", at, attempt: 1 },
+            { transition: "FAILED", at, error: "EXECUTION_EFFECT_FAILED" }
+          ]),
           activityId
         ]
       );
@@ -287,6 +324,67 @@ function registerPostgresRepositoryContractTests({
       await client.query("rollback");
       throw error;
     }
+  }
+
+  async function seedExecutingAttempt({ tenantId, action, taskOnly = false }) {
+    const client = getAdminClient();
+    const requestedAt = "2026-08-30T02:30:00.000Z";
+    const taskId = taskOnly ? `${action.id}-resumed-task` : null;
+    await client.query("begin");
+    try {
+      if (taskId) {
+        const proposal = action.proposed_execution;
+        await client.query(
+          `insert into tge.tasks (
+             tenant_id, id, opportunity_id, revenue_action_id, title,
+             description, due_at, priority, status, metadata, created_at, updated_at
+           ) values ($1, $2, $3, $4, $5, $6, $7, $8, 'OPEN', $9::jsonb, $10, $10)`,
+          [
+            tenantId,
+            taskId,
+            action.opportunity_id,
+            action.id,
+            proposal.title,
+            proposal.description,
+            proposal.due_at,
+            proposal.priority,
+            JSON.stringify({
+              source: "revenue_action",
+              revenue_action_id: action.id,
+              action_type: action.action_type,
+              execution_effect_type: "INTERNAL_TASK",
+              normalized_title: proposal.normalized_title,
+              semantic_task_key: proposal.semantic_task_key
+            }),
+            requestedAt
+          ]
+        );
+      }
+      await client.query(
+        `update tge.revenue_actions
+         set status = 'EXECUTING', execution_request = $3::jsonb,
+           execution_result = null, execution_attempts = 1,
+           resulting_task_id = $4, resulting_activity_id = null,
+           failed_at = null, audit = $5::jsonb, updated_at = $6
+         where tenant_id = $1 and id = $2`,
+        [
+          tenantId,
+          action.id,
+          JSON.stringify({ mode: "SYSTEM_INTERNAL", requested_at: requestedAt }),
+          taskId,
+          JSON.stringify([
+            ...action.audit,
+            { transition: "EXECUTION_STARTED", at: requestedAt, attempt: 1 }
+          ]),
+          requestedAt
+        ]
+      );
+      await client.query("commit");
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    }
+    return { requestedAt, taskId };
   }
 
   test("PostgreSQL repositories provide tenant-scoped CRUD and immutable RevenueAction lifecycle updates", async () => {
@@ -1401,6 +1499,122 @@ function registerPostgresRepositoryContractTests({
     }
   });
 
+  test("incomplete EXECUTING actions resume their persisted attempt without another start audit", async () => {
+    const databasePool = createPool();
+    let failingActionId = null;
+    const repositories = createPostgresRepositories({
+      pool: databasePool,
+      failureInjector(name, details) {
+        if (name === "afterActivityPersisted" && details.id === failingActionId) {
+          const error = new Error(`Injected resumed failure for ${details.id}`);
+          error.code = "INJECTED_RESUME_FAILURE";
+          throw error;
+        }
+      }
+    });
+    const { context, tenantId } = await createTenant("executing-resume");
+
+    for (const taskOnly of [false, true]) {
+      const suffix = taskOnly ? "partial-effects" : "no-effects";
+      const action = await createApprovedTaskAction(
+        repositories,
+        context,
+        `executing-resume-${suffix}`
+      );
+      const seeded = await seedExecutingAttempt({
+        tenantId,
+        action,
+        taskOnly
+      });
+      failingActionId = action.id;
+
+      await assert.rejects(
+        repositories.revenueActions.executeAtomic(context, action.id),
+        error => {
+          assert.equal(error.code, "INJECTED_RESUME_FAILURE");
+          assert.equal(error.failedAction.status, "FAILED");
+          return true;
+        }
+      );
+
+      const failed = await repositories.revenueActions.findById(
+        context,
+        action.id
+      );
+      assert.equal(failed.status, "FAILED");
+      assert.equal(failed.execution_attempts, 1);
+      assert.equal(
+        failed.execution_request.requested_at,
+        seeded.requestedAt
+      );
+      assert.deepEqual(
+        failed.audit.slice(-2).map(entry => entry.transition),
+        ["EXECUTION_STARTED", "FAILED"]
+      );
+      assert.equal(
+        failed.audit.filter(entry => entry.transition === "EXECUTION_STARTED").length,
+        1
+      );
+      assert.equal(
+        (await repositories.tasks.list(context, {
+          opportunityId: action.opportunity_id
+        })).length,
+        taskOnly ? 1 : 0
+      );
+      assert.equal(
+        (await repositories.activities.list(context, {
+          opportunityId: action.opportunity_id
+        })).length,
+        0
+      );
+    }
+
+    failingActionId = null;
+    for (const taskOnly of [false, true]) {
+      const suffix = taskOnly ? "partial-success" : "zero-effect-success";
+      const action = await createApprovedTaskAction(
+        repositories,
+        context,
+        `executing-resume-${suffix}`
+      );
+      const seeded = await seedExecutingAttempt({
+        tenantId,
+        action,
+        taskOnly
+      });
+
+      const executed = await repositories.revenueActions.executeAtomic(
+        context,
+        action.id
+      );
+      assert.equal(executed.record.status, "EXECUTED");
+      assert.equal(executed.record.execution_attempts, 1);
+      assert.equal(
+        executed.record.execution_request.requested_at,
+        seeded.requestedAt
+      );
+      assert.equal(executed.record.execution_result.outcome, "TASK_CREATED");
+      assert.equal(
+        executed.record.audit.filter(
+          entry => entry.transition === "EXECUTION_STARTED"
+        ).length,
+        1
+      );
+      assert.equal(
+        (await repositories.tasks.list(context, {
+          opportunityId: action.opportunity_id
+        })).length,
+        1
+      );
+      assert.equal(
+        (await repositories.activities.list(context, {
+          opportunityId: action.opportunity_id
+        })).length,
+        1
+      );
+    }
+  });
+
   test("lost COMMIT acknowledgement is UNKNOWN and never rewritten as a safe FAILED retry", async () => {
     const databasePool = createPool();
     let loseCommitAcknowledgement = false;
@@ -1504,7 +1718,7 @@ function registerPostgresRepositoryContractTests({
       partial.id
     );
     assert.equal(completedPartial.record.status, "EXECUTED");
-    assert.equal(completedPartial.record.execution_result.outcome, "TASK_REUSED");
+    assert.equal(completedPartial.record.execution_result.outcome, "TASK_CREATED");
     assert.equal(
       (await repositories.tasks.list(context, {
         opportunityId: partial.opportunity_id
@@ -1668,6 +1882,46 @@ function registerPostgresRepositoryContractTests({
     );
   });
 
+  test("executed RevenueAction replay remains idempotent after linked task completion", async () => {
+    const pool = createPool();
+    const repositories = createPostgresRepositories({ pool });
+    const { context } = await createTenant("completed-task-replay");
+    const action = await createApprovedTaskAction(
+      repositories,
+      context,
+      "completed-task-replay"
+    );
+    const executed = await repositories.revenueActions.executeAtomic(
+      context,
+      action.id
+    );
+    await repositories.tasks.update(context, executed.record.resulting_task_id, {
+      status: "COMPLETED",
+      completed_at: "2026-08-30T03:00:00.000Z",
+      updated_at: "2026-08-30T03:00:00.000Z"
+    });
+
+    const replay = await repositories.revenueActions.executeAtomic(
+      context,
+      action.id
+    );
+
+    assert.equal(replay.duplicate, true);
+    assert.equal(replay.record.id, action.id);
+    assert.equal(
+      (await repositories.tasks.list(context, {
+        opportunityId: action.opportunity_id
+      })).length,
+      1
+    );
+    assert.equal(
+      (await repositories.activities.list(context, {
+        opportunityId: action.opportunity_id
+      })).length,
+      1
+    );
+  });
+
   test("communication execution rolls back every relevant multi-write checkpoint", async () => {
     const pool = createPool();
     let failurePoint = null;
@@ -1793,6 +2047,23 @@ function registerPostgresRepositoryContractTests({
       value: 0,
       next_action: ""
     });
+    const incompatibleSource = (await repositories.revenueActions.materialize(
+      context,
+      {
+        id: "mixed-incompatible-source",
+        opportunity_id: "mixed-compatible-opportunity"
+      }
+    )).record;
+    const preparedIncompatible = (await repositories.revenueActions.transition(
+      context,
+      incompatibleSource.id,
+      { to: "PREPARED" }
+    )).record;
+    await repositories.opportunities.update(
+      context,
+      "mixed-compatible-opportunity",
+      { next_action: "Research account before outreach" }
+    );
     const compatible = (await repositories.revenueActions.materialize(
       context,
       {
@@ -1801,14 +2072,8 @@ function registerPostgresRepositoryContractTests({
       }
     )).record;
     const incompatible = {
-      ...JSON.parse(JSON.stringify(compatible)),
-      id: "mixed-incompatible-action",
-      action_type: "RESEARCH",
-      status: "PREPARED",
-      basis_fingerprint: "f".repeat(64),
-      prepared_at: "2026-08-30T04:00:00.000Z",
-      created_at: "2026-08-30T04:00:00.000Z",
-      updated_at: "2026-08-30T04:00:00.000Z"
+      ...JSON.parse(JSON.stringify(preparedIncompatible)),
+      id: "mixed-incompatible-action"
     };
     await seedRevenueActionFixture(tenantId, incompatible, 0);
 
@@ -2433,6 +2698,148 @@ function registerPostgresRepositoryContractTests({
     assert.deepEqual(
       (await json.repositories.revenueActions.list()).map(record => record.id),
       postgresOrder
+    );
+  });
+
+  test("concurrent PostgreSQL core mutations serialize on parent rows and remain idempotent", async () => {
+    const pool = createPool({ max: 4 });
+    const persistence = createPersistence({ adapter: "postgres", pool });
+    const repositories = createPostgresRepositories({ pool });
+    const { context } = await createTenant("core-concurrency");
+    await repositories.prospects.insert(context, {
+      id: "core-concurrent-prospect",
+      business_name: "Core Concurrent Prospect",
+      qualification_score: 82,
+      qualification_status: "HIGH"
+    });
+    let id = 0;
+    const service = createPostgresCoreService({
+      persistence,
+      createId: () => `core-concurrent-${++id}`,
+      clock: () => "2026-08-30T08:00:00.000Z"
+    }).forTenant(context);
+
+    const opportunityResults = await Promise.all([
+      service.createOpportunityFromProspect("core-concurrent-prospect"),
+      service.createOpportunityFromProspect("core-concurrent-prospect")
+    ]);
+    const opportunities = await repositories.opportunities.list(context, {
+      prospectId: "core-concurrent-prospect"
+    });
+    assert.equal(opportunities.length, 1);
+    assert.deepEqual(
+      opportunityResults.map(result => result.created).sort(),
+      [false, true]
+    );
+    const opportunityId = opportunities[0].id;
+
+    const taskResults = await Promise.all([
+      service.createIntelligenceTask({
+        opportunityId,
+        title: "Create one durable task",
+        priority: "HIGH",
+        actionType: "CREATE_TASK"
+      }),
+      service.createIntelligenceTask({
+        opportunityId,
+        title: " create one durable task ",
+        priority: "HIGH",
+        actionType: "CREATE_TASK"
+      })
+    ]);
+    assert.equal(
+      (await repositories.tasks.list(context, { opportunityId })).length,
+      1
+    );
+    assert.equal(
+      (await repositories.activities.list(context, { opportunityId }))
+        .filter(activity => activity.type === "INTELLIGENCE_TASK_CREATED").length,
+      1
+    );
+    assert.deepEqual(
+      taskResults.map(result => result.task_created).sort(),
+      [false, true]
+    );
+
+    await Promise.all([
+      service.addContact({ opportunityId, contactName: "Ada Lovelace" }),
+      service.addContact({ opportunityId, contactName: "  ada   lovelace  " })
+    ]);
+    assert.equal(
+      (await repositories.activities.list(context, { opportunityId }))
+        .filter(activity => activity.type === "CONTACT_ADDED").length,
+      1
+    );
+  });
+
+  test("PostgreSQL core reuses migrated semantic activities without action keys", async () => {
+    const pool = createPool();
+    const persistence = createPersistence({ adapter: "postgres", pool });
+    const repositories = createPostgresRepositories({ pool });
+    const { context } = await createTenant("legacy-core-dedupe");
+    await repositories.opportunities.insert(context, {
+      id: "legacy-core-opportunity",
+      business_name: "Legacy Core Opportunity",
+      stage: "QUALIFIED",
+      probability: 0.2,
+      next_action: "Define next action"
+    });
+    await repositories.tasks.insert(context, {
+      id: "legacy-core-task",
+      opportunity_id: "legacy-core-opportunity",
+      title: "Define next action",
+      status: "OPEN"
+    });
+    for (const activity of [
+      {
+        id: "legacy-core-task-activity",
+        type: "INTELLIGENCE_TASK_CREATED",
+        description: "Intelligence task created: Define next action"
+      },
+      {
+        id: "legacy-core-contact-activity",
+        type: "CONTACT_ADDED",
+        description: "Decision maker added: Ada Lovelace"
+      },
+      {
+        id: "legacy-core-value-activity",
+        type: "VALUE_UPDATED",
+        description: "Opportunity value updated to 42000"
+      }
+    ]) {
+      await repositories.activities.insert(context, {
+        ...activity,
+        opportunity_id: "legacy-core-opportunity"
+      });
+    }
+    const service = createPostgresCoreService({
+      persistence,
+      createId: () => randomUUID()
+    }).forTenant(context);
+
+    const task = await service.createIntelligenceTask({
+      opportunityId: "legacy-core-opportunity",
+      title: " define next action ",
+      priority: "HIGH",
+      actionType: "CREATE_TASK"
+    });
+    const contact = await service.addContact({
+      opportunityId: "legacy-core-opportunity",
+      contactName: " ada   lovelace "
+    });
+    const value = await service.setValue({
+      opportunityId: "legacy-core-opportunity",
+      value: 42000
+    });
+
+    assert.equal(task.activity.id, "legacy-core-task-activity");
+    assert.equal(contact.activity.id, "legacy-core-contact-activity");
+    assert.equal(value.activity.id, "legacy-core-value-activity");
+    assert.equal(
+      (await repositories.activities.list(context, {
+        opportunityId: "legacy-core-opportunity"
+      })).length,
+      3
     );
   });
 

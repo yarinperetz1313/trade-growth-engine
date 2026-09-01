@@ -13,9 +13,11 @@ const {
   classifyCommercialValue,
   opportunityFromRow,
   opportunityToRow,
+  activityToRow,
   prospectFromRow,
   prospectToRow,
-  revenueActionToRow
+  revenueActionToRow,
+  taskToRow
 } = require("../src/persistence/postgres/mappers");
 const {
   PersistenceConflictError,
@@ -29,6 +31,9 @@ const {
 const {
   createPostgresRevenueActionService
 } = require("../src/revenueActions/postgresRevenueActionService");
+const {
+  createPostgresCoreService
+} = require("../src/persistence/postgres/coreService");
 const {
   buildProposedExecution,
   fingerprint,
@@ -471,8 +476,93 @@ test("stored RevenueAction validation rejects incoherent lifecycle and execution
     false
   );
 
+  const cancelledRecommended = {
+    ...structuredClone(recommended),
+    status: "CANCELLED",
+    cancelled_at: "2026-08-30T00:00:30.000Z",
+    updated_at: "2026-08-30T00:00:30.000Z",
+    audit: [
+      ...recommended.audit,
+      {
+        transition: "CANCELLED",
+        at: "2026-08-30T00:00:30.000Z"
+      }
+    ]
+  };
+  assert.equal(
+    validateStoredRevenueActionIntegrity(cancelledRecommended).valid,
+    true
+  );
+  for (const [field, value] of [
+    ["execution_attempts", 1],
+    ["execution_request", {
+      mode: "SYSTEM_INTERNAL",
+      requested_at: "2026-08-30T00:00:20.000Z"
+    }],
+    ["execution_result", {
+      mode: "SYSTEM_INTERNAL",
+      outcome: "FAILED",
+      external_send_performed: false,
+      error: "SMUGGLED_FAILURE"
+    }],
+    ["failed_at", "2026-08-30T00:00:20.000Z"],
+    ["resulting_task_id", "smuggled-task"],
+    ["resulting_activity_id", "smuggled-activity"]
+  ]) {
+    assert.equal(
+      validateStoredRevenueActionIntegrity({
+        ...cancelledRecommended,
+        [field]: value
+      }).valid,
+      false,
+      `CANCELLED cannot smuggle ${field} over its pre-cancellation state`
+    );
+  }
+
   const executed = buildStoredRevenueAction({ status: "EXECUTED" });
   assert.equal(validateStoredRevenueActionIntegrity(executed).valid, true);
+  const executing = structuredClone(executed);
+  executing.status = "EXECUTING";
+  executing.executed_at = null;
+  executing.execution_result = null;
+  executing.resulting_task_id = null;
+  executing.resulting_activity_id = null;
+  executing.updated_at = executing.execution_request.requested_at;
+  executing.audit.pop();
+  assert.equal(
+    validateStoredRevenueActionIntegrity(executing).valid,
+    true,
+    "an EXECUTING attempt with no effects remains resumable"
+  );
+  const partialExecuting = {
+    ...executing,
+    resulting_task_id: "stored-integrity-task"
+  };
+  assert.equal(
+    validateStoredRevenueActionIntegrity(partialExecuting).valid,
+    true,
+    "an EXECUTING internal attempt may retain its exact partial task effect"
+  );
+  assert.equal(
+    validateStoredRevenueActionIntegrity({
+      ...partialExecuting,
+      audit: [
+        ...partialExecuting.audit,
+        {
+          transition: "EXECUTION_STARTED",
+          at: "2026-08-30T00:03:30.000Z",
+          attempt: 2
+        }
+      ],
+      execution_attempts: 2,
+      execution_request: {
+        mode: "SYSTEM_INTERNAL",
+        requested_at: "2026-08-30T00:03:30.000Z"
+      }
+    }).valid,
+    false,
+    "an incomplete EXECUTING attempt cannot invent a second start transition"
+  );
   const recovered = structuredClone(executed);
   recovered.execution_attempts = 2;
   recovered.execution_request = {
@@ -500,6 +590,118 @@ test("stored RevenueAction validation rejects incoherent lifecycle and execution
     }
   );
   assert.equal(validateStoredRevenueActionIntegrity(recovered).valid, true);
+  const cancelledRetry = structuredClone(recovered);
+  cancelledRetry.status = "CANCELLED";
+  cancelledRetry.executed_at = null;
+  cancelledRetry.execution_result = null;
+  cancelledRetry.cancelled_at = "2026-08-30T00:03:45.000Z";
+  cancelledRetry.updated_at = cancelledRetry.cancelled_at;
+  cancelledRetry.audit.pop();
+  cancelledRetry.audit.push({
+    transition: "CANCELLED",
+    at: cancelledRetry.cancelled_at
+  });
+  assert.equal(
+    validateStoredRevenueActionIntegrity(cancelledRetry).valid,
+    true,
+    "CANCELLED preserves a retried EXECUTING attempt without restoring an old failure"
+  );
+  assert.equal(
+    validateStoredRevenueActionIntegrity({
+      ...executed,
+      execution_result: {
+        ...executed.execution_result,
+        outcome: "USER_CONFIRMED_COMPLETION"
+      }
+    }).valid,
+    false,
+    "internal actions cannot claim a communication outcome"
+  );
+  const communication = structuredClone(executed);
+  communication.action_type = "FOLLOW_UP";
+  communication.execution_type = "COMMUNICATION_DRAFT";
+  communication.risk_class = "EXTERNAL_CONSEQUENTIAL";
+  communication.recommendation_snapshot.action_type = "FOLLOW_UP";
+  communication.recommendation_snapshot.task_title = null;
+  communication.basis_fingerprint = fingerprint(recommendationBasis(
+    { opportunity: { id: communication.opportunity_id } },
+    {
+      type: communication.action_type,
+      priority: communication.priority,
+      title: communication.title,
+      reason: communication.reason,
+      taskTitle: null
+    },
+    communication.evidence
+  ));
+  communication.proposed_execution = buildProposedExecution(communication);
+  communication.execution_request.mode = "MANUAL_CONFIRMED";
+  communication.execution_result = {
+    mode: "MANUAL_CONFIRMED",
+    outcome: "USER_CONFIRMED_COMPLETION",
+    external_send_performed: false
+  };
+  communication.resulting_task_id = null;
+  communication.audit.at(-1).execution_mode = "MANUAL_CONFIRMED";
+  communication.audit.at(-1).resulting_task_id = null;
+  assert.equal(validateStoredRevenueActionIntegrity(communication).valid, true);
+  assert.equal(
+    validateStoredRevenueActionIntegrity({
+      ...communication,
+      execution_result: {
+        ...communication.execution_result,
+        outcome: "TASK_CREATED"
+      }
+    }).valid,
+    false,
+    "communication actions cannot claim an internal-task outcome"
+  );
+
+  const failed = structuredClone(executed);
+  failed.status = "FAILED";
+  failed.executed_at = null;
+  failed.failed_at = "2026-08-30T00:04:00.000Z";
+  failed.resulting_task_id = null;
+  failed.resulting_activity_id = null;
+  failed.execution_result = {
+    mode: "SYSTEM_INTERNAL",
+    outcome: "FAILED",
+    external_send_performed: false,
+    error: "EXECUTION_EFFECT_FAILED"
+  };
+  failed.updated_at = failed.failed_at;
+  failed.audit.splice(-1, 1, {
+    transition: "FAILED",
+    at: failed.failed_at,
+    error: "EXECUTION_EFFECT_FAILED"
+  });
+  assert.equal(validateStoredRevenueActionIntegrity(failed).valid, true);
+  for (const failureEvidence of [
+    { ...failed.execution_result, error: "" },
+    { ...failed.execution_result, error: "DIFFERENT_FAILURE" }
+  ]) {
+    assert.equal(
+      validateStoredRevenueActionIntegrity({
+        ...failed,
+        execution_result: failureEvidence
+      }).valid,
+      false,
+      "FAILED result errors must be nonempty and match the FAILED audit"
+    );
+  }
+  const cancelledFailure = structuredClone(failed);
+  cancelledFailure.status = "CANCELLED";
+  cancelledFailure.cancelled_at = "2026-08-30T00:05:00.000Z";
+  cancelledFailure.updated_at = cancelledFailure.cancelled_at;
+  cancelledFailure.audit.push({
+    transition: "CANCELLED",
+    at: cancelledFailure.cancelled_at
+  });
+  assert.equal(
+    validateStoredRevenueActionIntegrity(cancelledFailure).valid,
+    true,
+    "CANCELLED preserves coherent failed-attempt evidence"
+  );
   for (const [field, value] of [
     ["execution_request", null],
     ["execution_result", null],
@@ -570,6 +772,102 @@ test("EXECUTED replay requires reciprocal stored effects before duplicate succes
   );
 });
 
+test("EXECUTED replay accepts a legitimately completed linked task", async () => {
+  const context = createTenantContext({
+    tenantId: "a0e8a2a0-9c44-4d84-9263-7d417ac00B8E",
+    subjectId: "auth0|member"
+  });
+  const action = buildStoredRevenueAction({ status: "EXECUTED" });
+  const opportunity = {
+    id: action.opportunity_id,
+    business_name: "Integrity Opportunity",
+    stage: "QUALIFIED",
+    value: 0,
+    next_action: action.proposed_execution.title,
+    created_at: action.created_at,
+    updated_at: action.updated_at
+  };
+  const task = {
+    id: action.resulting_task_id,
+    opportunity_id: action.opportunity_id,
+    title: action.proposed_execution.title,
+    description: action.proposed_execution.description,
+    due_at: action.proposed_execution.due_at,
+    priority: action.proposed_execution.priority,
+    status: "COMPLETED",
+    completed_at: "2026-08-30T00:05:00.000Z",
+    metadata: {
+      source: "revenue_action",
+      revenue_action_id: action.id,
+      action_type: action.action_type,
+      execution_effect_type: "INTERNAL_TASK",
+      normalized_title: action.proposed_execution.normalized_title,
+      semantic_task_key: action.proposed_execution.semantic_task_key
+    },
+    created_at: action.executed_at,
+    updated_at: "2026-08-30T00:05:00.000Z"
+  };
+  const activity = {
+    id: action.resulting_activity_id,
+    opportunity_id: action.opportunity_id,
+    type: "REVENUE_ACTION_TASK_EXECUTED",
+    description: `RevenueAction executed: ${action.title}`,
+    metadata: {
+      source: "revenue_action",
+      revenue_action_id: action.id,
+      action_type: action.action_type,
+      execution_effect_type: "INTERNAL_TASK",
+      execution_mode: "SYSTEM_INTERNAL",
+      task_id: task.id
+    },
+    created_at: action.executed_at,
+    updated_at: action.executed_at
+  };
+  const client = {
+    async query(sql) {
+      const normalized = String(sql).replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select opportunity_id from tge.revenue_actions")) {
+        return { rows: [{ opportunity_id: action.opportunity_id }] };
+      }
+      if (normalized.startsWith("select * from tge.opportunities")) {
+        return { rows: [opportunityToRow(opportunity)] };
+      }
+      if (normalized.startsWith("select * from tge.revenue_actions")) {
+        return { rows: [revenueActionToRow(action)] };
+      }
+      if (normalized.startsWith("select * from tge.tasks")) {
+        return { rows: [taskToRow(task)] };
+      }
+      if (normalized.startsWith("select * from tge.activities")) {
+        return { rows: [activityToRow(activity)] };
+      }
+      return { rows: [] };
+    },
+    release() {}
+  };
+  const repositories = createPostgresRepositories({
+    pool: { connect: async () => client }
+  });
+
+  const result = await repositories.revenueActions.executeAtomic(
+    context,
+    action.id,
+    {}
+  );
+
+  assert.equal(result.duplicate, true);
+  assert.equal(result.record.id, action.id);
+
+  action.execution_result.outcome = "TASK_REUSED";
+  await assert.rejects(
+    repositories.revenueActions.executeAtomic(context, action.id, {}),
+    error =>
+      error instanceof PersistenceConflictError &&
+      error.code === "REVENUE_ACTION_EFFECT_CONFLICT" &&
+      error.details.reason === "EXECUTION_RESULT_EFFECT_MISMATCH"
+  );
+});
+
 test("JSON RevenueAction ordering keeps stable source order for equal timestamps", async () => {
   const records = [
     { id: "source-a", created_at: "2026-01-01T00:00:00.000Z" },
@@ -630,6 +928,421 @@ test("tenant-bound API composition requires and verifies a server-injected conte
   assert.equal(trustedResponse.status, 200);
   assert.deepEqual(trustedResponse.data, { ok: true, data: [], count: 0 });
   assert.equal(boundContext, context);
+});
+
+test("injected PostgreSQL composition keeps RevenueAction effects and core routes on one tenant adapter", async () => {
+  const context = createTenantContext({
+    tenantId: "a0e8a2a0-9c44-4d84-9263-7d417ac00B8E",
+    subjectId: "auth0|member"
+  });
+  const state = {
+    opportunities: [{
+      id: "postgres-composition-opportunity",
+      business_name: "PostgreSQL Composition",
+      stage: "QUALIFIED",
+      priority: "HIGH",
+      qualification_score: 80,
+      value: 5000,
+      probability: 0.5,
+      weighted_value: 2500,
+      next_action: "Create the durable next-step task",
+      created_at: "2026-08-30T00:00:00.000Z",
+      updated_at: "2026-08-30T00:00:00.000Z"
+    }],
+    prospects: [{
+      id: "postgres-composition-prospect",
+      business_name: "PostgreSQL Prospect",
+      qualification: { score: 82, priority: "HIGH" },
+      value_estimate: 3200
+    }],
+    tasks: [],
+    activities: [],
+    revenueActions: []
+  };
+  let boundCalls = 0;
+  const find = (collection, id) =>
+    state[collection].find(record => record.id === id) || null;
+  const collectionRepository = name => ({
+    async list(filters = {}) {
+      return state[name].filter(record =>
+        (!filters.opportunityId || record.opportunity_id === filters.opportunityId) &&
+        (!filters.prospectId || record.prospect_id === filters.prospectId) &&
+        (!filters.stage || record.stage === filters.stage)
+      ).map(record => structuredClone(record));
+    },
+    async findById(id) {
+      const record = find(name, id);
+      return record ? structuredClone(record) : null;
+    },
+    async insert(record) {
+      const created = {
+        ...structuredClone(record),
+        created_at: record.created_at || "2026-08-30T00:01:00.000Z",
+        updated_at: record.updated_at || "2026-08-30T00:01:00.000Z"
+      };
+      state[name].push(created);
+      return structuredClone(created);
+    },
+    async update(id, changes) {
+      const record = find(name, id);
+      if (!record) return null;
+      Object.assign(record, structuredClone(changes));
+      return structuredClone(record);
+    }
+  });
+  const scoped = {
+    prospects: collectionRepository("prospects"),
+    opportunities: collectionRepository("opportunities"),
+    tasks: collectionRepository("tasks"),
+    activities: collectionRepository("activities"),
+    revenueActions: {
+      async list(filters = {}) {
+        return state.revenueActions.filter(action =>
+          !filters.opportunityId || action.opportunity_id === filters.opportunityId
+        );
+      },
+      async findById(id) {
+        return find("revenueActions", id);
+      },
+      async materialize({ id, opportunity_id }) {
+        const opportunity = find("opportunities", opportunity_id);
+        if (!opportunity) return null;
+        const action = {
+          id,
+          opportunity_id,
+          action_type: "CREATE_TASK",
+          execution_type: "INTERNAL_TASK",
+          status: "RECOMMENDED",
+          title: opportunity.next_action,
+          priority: "HIGH"
+        };
+        state.revenueActions.push(action);
+        return { record: action, created: true, duplicate: false };
+      },
+      async transition(id, { to }) {
+        const action = find("revenueActions", id);
+        if (!action) return null;
+        action.status = to;
+        return { record: action, duplicate: false };
+      },
+      async executeAtomic(id) {
+        const action = find("revenueActions", id);
+        if (!action) return null;
+        if (action.status === "EXECUTED") {
+          return { record: action, duplicate: true, recovered: false };
+        }
+        const task = await scoped.tasks.insert({
+          id: `${id}-task`,
+          opportunity_id: action.opportunity_id,
+          title: action.title,
+          description: "Created by PostgreSQL RevenueAction",
+          due_at: null,
+          priority: action.priority,
+          status: "OPEN",
+          completed_at: null,
+          metadata: { source: "revenue_action", revenue_action_id: id }
+        });
+        const activity = await scoped.activities.insert({
+          id: `${id}-activity`,
+          opportunity_id: action.opportunity_id,
+          type: "REVENUE_ACTION_TASK_EXECUTED",
+          description: `RevenueAction executed: ${action.title}`,
+          metadata: {
+            source: "revenue_action",
+            revenue_action_id: id,
+            task_id: task.id
+          }
+        });
+        action.status = "EXECUTED";
+        action.resulting_task_id = task.id;
+        action.resulting_activity_id = activity.id;
+        return { record: action, duplicate: false, recovered: false };
+      }
+    },
+    async transaction(operation) {
+      return operation(scoped);
+    }
+  };
+  const persistence = {
+    adapter: "postgres",
+    forTenant(received) {
+      assert.equal(received, context);
+      boundCalls += 1;
+      return scoped;
+    }
+  };
+  const app = createApp({
+    persistence,
+    resolveTenantContext: () => context
+  });
+
+  const listedProspects = await requestApp(app, "/api/prospects");
+  assert.equal(listedProspects.status, 200);
+  assert.equal(listedProspects.data.storage, "postgres");
+  assert.deepEqual(
+    listedProspects.data.data.map(prospect => prospect.id),
+    ["postgres-composition-prospect"]
+  );
+
+  const createdProspect = await requestApp(app, "/api/prospects", {
+    method: "POST",
+    body: {
+      business_name: "PostgreSQL Created Prospect",
+      service: "Commercial plumbing",
+      location: "Melbourne"
+    }
+  });
+  assert.equal(createdProspect.status, 201);
+  assert.equal(createdProspect.data.storage, "postgres");
+  assert.equal(createdProspect.data.data.qualification_status, "DISCOVERED");
+  assert.equal(state.prospects.length, 2);
+
+  const qualified = await requestApp(
+    app,
+    `/api/prospects/${createdProspect.data.data.id}/qualify`,
+    { method: "POST", body: {} }
+  );
+  assert.equal(qualified.status, 200);
+  assert.equal(qualified.data.data.id, createdProspect.data.data.id);
+  assert.equal(typeof qualified.data.data.qualification_score, "number");
+  assert.equal(
+    qualified.data.data.qualification_status,
+    qualified.data.data.qualification.priority
+  );
+
+  const preview = await requestApp(app, "/api/qualification/preview", {
+    method: "POST",
+    body: { business_name: "Preview", service: "Commercial electrical" }
+  });
+  assert.equal(preview.status, 200);
+  assert.equal(typeof preview.data.data.score, "number");
+
+  for (const method of ["GET", "POST"]) {
+    const unsupportedLead = await requestApp(app, "/api/leads", {
+      method,
+      ...(method === "POST" ? { body: { business_name: "No JSON write" } } : {})
+    });
+    assert.equal(unsupportedLead.status, 501);
+    assert.equal(
+      unsupportedLead.data.error,
+      "POSTGRES_LEAD_PERSISTENCE_UNSUPPORTED"
+    );
+  }
+
+  const createdOpportunity = await requestApp(
+    app,
+    "/api/opportunities/from-prospect/postgres-composition-prospect",
+    { method: "POST", body: {} }
+  );
+  assert.equal(createdOpportunity.status, 201);
+  assert.equal(createdOpportunity.data.data.prospect_id, "postgres-composition-prospect");
+  assert.equal(state.opportunities.length, 2);
+  const opportunities = await requestApp(app, "/api/opportunities");
+  assert.equal(opportunities.status, 200);
+  assert.equal(opportunities.data.count, 2);
+
+  const bodylessFollowUp = await requestApp(
+    app,
+    `/api/opportunities/${state.opportunities[0].id}/intelligence/follow-up`,
+    { method: "POST" }
+  );
+  assert.equal(bodylessFollowUp.status, 400);
+  assert.equal(bodylessFollowUp.data.ok, false);
+  assert.equal(bodylessFollowUp.data.error, "INVALID_PRIORITY");
+
+  const nullPriorityTask = await requestApp(
+    app,
+    `/api/opportunities/${state.opportunities[0].id}/intelligence/task`,
+    {
+      method: "POST",
+      body: { priority: null, actionType: "RESEARCH" }
+    }
+  );
+  assert.equal(nullPriorityTask.status, 400);
+  assert.equal(nullPriorityTask.data.ok, false);
+  assert.equal(nullPriorityTask.data.error, "INVALID_PRIORITY");
+
+  const materialized = await requestApp(
+    app,
+    `/api/opportunities/${state.opportunities[0].id}/revenue-actions`,
+    { method: "POST", body: {} }
+  );
+  assert.equal(materialized.status, 201);
+  const actionId = materialized.data.data.id;
+  await requestApp(app, `/api/revenue-actions/${actionId}/prepare`, {
+    method: "POST", body: {}
+  });
+  await requestApp(app, `/api/revenue-actions/${actionId}/approve`, {
+    method: "POST", body: {}
+  });
+  const executed = await requestApp(app, `/api/revenue-actions/${actionId}/execute`, {
+    method: "POST", body: {}
+  });
+  assert.equal(executed.status, 200);
+  assert.equal(executed.data.refreshed.opportunity.id, state.opportunities[0].id);
+
+  const tasks = await requestApp(
+    app,
+    `/api/tasks/opportunity/${state.opportunities[0].id}`
+  );
+  assert.equal(tasks.status, 200);
+  assert.equal(tasks.data.count, 1);
+  assert.equal(tasks.data.data[0].id, executed.data.data.resulting_task_id);
+  assert.equal(state.tasks.length, 1);
+
+  const completed = await requestApp(app, `/api/tasks/${state.tasks[0].id}`, {
+    method: "PATCH",
+    body: { status: "COMPLETED" }
+  });
+  assert.equal(completed.status, 200);
+  assert.equal(state.tasks[0].status, "COMPLETED");
+
+  const refreshed = await requestApp(
+    app,
+    `/api/opportunities/${state.opportunities[0].id}/intelligence`
+  );
+  assert.equal(refreshed.status, 200);
+  assert.equal(refreshed.data.data.opportunity.id, state.opportunities[0].id);
+  const activities = await requestApp(
+    app,
+    `/api/opportunities/${state.opportunities[0].id}/activities`
+  );
+  assert.equal(activities.status, 200);
+  assert.equal(activities.data.count, 2);
+
+  const replay = await requestApp(app, `/api/revenue-actions/${actionId}/execute`, {
+    method: "POST", body: {}
+  });
+  assert.equal(replay.status, 200);
+  assert.equal(replay.data.duplicate, true);
+  assert.equal(state.tasks.length, 1);
+  assert.ok(boundCalls >= 11);
+});
+
+test("PostgreSQL core locks parent rows before duplicate rechecks and reuses legacy semantic activities", async () => {
+  const context = createTenantContext({
+    tenantId: "a0e8a2a0-9c44-4d84-9263-7d417ac00B8E",
+    subjectId: "auth0|member"
+  });
+  const events = [];
+  const state = {
+    prospects: [{
+      id: "lock-prospect",
+      business_name: "Lock Prospect",
+      qualification_score: 75,
+      qualification_status: "MEDIUM"
+    }],
+    opportunities: [{
+      id: "lock-opportunity",
+      business_name: "Lock Opportunity",
+      stage: "QUALIFIED",
+      probability: 0.2,
+      next_action: "Define next action"
+    }],
+    tasks: [{
+      id: "legacy-task",
+      opportunity_id: "lock-opportunity",
+      title: "Define next action",
+      status: "OPEN"
+    }],
+    activities: [{
+      id: "legacy-task-activity",
+      opportunity_id: "lock-opportunity",
+      type: "INTELLIGENCE_TASK_CREATED",
+      description: "Intelligence task created: Define next action"
+    }]
+  };
+  const repository = name => ({
+    async list(filters = {}) {
+      events.push(`${name}.list`);
+      return state[name].filter(record =>
+        (!filters.opportunityId || record.opportunity_id === filters.opportunityId) &&
+        (!filters.prospectId || record.prospect_id === filters.prospectId)
+      ).map(record => structuredClone(record));
+    },
+    async findById(id, options = {}) {
+      events.push(`${name}.findById:${options.lock === true ? "lock" : "read"}`);
+      const record = state[name].find(item => item.id === id);
+      return record ? structuredClone(record) : null;
+    },
+    async insert(record) {
+      events.push(`${name}.insert`);
+      const created = {
+        ...structuredClone(record),
+        created_at: "2026-08-30T00:00:00.000Z",
+        updated_at: "2026-08-30T00:00:00.000Z"
+      };
+      state[name].push(created);
+      return structuredClone(created);
+    },
+    async update(id, patch) {
+      events.push(`${name}.update`);
+      const record = state[name].find(item => item.id === id);
+      Object.assign(record, structuredClone(patch));
+      return structuredClone(record);
+    }
+  });
+  const scoped = {
+    prospects: repository("prospects"),
+    opportunities: repository("opportunities"),
+    tasks: repository("tasks"),
+    activities: repository("activities")
+  };
+  const service = createPostgresCoreService({
+    persistence: {
+      adapter: "postgres",
+      forTenant(received) {
+        assert.equal(received, context);
+        return {
+          ...scoped,
+          transaction: operation => operation(scoped)
+        };
+      }
+    },
+    createId: (() => {
+      let id = 0;
+      return () => `generated-${++id}`;
+    })(),
+    clock: () => "2026-08-30T00:00:00.000Z"
+  }).forTenant(context);
+
+  events.length = 0;
+  await service.createOpportunityFromProspect("lock-prospect");
+  assert.ok(
+    events.indexOf("prospects.findById:lock") <
+      events.indexOf("opportunities.list")
+  );
+
+  events.length = 0;
+  const taskResult = await service.createIntelligenceTask({
+    opportunityId: "lock-opportunity",
+    title: " define next action ",
+    priority: "HIGH",
+    actionType: "CREATE_TASK"
+  });
+  assert.equal(taskResult.duplicate, true);
+  assert.equal(taskResult.task.id, "legacy-task");
+  assert.equal(taskResult.activity.id, "legacy-task-activity");
+  assert.equal(state.tasks.length, 1);
+  assert.equal(state.activities.length, 2);
+  assert.ok(
+    events.indexOf("opportunities.findById:lock") <
+      events.indexOf("tasks.list")
+  );
+
+  const ordinaryDefault = await service.createIntelligenceTask({
+    opportunityId: "lock-opportunity",
+    title: "Research the decision process",
+    actionType: "RESEARCH"
+  });
+  assert.equal(ordinaryDefault.task.priority, "MEDIUM");
+
+  const bodylessFollowUp = await service.createIntelligenceTask({
+    opportunityId: "lock-opportunity",
+    followUp: true
+  });
+  assert.equal(bodylessFollowUp.ok, false);
+  assert.equal(bodylessFollowUp.error, "INVALID_PRIORITY");
 });
 
 test("tenant-bound API routes await rejected persistence operations", async () => {

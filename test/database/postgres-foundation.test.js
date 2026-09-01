@@ -123,12 +123,24 @@ if (!testDatabaseUrl) {
         ["003", "003_roles_rls_and_grants.sql"],
         ["004", "004_global_function_default_privileges.sql"],
         ["005", "005_task_in_progress_status.sql"],
-        ["006", "006_runtime_revenue_action_integrity.sql"]
+        ["006", "006_runtime_revenue_action_integrity.sql"],
+        ["007", "007_revenue_action_lifecycle_integrity.sql"],
+        ["008", "008_revenue_action_outcome_integrity.sql"],
+        ["009", "009_revenue_action_cancellation_integrity.sql"]
       ]
     );
     assert.equal(
       ledgerBefore.rows[0].checksum,
       "d08f3b7e5c97e05a5ec7f96242543fbbf437d7af4edea34d22dc09db910cfc62"
+    );
+    assert.equal(
+      ledgerBefore.rows.at(-1).checksum,
+      sha256(fs.readFileSync(
+        path.join(
+          repositoryRoot,
+          "database/migrations/009_revenue_action_cancellation_integrity.sql"
+        )
+      ))
     );
 
     const functionDefaultAcl = await adminClient.query(
@@ -206,12 +218,12 @@ if (!testDatabaseUrl) {
           migrationsDirectory: retroactiveDirectory,
           logger: silentLogger
         }),
-        /retroactive; append-only migrations must follow 006/
+        /retroactive; append-only migrations must follow 008/
       );
 
       copyMigrations(brokenDirectory);
       fs.writeFileSync(
-        path.join(brokenDirectory, "007_broken_transaction.sql"),
+        path.join(brokenDirectory, "010_broken_transaction.sql"),
         "create table tge.must_rollback (id integer);\nselect 1 / 0;\n"
       );
       await assert.rejects(
@@ -223,13 +235,13 @@ if (!testDatabaseUrl) {
         error => {
           assert.match(
             error.message,
-            /Migration 007_broken_transaction\.sql failed \[22012\]: division by zero/
+            /Migration 010_broken_transaction\.sql failed \[22012\]: division by zero/
           );
           assert.equal(error.code, "22012");
           assert.equal(error.migrationLine, undefined);
           assert.deepEqual(error.migration, {
-            id: "007",
-            fileName: "007_broken_transaction.sql"
+            id: "010",
+            fileName: "010_broken_transaction.sql"
           });
           assert.equal(error.cause?.message, "division by zero");
           for (const unsafeField of [
@@ -261,7 +273,7 @@ if (!testDatabaseUrl) {
             to_regclass('tge.must_rollback') as relation,
             exists (
               select 1 from tge_migration.schema_migrations
-              where migration_id = '007'
+              where migration_id = '010'
             ) as ledger_row
         `
       );
@@ -272,7 +284,7 @@ if (!testDatabaseUrl) {
 
       copyMigrations(ownerDirectory);
       fs.writeFileSync(
-        path.join(ownerDirectory, "007_owner_default_probe.sql"),
+        path.join(ownerDirectory, "010_owner_default_probe.sql"),
         `
           create function tge.owner_default_probe()
           returns integer
@@ -285,7 +297,7 @@ if (!testDatabaseUrl) {
         migrationsDirectory: ownerDirectory,
         logger: silentLogger
       });
-      assert.deepEqual(ownerProbe.applied, ["007"]);
+      assert.deepEqual(ownerProbe.applied, ["010"]);
       const ownerProbeSecurity = await adminClient.query(
         `
           select
@@ -1245,6 +1257,105 @@ if (!testDatabaseUrl) {
           at
         ]
       );
+      for (const [id, taskId, activityId] of [
+        ["runtime-executing-failure-guard", null, null],
+        [
+          "runtime-executing-outcome-guard",
+          "runtime-outcome-task",
+          "runtime-outcome-activity"
+        ]
+      ]) {
+        await insertRevenueAction(adminClient, tenantA, {
+          id,
+          status: "RECOMMENDED",
+          opportunityId: "opp-known",
+          actionType: "CREATE_TASK",
+          fingerprint: (id.includes("failure") ? "b" : "c").repeat(64)
+        });
+        await adminClient.query(
+          `update tge.revenue_actions
+           set status = 'EXECUTING',
+             proposed_execution = $3::jsonb,
+             execution_request = $4::jsonb,
+             execution_attempts = 1,
+             prepared_at = $5,
+             approved_at = $6,
+             resulting_task_id = $7,
+             resulting_activity_id = $8,
+             audit = $9::jsonb,
+             updated_at = $10
+           where tenant_id = $1 and id = $2`,
+          [
+            tenantA,
+            id,
+            JSON.stringify({ type: "INTERNAL_TASK", title: "Protected task" }),
+            JSON.stringify({
+              mode: "SYSTEM_INTERNAL",
+              requested_at: "2026-08-30T05:03:00.000Z"
+            }),
+            "2026-08-30T05:01:00.000Z",
+            "2026-08-30T05:02:00.000Z",
+            taskId,
+            activityId,
+            JSON.stringify([
+              { transition: "CREATED_AS_RECOMMENDED", at, source: "TEST" },
+              { transition: "PREPARED", at: "2026-08-30T05:01:00.000Z" },
+              {
+                transition: "APPROVED",
+                approval: "HUMAN",
+                at: "2026-08-30T05:02:00.000Z"
+              },
+              {
+                transition: "EXECUTION_STARTED",
+                attempt: 1,
+                at: "2026-08-30T05:03:00.000Z"
+              }
+            ]),
+            "2026-08-30T05:03:00.000Z"
+          ]
+        );
+      }
+      await adminClient.query(
+        `insert into tge.tasks (
+           tenant_id, id, opportunity_id, revenue_action_id, title, status,
+           metadata, current_payload, created_at, updated_at
+         ) values ($1, 'runtime-outcome-task', 'opp-known',
+           'runtime-executing-outcome-guard', 'Protected task', 'OPEN',
+           $2::jsonb, '{}'::jsonb, $3, $3)`,
+        [
+          tenantA,
+          JSON.stringify({
+            source: "revenue_action",
+            revenue_action_id: "runtime-executing-outcome-guard",
+            action_type: "CREATE_TASK",
+            execution_effect_type: "INTERNAL_TASK",
+            normalized_title: "protected task",
+            semantic_task_key: "opp-known:CREATE_TASK:protected task"
+          }),
+          "2026-08-30T05:03:00.000Z"
+        ]
+      );
+      await adminClient.query(
+        `insert into tge.activities (
+           tenant_id, id, opportunity_id, revenue_action_id, type,
+           description, metadata, current_payload, created_at, updated_at
+         ) values ($1, 'runtime-outcome-activity', 'opp-known',
+           'runtime-executing-outcome-guard', 'REVENUE_ACTION_TASK_EXECUTED',
+           'Protected activity', $2::jsonb, '{}'::jsonb, $3, $3)`,
+        [
+          tenantA,
+          JSON.stringify({
+            source: "revenue_action",
+            revenue_action_id: "runtime-executing-outcome-guard",
+            action_type: "CREATE_TASK",
+            action_key: "revenue-action:runtime-executing-outcome-guard",
+            execution_mode: "SYSTEM_INTERNAL",
+            execution_effect_type: "INTERNAL_TASK",
+            task_id: "runtime-outcome-task"
+          }),
+          "2026-08-30T05:03:00.000Z"
+        ]
+      );
       await adminClient.query("commit");
     } catch (error) {
       await adminClient.query("rollback");
@@ -1303,6 +1414,111 @@ if (!testDatabaseUrl) {
        where tenant_id = $1 and id = 'runtime-audit-protected'`,
       "23514",
       [tenantA, "2026-08-30T05:01:00.000Z"]
+    );
+    await asRuntime(
+      `update tge.revenue_actions
+       set status = 'CANCELLED',
+         proposed_execution = '{"type":"INTERNAL_TASK"}'::jsonb,
+         execution_request = $2::jsonb,
+         execution_result = $3::jsonb,
+         execution_attempts = 1,
+         failed_at = $4,
+         resulting_task_id = 'smuggled-task',
+         resulting_activity_id = 'smuggled-activity',
+         cancelled_at = $5,
+         audit = audit || $6::jsonb,
+         updated_at = $5
+       where tenant_id = $1 and id = 'runtime-audit-protected'`,
+      "23514",
+      [
+        tenantA,
+        JSON.stringify({
+          mode: "SYSTEM_INTERNAL",
+          requested_at: "2026-08-30T05:00:30.000Z"
+        }),
+        JSON.stringify({
+          mode: "SYSTEM_INTERNAL",
+          outcome: "FAILED",
+          external_send_performed: false,
+          error: "SMUGGLED_FAILURE"
+        }),
+        "2026-08-30T05:00:45.000Z",
+        "2026-08-30T05:01:00.000Z",
+        JSON.stringify([{
+          transition: "CANCELLED",
+          at: "2026-08-30T05:01:00.000Z"
+        }])
+      ]
+    );
+    await asRuntime(
+      `update tge.revenue_actions
+       set status = 'PREPARED',
+         proposed_execution = '{"type":"INTERNAL_TASK"}'::jsonb,
+         prepared_at = $2,
+         audit = audit || $3::jsonb,
+         updated_at = $2
+       where tenant_id = $1 and id = 'runtime-audit-protected'`,
+      "23514",
+      [
+        tenantA,
+        "2026-08-30T05:01:00.000Z",
+        JSON.stringify([{
+          transition: "APPROVED",
+          approval: "HUMAN",
+          at: "2026-08-30T05:01:00.000Z"
+        }])
+      ]
+    );
+    await asRuntime(
+      `update tge.revenue_actions
+       set status = 'FAILED',
+         execution_result = $2::jsonb,
+         failed_at = $3,
+         audit = audit || $4::jsonb,
+         updated_at = $3
+       where tenant_id = $1 and id = 'runtime-executing-failure-guard'`,
+      "23514",
+      [
+        tenantA,
+        JSON.stringify({
+          mode: "SYSTEM_INTERNAL",
+          outcome: "FAILED",
+          external_send_performed: false,
+          error: "DIFFERENT_FAILURE"
+        }),
+        "2026-08-30T05:04:00.000Z",
+        JSON.stringify([{
+          transition: "FAILED",
+          error: "EXPECTED_FAILURE",
+          at: "2026-08-30T05:04:00.000Z"
+        }])
+      ]
+    );
+    await asRuntime(
+      `update tge.revenue_actions
+       set status = 'EXECUTED',
+         execution_result = $2::jsonb,
+         executed_at = $3,
+         audit = audit || $4::jsonb,
+         updated_at = $3
+       where tenant_id = $1 and id = 'runtime-executing-outcome-guard'`,
+      "23514",
+      [
+        tenantA,
+        JSON.stringify({
+          mode: "SYSTEM_INTERNAL",
+          outcome: "TASK_REUSED",
+          external_send_performed: false
+        }),
+        "2026-08-30T05:04:00.000Z",
+        JSON.stringify([{
+          transition: "EXECUTED",
+          execution_mode: "SYSTEM_INTERNAL",
+          resulting_task_id: "runtime-outcome-task",
+          resulting_activity_id: "runtime-outcome-activity",
+          at: "2026-08-30T05:04:00.000Z"
+        }])
+      ]
     );
     await asRuntime(
       `update tge.revenue_actions set resulting_task_id = 'rewritten-task',
@@ -1388,7 +1604,9 @@ if (!testDatabaseUrl) {
            'assign_live_ordinal',
            'guard_runtime_source_evidence',
            'guard_runtime_revenue_action',
-           'guard_runtime_revenue_action_effect'
+           'guard_runtime_revenue_action_effect',
+           'guard_runtime_revenue_action_lifecycle',
+           'guard_runtime_revenue_action_cancellation'
          )`,
       [runtimeRole]
     );

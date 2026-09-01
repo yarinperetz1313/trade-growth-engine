@@ -374,29 +374,47 @@ function createPostgresRepositories({
           };
         }
 
-        const requestedAt = now();
-        const attempt = (action.execution_attempts || 0) + 1;
+        const resuming = action.status === "EXECUTING";
+        const requestedAt = resuming
+          ? action.execution_request.requested_at
+          : now();
+        const attempt = resuming
+          ? action.execution_attempts
+          : (action.execution_attempts || 0) + 1;
         attemptedExecution = { id, mode: expectedMode, requestedAt };
-        const executing = await updateRevenueActionLifecycle(
-          transaction.client,
-          transaction.tenantId,
-          id,
-          {
-            status: "EXECUTING",
-            execution_request: { mode: expectedMode, requested_at: requestedAt },
-            execution_attempts: attempt,
-            failed_at: null,
-            updated_at: requestedAt,
-            audit: appendAudit(action.audit, "EXECUTION_STARTED", requestedAt, {
-              attempt,
-              subject_id: transaction.subjectId
-            })
-          }
-        );
-        await checkpoint("afterExecutionStarted", transaction, { id });
+        const executing = resuming
+          ? action
+          : await updateRevenueActionLifecycle(
+              transaction.client,
+              transaction.tenantId,
+              id,
+              {
+                status: "EXECUTING",
+                execution_request: {
+                  mode: expectedMode,
+                  requested_at: requestedAt
+                },
+                execution_result: null,
+                execution_attempts: attempt,
+                failed_at: null,
+                updated_at: requestedAt,
+                audit: appendAudit(
+                  action.audit,
+                  "EXECUTION_STARTED",
+                  requestedAt,
+                  {
+                    attempt,
+                    subject_id: transaction.subjectId
+                  }
+                )
+              }
+            );
+        if (!resuming) {
+          await checkpoint("afterExecutionStarted", transaction, { id });
+        }
 
         let task = existingEffects.task || null;
-        let taskReused = Boolean(task);
+        let taskReused = task?.metadata?.source === "deal_intelligence";
         if (executing.execution_type === "INTERNAL_TASK" && !task) {
           const taskEffect = await persistInternalTask(
             transaction.client,
@@ -520,13 +538,21 @@ function createPostgresRepositories({
       }
 
       const failedAt = now();
-      const attemptNumber = (action.execution_attempts || 0) + 1;
-      const startedAudit = appendAudit(
-        action.audit,
-        "EXECUTION_STARTED",
-        attempt.requestedAt,
-        { attempt: attemptNumber, subject_id: transaction.subjectId }
-      );
+      const resuming = action.status === "EXECUTING";
+      const attemptNumber = resuming
+        ? action.execution_attempts
+        : (action.execution_attempts || 0) + 1;
+      const requestedAt = resuming
+        ? action.execution_request.requested_at
+        : attempt.requestedAt;
+      const startedAudit = resuming
+        ? action.audit
+        : appendAudit(
+            action.audit,
+            "EXECUTION_STARTED",
+            requestedAt,
+            { attempt: attemptNumber, subject_id: transaction.subjectId }
+          );
       return updateRevenueActionLifecycle(
         transaction.client,
         transaction.tenantId,
@@ -535,7 +561,7 @@ function createPostgresRepositories({
           status: "FAILED",
           execution_request: {
             mode: attempt.mode,
-            requested_at: attempt.requestedAt
+            requested_at: requestedAt
           },
           execution_result: {
             mode: attempt.mode,
@@ -1522,12 +1548,23 @@ async function inspectExecutionEffects(client, tenantId, action, opportunity) {
         "COMMUNICATION_MANUAL_CONFIRMATION" &&
       activity.metadata?.execution_mode === mode &&
       activity.metadata?.channel === action.proposed_execution?.channel;
-    return validActivity
-      ? { conflict: false, complete: true, hasEffects, task: null, activity }
-      : { conflict: true, reason: "INVALID_LINKED_ACTIVITY" };
+    if (!validActivity) {
+      return { conflict: true, reason: "INVALID_LINKED_ACTIVITY" };
+    }
+    if (
+      action.status === "EXECUTED" &&
+      !["USER_CONFIRMED_COMPLETION", "RECOVERED_LINKED_EFFECTS"].includes(
+        action.execution_result?.outcome
+      )
+    ) {
+      return { conflict: true, reason: "EXECUTION_RESULT_EFFECT_MISMATCH" };
+    }
+    return { conflict: false, complete: true, hasEffects, task: null, activity };
   }
 
-  const validTask = !task || taskMatchesRevenueAction(task, action);
+  const validTask = !task || taskMatchesRevenueAction(task, action, {
+    requireOpen: action.status !== "EXECUTED"
+  });
   const validActivity = !activity || (
     activity.opportunity_id === action.opportunity_id &&
     activity.type === "REVENUE_ACTION_TASK_EXECUTED" &&
@@ -1541,6 +1578,20 @@ async function inspectExecutionEffects(client, tenantId, action, opportunity) {
   );
   if (!validTask || !validActivity || (activity && !task)) {
     return { conflict: true, reason: "INVALID_LINKED_INTERNAL_EFFECT" };
+  }
+  if (action.status === "EXECUTED") {
+    const outcome = action.execution_result?.outcome;
+    const taskSource = task?.metadata?.source;
+    const resultMatchesEffects =
+      (outcome === "TASK_CREATED" && taskSource === "revenue_action") ||
+      (outcome === "TASK_REUSED" && taskSource === "deal_intelligence") ||
+      (
+        outcome === "RECOVERED_LINKED_EFFECTS" &&
+        ["revenue_action", "deal_intelligence"].includes(taskSource)
+      );
+    if (!resultMatchesEffects) {
+      return { conflict: true, reason: "EXECUTION_RESULT_EFFECT_MISMATCH" };
+    }
   }
 
   const opportunityMutationComplete =
@@ -1684,7 +1735,9 @@ function validateStoredRevenueActionIntegrity(action) {
       "EXECUTING",
       "EXECUTED",
       "FAILED"
-    ].includes(action.status);
+    ].includes(action.status) || (
+      action.status === "CANCELLED" && action.proposed_execution !== null
+    );
     if (
       !semantics ||
       action.execution_type !== semantics.executionType ||
@@ -1773,6 +1826,7 @@ function validateRevenueActionLifecycleTruth(action) {
   }
 
   let auditState = "RECOMMENDED";
+  let cancelledFromState = null;
   let previousAt = new Date(action.audit[0].at).valueOf();
   const transitions = new Map();
   transitions.set("CREATED_AS_RECOMMENDED", action.audit[0]);
@@ -1808,6 +1862,7 @@ function validateRevenueActionLifecycleTruth(action) {
       ].includes(entry.transition) &&
       !["EXECUTED", "REJECTED", "CANCELLED"].includes(auditState)
     ) {
+      cancelledFromState = auditState;
       auditState = "CANCELLED";
     } else {
       return false;
@@ -1826,7 +1881,7 @@ function validateRevenueActionLifecycleTruth(action) {
   const rejected = transitions.get("REJECTED");
   const cancelled = status === "CANCELLED" ? action.audit.at(-1) : null;
   const currentFailure = status === "FAILED" ||
-    (status === "CANCELLED" && Boolean(failed));
+    (status === "CANCELLED" && cancelledFromState === "FAILED");
   if (
     !optionalTimestampMatches(action.prepared_at, prepared?.at) ||
     !optionalTimestampMatches(action.approved_at, approved?.at) ||
@@ -1877,9 +1932,59 @@ function validateRevenueActionLifecycleTruth(action) {
       allNull(action, ["approved_at", "executed_at", "cancelled_at", "failed_at"]);
   }
   if (status === "CANCELLED") {
-    return Boolean(cancelled) &&
-      action.executed_at == null &&
-      action.rejected_at == null;
+    if (
+      !cancelled ||
+      !timestampsEqual(action.updated_at, cancelled.at) ||
+      action.executed_at != null ||
+      action.rejected_at != null ||
+      action.rejection_reason != null
+    ) {
+      return false;
+    }
+    if (cancelledFromState === "RECOMMENDED") {
+      return action.proposed_execution == null &&
+        noExecution &&
+        allNull(action, ["prepared_at", "approved_at", "failed_at"]);
+    }
+    if (cancelledFromState === "PREPARED") {
+      return Boolean(prepared && action.proposed_execution) &&
+        noExecution &&
+        allNull(action, ["approved_at", "failed_at"]);
+    }
+    if (cancelledFromState === "APPROVED") {
+      return Boolean(prepared && approved && action.proposed_execution) &&
+        noExecution &&
+        action.failed_at == null;
+    }
+    if (
+      !prepared ||
+      !approved ||
+      !started ||
+      !isPlainRecord(action.execution_request) ||
+      action.execution_request.mode !== expectedMode ||
+      !timestampsEqual(action.execution_request.requested_at, started.at) ||
+      attempts < 1 ||
+      started.attempt !== attempts
+    ) {
+      return false;
+    }
+    const internal = action.execution_type === "INTERNAL_TASK";
+    if (cancelledFromState === "EXECUTING") {
+      return action.execution_result == null &&
+        action.failed_at == null &&
+        validPartialExecutionEffectIds(action, internal);
+    }
+    if (cancelledFromState === "FAILED") {
+      return Boolean(failed) &&
+        isPlainRecord(action.execution_result) &&
+        action.execution_result.mode === expectedMode &&
+        action.execution_result.outcome === "FAILED" &&
+        action.execution_result.external_send_performed === false &&
+        isNonEmptyString(action.execution_result.error) &&
+        action.execution_result.error === failed.error &&
+        validPartialExecutionEffectIds(action, internal);
+    }
+    return false;
   }
 
   if (
@@ -1895,10 +2000,11 @@ function validateRevenueActionLifecycleTruth(action) {
     return false;
   }
   if (status === "EXECUTING") {
+    const internal = action.execution_type === "INTERNAL_TASK";
     return action.execution_result == null &&
+      validPartialExecutionEffectIds(action, internal) &&
       allNull(action, [
-        "executed_at", "rejected_at", "cancelled_at", "failed_at",
-        "resulting_task_id", "resulting_activity_id"
+        "executed_at", "rejected_at", "cancelled_at", "failed_at"
       ]);
   }
   if (
@@ -1911,14 +2017,22 @@ function validateRevenueActionLifecycleTruth(action) {
   if (status === "FAILED") {
     return Boolean(failed) &&
       action.execution_result.outcome === "FAILED" &&
+      isNonEmptyString(action.execution_result.error) &&
+      action.execution_result.error === failed.error &&
+      validPartialExecutionEffectIds(
+        action,
+        action.execution_type === "INTERNAL_TASK"
+      ) &&
       allNull(action, ["executed_at", "rejected_at", "cancelled_at"]);
   }
 
   const internal = action.execution_type === "INTERNAL_TASK";
+  const allowedOutcomes = internal
+    ? new Set(["TASK_CREATED", "TASK_REUSED", "RECOVERED_LINKED_EFFECTS"])
+    : new Set(["USER_CONFIRMED_COMPLETION", "RECOVERED_LINKED_EFFECTS"]);
   return Boolean(executed) &&
-    action.execution_result.outcome !== "FAILED" &&
-    typeof action.execution_result.outcome === "string" &&
-    action.execution_result.outcome.length > 0 &&
+    allowedOutcomes.has(action.execution_result.outcome) &&
+    action.execution_result.error == null &&
     isNonEmptyString(action.resulting_activity_id) &&
     (internal
       ? isNonEmptyString(action.resulting_task_id)
@@ -1927,6 +2041,17 @@ function validateRevenueActionLifecycleTruth(action) {
     executed.resulting_task_id === (action.resulting_task_id ?? null) &&
     executed.resulting_activity_id === action.resulting_activity_id &&
     allNull(action, ["rejected_at", "cancelled_at", "failed_at"]);
+}
+
+function validPartialExecutionEffectIds(action, internal) {
+  const taskValid = action.resulting_task_id == null ||
+    isNonEmptyString(action.resulting_task_id);
+  const activityValid = action.resulting_activity_id == null ||
+    isNonEmptyString(action.resulting_activity_id);
+  if (!taskValid || !activityValid) return false;
+  if (!internal) return action.resulting_task_id == null;
+  return action.resulting_activity_id == null ||
+    isNonEmptyString(action.resulting_task_id);
 }
 
 function optionalTimestampMatches(value, expected) {
@@ -2196,12 +2321,16 @@ function expectedExecutionMode(action) {
     : "SYSTEM_INTERNAL";
 }
 
-function taskMatchesRevenueAction(task, action) {
+function taskMatchesRevenueAction(task, action, { requireOpen = true } = {}) {
+  return taskIdentityMatchesRevenueAction(task, action) &&
+    (!requireOpen || task.status === "OPEN");
+}
+
+function taskIdentityMatchesRevenueAction(task, action) {
   const proposal = buildProposedExecution(action);
   if (!proposal || proposal.type !== "INTERNAL_TASK") return false;
   return (
     task.opportunity_id === action.opportunity_id &&
-    task.status === "OPEN" &&
     ["revenue_action", "deal_intelligence"].includes(task.metadata?.source) &&
     task.metadata?.revenue_action_id === action.id &&
     task.metadata?.action_type === action.action_type &&

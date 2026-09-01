@@ -9,6 +9,12 @@ const {
   createRevenueActionsRouter
 } = require("../api/revenueActions");
 const {
+  createPostgresCoreRouter
+} = require("../api/postgresCore");
+const {
+  createPostgresCoreService
+} = require("../persistence/postgres/coreService");
+const {
   createPostgresRevenueActionService
 } = require("../revenueActions/postgresRevenueActionService");
 
@@ -28,7 +34,14 @@ function createApp({
     ? createPostgresRevenueActionService({ persistence })
     : revenueActionService;
   if (injectedService) {
+    const postgresCoreRouter = persistence
+      ? createPostgresCoreRouter({
+        service: createPostgresCoreService({ persistence }),
+        resolveTenantContext
+      })
+      : null;
     api = createApiRouter({
+      postgresCoreRouter,
       revenueActionsRouter: createRevenueActionsRouter({
         service: injectedService,
         resolveTenantContext

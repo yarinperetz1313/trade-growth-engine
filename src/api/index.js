@@ -43,7 +43,8 @@ const revenueActions =
   );
 
 function createApiRouter({
-  revenueActionsRouter = revenueActions
+  revenueActionsRouter = revenueActions,
+  postgresCoreRouter = null
 } = {}) {
   const router =
     express.Router();
@@ -52,29 +53,35 @@ router.use(
   health
 );
 
-router.use(
-  prospects
-);
+if (postgresCoreRouter) {
+  router.use(
+    postgresCoreRouter
+  );
+} else {
+  router.use(
+    prospects
+  );
 
-router.use(
-  leads
-);
+  router.use(
+    leads
+  );
 
-router.use(
-  qualification
-);
+  router.use(
+    qualification
+  );
 
-router.use(
-  opportunities
-);
+  router.use(
+    opportunities
+  );
 
-router.use(
-  tasks
-);
+  router.use(
+    tasks
+  );
 
-router.use(
-  revenueIntelligence
-);
+  router.use(
+    revenueIntelligence
+  );
+}
 
 router.use(
   revenueActionsRouter
