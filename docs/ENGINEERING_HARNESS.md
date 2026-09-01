@@ -90,7 +90,7 @@ Each plan records debt and follow-ups. Failed gates and review findings become e
 ## Known limitations
 
 - Phase 2 is locked for this upgrade; its code is not being extended here.
-- Pilot Readiness PR-3 persistence and PR-4 auth are integrated in code; JSON remains the local default and production Auth0/SMTP proof remains gated.
+- Pilot Readiness PR-3 persistence and PR-4 auth are integrated in code, complete, and merged through [PR #16](https://github.com/yarinperetz1313/trade-growth-engine/pull/16); JSON remains the local default and production Auth0/SMTP proof remains gated.
 - Real Auth0 AU email-OTP E2E remains deployment-gated until tenant and SMTP/email-capture credentials are provisioned.
 - Browser CI is configured locally; a green CI outcome cannot be established from this checkout alone.
 - Fixed-port serial E2E limits safe local parallelism.
