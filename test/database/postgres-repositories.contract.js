@@ -2115,7 +2115,10 @@ function registerPostgresRepositoryContractTests({
 
   test("compatible RevenueAction replay requires recovery for linked FAILED effects", async () => {
     const pool = createPool();
-    const repositories = createPostgresRepositories({ pool });
+    const repositories = createPostgresRepositories({
+      pool,
+      clock: () => "2026-09-01T00:01:00.000Z"
+    });
     const { context, tenantId } = await createTenant("compatible-recovery");
     await repositories.opportunities.insert(context, {
       id: "compatible-recovery-opportunity",
@@ -2149,7 +2152,8 @@ function registerPostgresRepositoryContractTests({
       materialized.record.id,
       { to: "APPROVED" }
     );
-    await seedCommittedCommunicationEffect({
+    assert.equal(approved.record.execution_type, "INTERNAL_TASK");
+    await seedCommittedExecutionEffects({
       tenantId,
       action: approved.record
     });
