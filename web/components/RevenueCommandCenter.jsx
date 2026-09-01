@@ -1,20 +1,5 @@
 import React from "react";
-
-function money(value) {
-  if (
-    value === null ||
-    value === undefined ||
-    !Number.isFinite(Number(value))
-  ) {
-    return "Unknown";
-  }
-
-  return new Intl.NumberFormat("en-AU", {
-    style: "currency",
-    currency: "AUD",
-    maximumFractionDigits: 0
-  }).format(Number(value));
-}
+import { formatCommercialValue } from "../lib/commercialValue";
 
 function countLabel(summary) {
   if (!summary) {
@@ -29,7 +14,7 @@ function summaryMoney(summary) {
     return "Unknown";
   }
 
-  return money(summary.known_total);
+  return formatCommercialValue(summary.known_total);
 }
 
 const CLASSIFICATION_BADGES = [
@@ -44,6 +29,7 @@ export default function RevenueCommandCenter({
   revenue,
   loading,
   error,
+  actionsUnavailable = false,
   onRefresh,
   onOpenOpportunity
 }) {
@@ -167,7 +153,11 @@ export default function RevenueCommandCenter({
 
       <div className="revenue-actions">
         <h4>Top actions</h4>
-        {topActions.length === 0 ? (
+        {actionsUnavailable ? (
+          <div className="pipeline-loading">
+            Opportunity actions are unavailable until opportunity data can be loaded.
+          </div>
+        ) : topActions.length === 0 ? (
           <div className="pipeline-loading">
             No active opportunities need review.
           </div>
@@ -189,7 +179,7 @@ export default function RevenueCommandCenter({
                 <small>
                   {item.action.priority} · {item.action.type}
                   {item.value.known
-                    ? ` · ${money(item.value.amount)}`
+                    ? ` · ${formatCommercialValue(item.value.amount)}`
                     : " · Value unknown"}
                 </small>
               </span>

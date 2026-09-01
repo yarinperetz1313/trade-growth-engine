@@ -21,7 +21,6 @@
 
 body {
   margin: 0;
-  min-width: 1100px;
   min-height: 100vh;
   background:
     radial-gradient(
@@ -43,6 +42,7 @@ button {
 
 .app {
   display: flex;
+  min-width: 0;
   min-height: 100vh;
 }
 
@@ -206,6 +206,7 @@ button {
 
 .main {
   width: calc(100% - 250px);
+  min-width: 0;
   margin-left: 250px;
 }
 
@@ -627,7 +628,7 @@ p {
   display: grid;
 
   grid-template-columns:
-    repeat(4, 1fr);
+    repeat(3, 1fr);
 }
 
 .insight {
@@ -908,6 +909,98 @@ p {
   .intelligence-grid {
     grid-template-columns:
       repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 800px) {
+  .app {
+    display: block;
+  }
+
+  .sidebar {
+    position: static;
+    bottom: auto;
+    width: 100%;
+    min-height: auto;
+    padding: 10px 12px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .brand {
+    width: 100%;
+    padding: 0 4px 6px;
+  }
+
+  .brand-mark {
+    width: 32px;
+    height: 32px;
+  }
+
+  .nav-section {
+    display: none;
+  }
+
+  .nav-item {
+    flex: 1 1 calc(50% - 6px);
+    justify-content: center;
+    margin: 0;
+    padding: 8px;
+    text-align: center;
+  }
+
+  .sidebar-bottom {
+    display: none;
+  }
+
+  .main {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .topbar {
+    height: auto;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px 20px;
+  }
+
+  .top-actions,
+  .search {
+    width: 100%;
+  }
+
+  .page {
+    padding: 24px 20px 48px;
+  }
+
+  .metrics,
+  .grid-two,
+  .intelligence-grid,
+  .insight-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .welcome,
+  .page-actions,
+  .card-head {
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .table,
+  .pipeline-board,
+  .opportunity-table {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .table-row,
+  .opportunity-table-header,
+  .opportunity-table-row {
+    min-width: 720px;
   }
 }
 

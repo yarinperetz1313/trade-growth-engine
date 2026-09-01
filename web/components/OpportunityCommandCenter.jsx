@@ -6,6 +6,10 @@ import {
   runOpportunityIntelligenceAction,
   transitionRevenueAction
 } from "../lib/api";
+import {
+  formatCommercialValue,
+  isKnownCommercialValue
+} from "../lib/commercialValue";
 
 const ACTIVE_REVENUE_ACTION_STATUSES = new Set([
   "RECOMMENDED",
@@ -22,28 +26,6 @@ const SUPPORTED_REVENUE_ACTION_TYPES = new Set([
   "QUALIFY",
   "ADVANCE"
 ]);
-
-function money(value) {
-  if (
-    value === null ||
-    value === undefined ||
-    value === ""
-  ) {
-    return "Unknown";
-  }
-
-  const numeric = Number(value);
-
-  if (!Number.isFinite(numeric)) {
-    return "Unknown";
-  }
-
-  return new Intl.NumberFormat("en-AU", {
-    style: "currency",
-    currency: "AUD",
-    maximumFractionDigits: 0
-  }).format(numeric);
-}
 
 function score(value) {
   if (
@@ -243,12 +225,12 @@ export default function OpportunityCommandCenter({
       "Unknown";
 
   const hasValue =
-    currentOpportunity.value !==
-      null &&
-    currentOpportunity.value !==
-      undefined &&
-    currentOpportunity.value !== "" &&
-    Number(currentOpportunity.value) > 0;
+    isKnownCommercialValue(
+      currentOpportunity.value
+    );
+
+  const hasValidValueInput =
+    isKnownCommercialValue(value);
 
   const hasStaleRisk =
     Number(scoreData?.stale_risk) >=
@@ -547,7 +529,7 @@ export default function OpportunityCommandCenter({
           </div>
 
           <div className="oc-value" data-testid="opportunity-value">
-            {money(
+            {formatCommercialValue(
               currentOpportunity.value
             )}
           </div>
@@ -641,8 +623,7 @@ export default function OpportunityCommandCenter({
               <button
                 className="oc-primary-button"
                 disabled={
-                  !value ||
-                  Number(value) <= 0 ||
+                  !hasValidValueInput ||
                   actionLoading ===
                     "value"
                 }
@@ -962,7 +943,8 @@ export default function OpportunityCommandCenter({
               <div className="oc-action-form">
                 <input
                   type="number"
-                  min="0"
+                  min="1"
+                  step="100"
                   value={value}
                   onChange={e =>
                     setValue(
@@ -975,7 +957,7 @@ export default function OpportunityCommandCenter({
                 <button
                   className="oc-secondary-button"
                   disabled={
-                    !value ||
+                    !hasValidValueInput ||
                     actionLoading ===
                       "value"
                   }
@@ -984,7 +966,8 @@ export default function OpportunityCommandCenter({
                       "value",
                       "value",
                       {
-                        value
+                        value:
+                          Number(value)
                       }
                     )
                   }
@@ -1084,7 +1067,7 @@ export default function OpportunityCommandCenter({
             <div>
               <span>Value</span>
               <strong>
-                {money(
+                {formatCommercialValue(
                   currentOpportunity.value
                 )}
               </strong>
@@ -1093,7 +1076,7 @@ export default function OpportunityCommandCenter({
             <div>
               <span>Weighted value</span>
               <strong>
-                {money(
+                {formatCommercialValue(
                   currentOpportunity.weighted_value
                 )}
               </strong>
