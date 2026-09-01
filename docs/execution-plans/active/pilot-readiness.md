@@ -4,7 +4,7 @@
 
 - **PR-0 through PR-2 are COMPLETE.** PR-2's PostgreSQL 16.15 authority remains [GitHub Actions run 33304131266](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33304131266): harness, 68 integration tests, 11 database tests, 7 Chromium E2E tests, and the production build passed.
 - **PR-3 and PR-4 are integrated in code.** Tenant-aware PostgreSQL repositories and transactional RevenueAction execution consume PR-4 membership authority through a server-only bridge between independently branded contexts. The old magic-link blocker is removed.
-- **Combined final CI/review evidence is pending.** PR-3 and PR-4 were green independently; the integration branch still requires the complete PostgreSQL 16.15 and product verification gates before merge.
+- **Combined verification is COMPLETE at `9fe7cea`.** [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854) passed the engineering harness, 129 integration tests, 44 PostgreSQL 16.15 database tests, 7 managed Chromium tests, and the production build. Fresh combined review found no P0, P1, or P3 findings; its only P2 was stale status text corrected in this record.
 - **PR-5 and later are NOT STARTED.** Import execution, JSON cutover, deployment, and production provisioning remain out of scope.
 
 The canonical architecture is the [foundation](../../architecture/PILOT_READINESS_FOUNDATION.md), with the identity path detailed in [Authentication and TenantContext](../../architecture/AUTHENTICATION_AND_TENANT_CONTEXT.md). Provisioning and release evidence live in the [production gate](../../operations/PILOT_PRODUCTION_GATE.md).
@@ -71,13 +71,13 @@ No local mock or deterministic seam may be reported as real Auth0/SMTP proof.
 | Level | Command/evidence | Current result |
 | --- | --- | --- |
 | Focused combined auth + persistence | `OPENSSL_CONF=/dev/null node --test test/authentication.test.js test/authorization.test.js test/invitations.test.js test/auth-api.test.js test/browser-auth-contract.test.js test/postgres-auth-repository.test.js test/postgres-persistence.test.js test/revenue-actions-api.test.js` | **PASS: 79/79.** This includes the trusted-context bridge and fail-closed adapter boundary. |
-| Database/static, integration, harness, build, managed E2E | Requested combined sequence | **PENDING** after the focused gate. |
-| Real PostgreSQL 16.15 | GitHub Actions `verify` | **PENDING** for this combined branch. PR-3 and PR-4 passed separately, but separate evidence is not a combined pass. |
+| Integration | [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854) at `9fe7cea` | **PASS: 129/129.** |
+| Real PostgreSQL 16.15 | [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854) at `9fe7cea` | **PASS: 44/44.** |
+| Harness, build, managed E2E | [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854) at `9fe7cea` | **PASS:** engineering harness and production build green; managed Chromium **7/7**. |
 | Real Auth0 AU + SMTP OTP | Production gate | **DEPLOYMENT-GATED:** local seams are not external provider proof. |
-| Hygiene | `git diff --check`, migration body hashes | **PASS:** PR-3 migrations `005`–`009` and renamed PR-4 migration `010` are byte-identical to their reviewed branch bodies; no stale `005_auth_membership_and_invitations.sql` reference remains. Fresh combined review remains pending. |
+| Hygiene and review | `git diff --check`, migration body hashes, fresh combined review | **PASS:** PR-3 migrations `005`–`009` and renamed PR-4 migration `010` are byte-identical to their reviewed branch bodies; no stale `005_auth_membership_and_invitations.sql` reference remains. Review found no P0/P1/P3; its only P2 was this now-corrected status evidence. |
 
 ## Remaining gates
 
-- Fresh-context auth/security review and GitHub Actions `verify` must be green before merge.
 - Auth0 AU plan/tenant, domain, transactional SMTP, SPF/DKIM/DMARC, privacy/DPA, and real OTP E2E evidence remain required before external invitations.
 - Local JSON remains authoritative until an explicit cutover. Production Auth0 AU, SMTP/domain, provisioning, and real OTP evidence remain gated.
