@@ -333,6 +333,59 @@ test("ambiguous preview COMMIT returns only its batch ID and supports reconcilia
   assert.equal(reconciled.data.data.records[0].rawPayload.cells[1].raw, rawCell);
 });
 
+test("oversized JSON import envelopes return a bounded transport error without fault logging", async () => {
+  const owner = await authContext();
+  const persistence = fakePersistence();
+  const service = createImportService({ persistence });
+  const express = require("express");
+  let authenticationCalls = 0;
+  const authRuntime = {
+    corsOptions: {},
+    publicRouter: express.Router(),
+    protectedRouter: express.Router(),
+    authenticateIdentity(req, res, next) {
+      authenticationCalls += 1;
+      next();
+    },
+    deriveTenantContext(req, res, next) {
+      req.tenantContext = owner;
+      next();
+    }
+  };
+  const app = createApp({ authRuntime, persistence, importService: service });
+  const loggedFaults = [];
+  const originalConsoleError = console.error;
+  console.error = (...args) => loggedFaults.push(args);
+
+  let response;
+  try {
+    response = await requestRouter(app, "/api/import-batches/preview", {
+      method: "POST",
+      parseJson: false,
+      body: {
+        sourceCollection: "prospects",
+        upload: {
+          filename: "oversized.csv",
+          mediaType: "text/csv",
+          contentBase64: "A".repeat(1024 * 1024)
+        }
+      }
+    });
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.equal(response.status, 413);
+  assert.deepEqual(response.data, {
+    ok: false,
+    error: "REQUEST_BODY_TOO_LARGE",
+    message: "Request body exceeds the maximum allowed size."
+  });
+  assert.equal(authenticationCalls, 0);
+  assert.deepEqual(loggedFaults, []);
+  assert.equal(persistence.calls.length, 0);
+});
+
 test("application composition exposes the tenant-authorized import preview contract", async () => {
   const express = require("express");
   const owner = await authContext();
@@ -404,11 +457,13 @@ test("application composition exposes the tenant-authorized import preview contr
 async function requestRouter(
   router,
   pathname,
-  { method = "GET", body, headers = {} } = {}
+  { method = "GET", parseJson = true, body, headers = {} } = {}
 ) {
   const express = require("express");
   const app = express();
-  app.use(express.json());
+  if (parseJson) {
+    app.use(express.json());
+  }
   app.use(router);
   const server = app.listen(0);
   try {

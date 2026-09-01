@@ -154,6 +154,14 @@ function createApp({
   });
 
   app.use((err, req, res, next) => {
+    if (err?.type === "entity.too.large") {
+      return res.status(413).json({
+        ok: false,
+        error: "REQUEST_BODY_TOO_LARGE",
+        message: "Request body exceeds the maximum allowed size."
+      });
+    }
+
     if (err?.type === "entity.parse.failed") {
       return res.status(400).json({
         ok: false,
