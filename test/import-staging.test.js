@@ -18,6 +18,9 @@ const {
   ImportContractError,
   createImportService
 } = require("../src/imports/importService");
+const {
+  withTenantTransaction
+} = require("../src/persistence/postgres/transaction");
 
 const TENANT_A = "a0e8a2a0-9c44-4d84-9263-7d417ac00b8e";
 const TENANT_B = "b0e8a2a0-9c44-4d84-9263-7d417ac00b8e";
@@ -249,6 +252,85 @@ test("import router normalizes unavailable previews without an existence oracle"
     error: "IMPORT_BATCH_UNAVAILABLE",
     message: "The requested import batch is unavailable."
   });
+});
+
+test("ambiguous preview COMMIT returns only its batch ID and supports reconciliation", async () => {
+  const owner = await authContext();
+  const persistenceContext = bridgeAuthTenantContext(owner);
+  const previews = new Map();
+  let rejectCommit = true;
+  const pool = {
+    async connect() {
+      return {
+        async query(sql) {
+          if (sql === "COMMIT" && rejectCommit) {
+            rejectCommit = false;
+            throw new Error("commit acknowledgement lost");
+          }
+          return { rows: [] };
+        },
+        release() {}
+      };
+    }
+  };
+  const persistence = {
+    adapter: "postgres",
+    forTenant(context) {
+      return {
+        imports: {
+          async stagePreview(draft) {
+            return withTenantTransaction(pool, context, async () => {
+              const preview = {
+                batch: structuredClone(draft.batch),
+                records: structuredClone(draft.records),
+                previewRowLimit: 100
+              };
+              previews.set(`${context.tenantId}:${draft.batch.id}`, preview);
+              return structuredClone(preview);
+            });
+          },
+          async findPreview(batchId) {
+            return structuredClone(
+              previews.get(`${context.tenantId}:${batchId}`) || null
+            );
+          }
+        }
+      };
+    }
+  };
+  const app = createApp({
+    persistence,
+    resolveAuthorizationContext: () => owner,
+    resolveTenantContext: () => persistenceContext
+  });
+  const rawCell = "tenant-private-raw-cell";
+
+  const created = await requestRouter(app, "/api/import-batches/preview", {
+    method: "POST",
+    body: {
+      sourceCollection: "prospects",
+      upload: upload(`id,note\n1,${rawCell}`)
+    }
+  });
+
+  assert.equal(created.status, 500);
+  assert.deepEqual(created.data, {
+    ok: false,
+    error: "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN",
+    message: "PostgreSQL did not confirm the transaction outcome; reconcile the attempted result before retrying.",
+    details: { attemptedId: created.data.details.attemptedId }
+  });
+  assert.match(created.data.details.attemptedId, /^[0-9a-f-]{36}$/);
+  assert.equal(JSON.stringify(created.data).includes(rawCell), false);
+  assert.equal(Object.hasOwn(created.data, "attemptedResult"), false);
+
+  const reconciled = await requestRouter(
+    app,
+    `/api/import-batches/${created.data.details.attemptedId}/preview`
+  );
+  assert.equal(reconciled.status, 200);
+  assert.equal(reconciled.data.data.batch.id, created.data.details.attemptedId);
+  assert.equal(reconciled.data.data.records[0].rawPayload.cells[1].raw, rawCell);
 });
 
 test("application composition exposes the tenant-authorized import preview contract", async () => {

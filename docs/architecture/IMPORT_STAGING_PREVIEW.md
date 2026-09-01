@@ -42,6 +42,23 @@ The separately branded persistence context supplies the same tenant to the PR-3
 transaction. Both contexts must agree. `MEMBER` is denied. Cross-tenant and
 nonexistent batch IDs both return `404 IMPORT_BATCH_UNAVAILABLE`.
 
+If PostgreSQL does not acknowledge the staging transaction's `COMMIT`, POST
+returns HTTP `500` with the existing outcome-unknown convention:
+
+```json
+{
+  "ok": false,
+  "error": "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN",
+  "message": "PostgreSQL did not confirm the transaction outcome; reconcile the attempted result before retrying.",
+  "details": { "attemptedId": "server-generated-batch-id" }
+}
+```
+
+Only the server-generated attempted batch ID crosses this boundary; the
+attempted result and raw cells do not. The authorized caller reconciles with
+`GET /api/import-batches/:batchId/preview` before retrying. That read keeps the
+same role, tenant-isolation, and generic `IMPORT_BATCH_UNAVAILABLE` behavior.
+
 ## Deterministic parser limits
 
 | Resource | Limit |

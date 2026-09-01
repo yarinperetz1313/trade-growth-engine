@@ -3,6 +3,9 @@ const express = require("express");
 const { AuthorizationError } = require("../auth/authorization");
 const { ImportCsvError } = require("../imports/csvParser");
 const { ImportContractError } = require("../imports/importService");
+const {
+  PostgresTransactionOutcomeUnknownError
+} = require("../persistence/postgres/transaction");
 
 function createImportsRouter({
   service,
@@ -53,6 +56,18 @@ function route(handler) {
     try {
       await handler(req, res);
     } catch (error) {
+      if (
+        error instanceof PostgresTransactionOutcomeUnknownError
+        && typeof error.attemptedId === "string"
+        && error.attemptedId.length > 0
+      ) {
+        return res.status(500).json({
+          ok: false,
+          error: "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN",
+          message: "PostgreSQL did not confirm the transaction outcome; reconcile the attempted result before retrying.",
+          details: { attemptedId: error.attemptedId }
+        });
+      }
       if (
         error instanceof ImportContractError
         || error instanceof ImportCsvError
