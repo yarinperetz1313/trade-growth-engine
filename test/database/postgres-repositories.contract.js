@@ -115,6 +115,11 @@ function registerPostgresRepositoryContractTests({
     );
   }
 
+  function timestampAfterLastAudit(action, milliseconds = 1000) {
+    const lastAuditAt = action.audit.at(-1)?.at;
+    return new Date(Date.parse(lastAuditAt) + milliseconds).toISOString();
+  }
+
   async function seedFixtureSnapshot(tenantId, fixtures) {
     const client = getAdminClient();
     const collections = [
@@ -151,7 +156,8 @@ function registerPostgresRepositoryContractTests({
     omitOpportunityMutation = false
   }) {
     const client = getAdminClient();
-    const at = "2026-08-30T01:00:00.000Z";
+    const startedAt = timestampAfterLastAudit(action);
+    const failedAt = timestampAfterLastAudit(action, 2000);
     const taskId = `${action.id}-task`;
     const activityId = `${action.id}-activity`;
     const proposal = action.proposed_execution;
@@ -192,7 +198,7 @@ function registerPostgresRepositoryContractTests({
           proposal.due_at,
           proposal.priority,
           JSON.stringify(taskMetadata),
-          at
+          startedAt
         ]
       );
       if (!taskOnly) {
@@ -209,7 +215,7 @@ function registerPostgresRepositoryContractTests({
             action.id,
             `Revenue action created internal task: ${proposal.title}`,
             JSON.stringify(activityMetadata),
-            at
+            startedAt
           ]
         );
       }
@@ -221,7 +227,7 @@ function registerPostgresRepositoryContractTests({
         await client.query(
           `update tge.opportunities set next_action = $3, updated_at = $4
            where tenant_id = $1 and id = $2`,
-          [tenantId, action.opportunity_id, malformed ? "Malicious task" : proposal.title, at]
+          [tenantId, action.opportunity_id, malformed ? "Malicious task" : proposal.title, startedAt]
         );
       }
       await client.query(
@@ -237,8 +243,8 @@ function registerPostgresRepositoryContractTests({
         [
           tenantId,
           action.id,
-          at,
-          JSON.stringify({ mode: "SYSTEM_INTERNAL", requested_at: at }),
+          failedAt,
+          JSON.stringify({ mode: "SYSTEM_INTERNAL", requested_at: startedAt }),
           JSON.stringify({
             mode: "SYSTEM_INTERNAL",
             outcome: "FAILED",
@@ -247,8 +253,8 @@ function registerPostgresRepositoryContractTests({
           }),
           JSON.stringify([
             ...action.audit,
-            { transition: "EXECUTION_STARTED", at, attempt: 1 },
-            { transition: "FAILED", at, error: "EXECUTION_EFFECT_FAILED" }
+            { transition: "EXECUTION_STARTED", at: startedAt, attempt: 1 },
+            { transition: "FAILED", at: failedAt, error: "EXECUTION_EFFECT_FAILED" }
           ]),
           taskId,
           taskOnly ? null : activityId
@@ -263,7 +269,8 @@ function registerPostgresRepositoryContractTests({
 
   async function seedCommittedCommunicationEffect({ tenantId, action }) {
     const client = getAdminClient();
-    const at = "2026-08-30T02:00:00.000Z";
+    const startedAt = timestampAfterLastAudit(action);
+    const failedAt = timestampAfterLastAudit(action, 2000);
     const activityId = `${action.id}-manual-activity`;
     await client.query("begin");
     try {
@@ -288,7 +295,7 @@ function registerPostgresRepositoryContractTests({
             execution_effect_type: "COMMUNICATION_MANUAL_CONFIRMATION",
             channel: action.proposed_execution.channel
           }),
-          at
+          startedAt
         ]
       );
       await client.query(
@@ -303,8 +310,8 @@ function registerPostgresRepositoryContractTests({
         [
           tenantId,
           action.id,
-          at,
-          JSON.stringify({ mode: "MANUAL_CONFIRMED", requested_at: at }),
+          failedAt,
+          JSON.stringify({ mode: "MANUAL_CONFIRMED", requested_at: startedAt }),
           JSON.stringify({
             mode: "MANUAL_CONFIRMED",
             outcome: "FAILED",
@@ -313,8 +320,8 @@ function registerPostgresRepositoryContractTests({
           }),
           JSON.stringify([
             ...action.audit,
-            { transition: "EXECUTION_STARTED", at, attempt: 1 },
-            { transition: "FAILED", at, error: "EXECUTION_EFFECT_FAILED" }
+            { transition: "EXECUTION_STARTED", at: startedAt, attempt: 1 },
+            { transition: "FAILED", at: failedAt, error: "EXECUTION_EFFECT_FAILED" }
           ]),
           activityId
         ]
@@ -328,7 +335,7 @@ function registerPostgresRepositoryContractTests({
 
   async function seedExecutingAttempt({ tenantId, action, taskOnly = false }) {
     const client = getAdminClient();
-    const requestedAt = "2026-08-30T02:30:00.000Z";
+    const requestedAt = timestampAfterLastAudit(action);
     const taskId = taskOnly ? `${action.id}-resumed-task` : null;
     await client.query("begin");
     try {
@@ -661,7 +668,7 @@ function registerPostgresRepositoryContractTests({
       ["updated_at", null, "RECORD_TIMESTAMP_INVALID"]
     ]) {
       await assert.rejects(
-        repositories.prospects.insert(context, {
+        async () => repositories.prospects.insert(context, {
           id: `invalid-${field}-${String(value)}`,
           business_name: "Invalid evidence",
           [field]: value
@@ -906,7 +913,7 @@ function registerPostgresRepositoryContractTests({
       false
     );
     await assert.rejects(
-      repositories.prospects.insert(tenantA.context, {
+      async () => repositories.prospects.insert(tenantA.context, {
         tenant_id: tenantB.tenantId,
         id: "caller-tenant",
         business_name: "Forbidden"
@@ -1895,10 +1902,15 @@ function registerPostgresRepositoryContractTests({
       context,
       action.id
     );
+    await assert.rejects(
+      repositories.tasks.update(context, executed.record.resulting_task_id, {
+        updated_at: "2026-08-30T03:00:00.000Z"
+      }),
+      error => error.code === "REVENUE_ACTION_EFFECT_IMMUTABLE"
+    );
     await repositories.tasks.update(context, executed.record.resulting_task_id, {
       status: "COMPLETED",
-      completed_at: "2026-08-30T03:00:00.000Z",
-      updated_at: "2026-08-30T03:00:00.000Z"
+      completed_at: "2026-08-30T03:00:00.000Z"
     });
 
     const replay = await repositories.revenueActions.executeAtomic(
@@ -2008,7 +2020,7 @@ function registerPostgresRepositoryContractTests({
     });
 
     await assert.rejects(
-      repositories.revenueActions.materialize(context, action),
+      async () => repositories.revenueActions.materialize(context, action),
       error => error.code === "REVENUE_ACTION_EVIDENCE_OVERRIDE_FORBIDDEN"
     );
     const materialized = await repositories.revenueActions.materialize(

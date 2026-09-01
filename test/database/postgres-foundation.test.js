@@ -218,7 +218,7 @@ if (!testDatabaseUrl) {
           migrationsDirectory: retroactiveDirectory,
           logger: silentLogger
         }),
-        /retroactive; append-only migrations must follow 008/
+        /retroactive; append-only migrations must follow 009/
       );
 
       copyMigrations(brokenDirectory);

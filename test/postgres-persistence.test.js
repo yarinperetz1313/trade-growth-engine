@@ -468,6 +468,47 @@ test("live repository inserts ignore caller-authored import source order", async
   assert.equal(sourceOrdinal, null);
 });
 
+test("ordinary activity idempotency keys are not reserved RevenueAction evidence", async () => {
+  const context = createTenantContext({
+    tenantId: "a0e8a2a0-9c44-4d84-9263-7d417ac00b8e",
+    subjectId: "auth0|member"
+  });
+  const activity = {
+    id: "ordinary-action-key",
+    opportunity_id: "ordinary-opportunity",
+    type: "TASK_CREATED",
+    description: "Created an ordinary CRM task.",
+    metadata: { action_key: "task:CREATE_TASK:ordinary-opportunity" },
+    created_at: "2026-09-01T00:00:00.000Z",
+    updated_at: "2026-09-01T00:00:00.000Z"
+  };
+  const client = {
+    async query(sql) {
+      const normalized = String(sql).replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("insert into tge.activities")) {
+        return { rows: [activityToRow(activity)] };
+      }
+      return { rows: [] };
+    },
+    release() {}
+  };
+  const repositories = createPostgresRepositories({
+    pool: { connect: async () => client }
+  });
+
+  const inserted = await repositories.activities.insert(context, activity);
+  assert.equal(inserted.metadata.action_key, activity.metadata.action_key);
+
+  await assert.rejects(
+    repositories.activities.insert(context, {
+      ...activity,
+      id: "reserved-revenue-action-evidence",
+      metadata: { revenue_action_id: "action-1" }
+    }),
+    error => error.code === "REVENUE_ACTION_EFFECT_EVIDENCE_FORBIDDEN"
+  );
+});
+
 test("stored RevenueAction validation rejects incoherent lifecycle and execution truth", () => {
   const recommended = buildStoredRevenueAction();
   assert.equal(validateStoredRevenueActionIntegrity(recommended).valid, true);

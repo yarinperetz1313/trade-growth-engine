@@ -891,7 +891,6 @@ function rejectCallerAuthoredRevenueActionEvidence(config, record) {
     "revenue_action_id",
     "execution_effect_type",
     "execution_mode",
-    "action_key",
     "revenue_action_linked_at"
   ];
   if (
