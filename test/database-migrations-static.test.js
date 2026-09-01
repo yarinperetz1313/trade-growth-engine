@@ -22,7 +22,13 @@ test("migration 001 remains byte-for-byte unchanged and migrations are append-on
     "001_initial_schema.sql",
     "002_tenant_domain_schema.sql",
     "003_roles_rls_and_grants.sql",
-    "004_global_function_default_privileges.sql"
+    "004_global_function_default_privileges.sql",
+    "005_task_in_progress_status.sql",
+    "006_runtime_revenue_action_integrity.sql",
+    "007_revenue_action_lifecycle_integrity.sql",
+    "008_revenue_action_outcome_integrity.sql",
+    "009_revenue_action_cancellation_integrity.sql",
+    "010_auth_membership_and_invitations.sql"
   ]);
   assert.equal(Buffer.byteLength(initialMigration), 2752);
   assert.equal(
@@ -242,6 +248,223 @@ test("migration 004 revokes global PUBLIC function defaults as tge_owner", () =>
     security,
     /revoke execute on all functions in schema tge from public;/
   );
+});
+
+test("migration 005 preserves the existing IN_PROGRESS task status", () => {
+  const compatibility = read(
+    "database/migrations/005_task_in_progress_status.sql"
+  );
+
+  assert.match(compatibility, /^set local role tge_owner;/);
+  assert.match(
+    compatibility,
+    /drop constraint tasks_status_check/
+  );
+  assert.match(
+    compatibility,
+    /status in \('OPEN', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'\)/
+  );
+});
+
+test("migration 006 enforces runtime history integrity and durable live ordering", () => {
+  const integrity = read(
+    "database/migrations/006_runtime_revenue_action_integrity.sql"
+  );
+
+  assert.match(integrity, /^set local role tge_owner;/);
+  for (const table of [
+    "prospects",
+    "opportunities",
+    "tasks",
+    "activities",
+    "revenue_actions"
+  ]) {
+    assert.match(
+      integrity,
+      new RegExp(`alter table tge\\.${table}[\\s\\S]*?current_payload jsonb`)
+    );
+    assert.match(
+      integrity,
+      new RegExp(`alter table tge\\.${table}[\\s\\S]*?live_ordinal bigint`)
+    );
+  }
+  assert.match(integrity, /create trigger revenue_actions_runtime_integrity/);
+  assert.match(integrity, /create trigger tasks_runtime_effect_integrity/);
+  assert.match(integrity, /create trigger activities_runtime_effect_integrity/);
+  assert.match(integrity, /RevenueAction audit history is append-only/);
+  assert.match(integrity, /RevenueAction rows cannot be deleted by runtime/);
+  assert.match(integrity, /Linked RevenueAction task effects are immutable/);
+  assert.match(integrity, /Linked RevenueAction activity effects are immutable/);
+  assert.match(
+    integrity,
+    /tg_op = 'INSERT' and new\.source_ordinal is not null[\s\S]*?Runtime inserts cannot claim imported source ordering/
+  );
+  assert.equal(
+    (integrity.match(/Runtime inserts cannot claim imported source ordering/g) || []).length,
+    3
+  );
+  assert.match(
+    integrity,
+    /create trigger prospects_runtime_source_integrity\s+before insert or update on tge\.prospects/
+  );
+  assert.match(
+    integrity,
+    /create trigger opportunities_runtime_source_integrity\s+before insert or update on tge\.opportunities/
+  );
+  assert.match(
+    integrity,
+    /tg_table_name = 'activities'[\s\S]*?old\.revenue_action_id is null[\s\S]*?new\.revenue_action_id is not null[\s\S]*?Existing activities cannot be linked to RevenueActions/
+  );
+  assert.match(
+    integrity,
+    /new\.metadata\s+- 'revenue_action_id'[\s\S]*?- 'revenue_action_linked_at'[\s\S]*?old\.metadata\s+- 'revenue_action_id'[\s\S]*?- 'revenue_action_linked_at'/
+  );
+  assert.match(
+    integrity,
+    /new\.current_payload is distinct from[\s\S]*?jsonb_set\(old\.current_payload, '\{metadata\}', new\.metadata, true\)/
+  );
+  assert.doesNotMatch(integrity, /security\s+definer/i);
+});
+
+test("migration 007 binds runtime lifecycle transitions to coherent audit suffixes", () => {
+  const lifecycle = read(
+    "database/migrations/007_revenue_action_lifecycle_integrity.sql"
+  );
+
+  assert.match(lifecycle, /^set local role tge_owner;/);
+  assert.match(lifecycle, /create function tge\.guard_runtime_revenue_action_lifecycle\(\)/);
+  assert.match(
+    lifecycle,
+    /create trigger revenue_actions_runtime_lifecycle_integrity\s+before update on tge\.revenue_actions/
+  );
+  assert.match(lifecycle, /new_audit_length <> old_audit_length \+ 2/);
+  for (const transition of [
+    "PREPARED",
+    "APPROVED",
+    "REJECTED",
+    "EXECUTION_STARTED",
+    "FAILED",
+    "EXECUTED"
+  ]) {
+    assert.match(lifecycle, new RegExp(`'${transition}'`));
+  }
+  assert.match(lifecycle, /new\.execution_attempts <> old\.execution_attempts \+ 1/);
+  assert.match(lifecycle, /new\.execution_request->>'requested_at'/);
+  assert.match(lifecycle, /new\.execution_result->>'external_send_performed'/);
+  assert.match(lifecycle, /new\.resulting_activity_id is null/);
+  assert.match(lifecycle, /Runtime RevenueAction lifecycle evidence is incoherent/);
+  assert.doesNotMatch(lifecycle, /security\s+definer/i);
+});
+
+test("migration 008 guards resumed attempts and execution outcome semantics", () => {
+  const integrity = read(
+    "database/migrations/008_revenue_action_outcome_integrity.sql"
+  );
+
+  assert.match(integrity, /^set local role tge_owner;/);
+  assert.match(
+    integrity,
+    /create or replace function tge\.guard_runtime_revenue_action_lifecycle\(\)/
+  );
+  assert.match(
+    integrity,
+    /old\.status = 'EXECUTING'[\s\S]*?new_audit_length <> old_audit_length \+ 1/
+  );
+  assert.match(integrity, /new\.execution_attempts <> old\.execution_attempts/);
+  assert.match(integrity, /'USER_CONFIRMED_COMPLETION'/);
+  assert.match(integrity, /'TASK_CREATED'/);
+  assert.match(integrity, /'TASK_REUSED'/);
+  assert.match(integrity, /'RECOVERED_LINKED_EFFECTS'/);
+  assert.match(integrity, /linked_task_source/);
+  assert.match(integrity, /suffix_last->>'error' is distinct from new\.execution_result->>'error'/);
+  assert.doesNotMatch(integrity, /security\s+definer/i);
+});
+
+test("migration 009 prevents cancellation from smuggling lifecycle or effect evidence", () => {
+  const integrity = read(
+    "database/migrations/009_revenue_action_cancellation_integrity.sql"
+  );
+
+  assert.match(integrity, /^set local role tge_owner;/);
+  assert.match(
+    integrity,
+    /create function tge\.guard_runtime_revenue_action_cancellation\(\)/
+  );
+  assert.match(
+    integrity,
+    /create trigger revenue_actions_runtime_cancellation_integrity\s+before update on tge\.revenue_actions/
+  );
+  for (const field of [
+    "proposed_execution",
+    "execution_request",
+    "execution_result",
+    "execution_attempts",
+    "prepared_at",
+    "approved_at",
+    "executed_at",
+    "rejected_at",
+    "failed_at",
+    "rejection_reason",
+    "resulting_task_id",
+    "resulting_activity_id"
+  ]) {
+    assert.match(
+      integrity,
+      new RegExp(`new\\.${field} is distinct from old\\.${field}`),
+      field
+    );
+  }
+  assert.match(integrity, /new_audit_length <> old_audit_length \+ 1/);
+  assert.match(integrity, /new\.cancelled_at is distinct from suffix_at/);
+  assert.match(integrity, /new\.updated_at is distinct from suffix_at/);
+  assert.match(
+    integrity,
+    /Runtime RevenueAction cancellation evidence is incoherent\./
+  );
+  assert.doesNotMatch(integrity, /security\s+definer/i);
+});
+
+test("migration 010 binds active membership to issuer and subject with replay-safe invitations", () => {
+  const auth = read(
+    "database/migrations/010_auth_membership_and_invitations.sql"
+  );
+
+  assert.match(auth, /^set local role tge_owner;/);
+  assert.match(auth, /add column identity_issuer text not null/);
+  assert.match(auth, /add column status text not null/);
+  assert.match(auth, /status in \('ACTIVE', 'SUSPENDED', 'REVOKED'\)/);
+  assert.match(
+    auth,
+    /primary key \(tenant_id, identity_issuer, subject_id\)/
+  );
+  assert.match(auth, /create function tge\.set_identity_context/);
+  assert.match(
+    auth,
+    /identity_issuer = tge\.current_identity_issuer\(\)[\s\S]*?subject_id = tge\.current_subject_id\(\)/
+  );
+  assert.match(auth, /create table tge\.assisted_invitations/);
+  assert.match(auth, /token_hash text not null unique/);
+  assert.match(auth, /token_hash ~ '\^\[0-9a-f\]\{64\}\$'/);
+  assert.match(auth, /status in \('PENDING', 'CONSUMED', 'REVOKED'\)/);
+  assert.match(auth, /expected_identity_issuer text/);
+  assert.match(auth, /expected_subject_id text/);
+  assert.match(auth, /expires_at timestamptz not null/);
+  assert.match(auth, /create function tge\.consume_assisted_invitation/);
+  const identityLockPosition = auth.indexOf("pg_advisory_xact_lock");
+  const membershipCountPosition = auth.indexOf("select count(*)::integer");
+  assert.ok(identityLockPosition > -1, "invitation activation serializes by identity");
+  assert.ok(
+    identityLockPosition < membershipCountPosition,
+    "identity serialization precedes membership counting"
+  );
+  assert.match(auth, /for update/);
+  assert.match(auth, /status = 'PENDING'/);
+  assert.match(auth, /expires_at > requested_at/);
+  assert.match(auth, /'MEMBERSHIP_ACTIVATED'/);
+  assert.match(auth, /'INVITATION_CONSUMED'/);
+  assert.match(auth, /grant execute on function tge\.consume_assisted_invitation/);
+  assert.match(auth, /revoke execute on all functions in schema tge from public/);
+  assert.doesNotMatch(auth, /grant[^;]*delete[^;]*assisted_invitations/i);
 });
 
 test("runner, package scripts, Compose, and CI use the real pinned PostgreSQL gate", () => {

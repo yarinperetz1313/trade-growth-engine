@@ -42,42 +42,52 @@ const revenueActions =
     "./revenueActions"
   );
 
-const router =
-  express.Router();
+function createApiRouter({
+  revenueActionsRouter = revenueActions,
+  postgresCoreRouter = null
+} = {}) {
+  const router =
+    express.Router();
 
 router.use(
   health
 );
 
-router.use(
-  prospects
-);
+if (postgresCoreRouter) {
+  router.use(
+    postgresCoreRouter
+  );
+} else {
+  router.use(
+    prospects
+  );
+
+  router.use(
+    leads
+  );
+
+  router.use(
+    qualification
+  );
+
+  router.use(
+    opportunities
+  );
+
+  router.use(
+    tasks
+  );
+
+  router.use(
+    revenueIntelligence
+  );
+}
 
 router.use(
-  leads
+  revenueActionsRouter
 );
 
-router.use(
-  qualification
-);
-
-router.use(
-  opportunities
-);
-
-router.use(
-  tasks
-);
-
-router.use(
-  revenueIntelligence
-);
-
-router.use(
-  revenueActions
-);
-
-router.get(
+  router.get(
   "/api",
   (req, res) => {
     res.json({
@@ -102,7 +112,15 @@ router.get(
       }
     });
   }
-);
+  );
+
+  return router;
+}
+
+const router = createApiRouter();
 
 module.exports =
   router;
+
+module.exports.createApiRouter =
+  createApiRouter;

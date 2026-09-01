@@ -6,7 +6,11 @@ Trade Growth Engine is a local-first sales intelligence application.
 - Browser: Vite + React from `web/main.jsx`.
 - API: Express from `src/app/server.js`.
 - API composition: `src/api/index.js` mounts feature routers.
-- Persistence: JSON collection files through `src/services/localStore.js`.
+- Persistence: JSON collection files remain the default local/test adapter; injected PostgreSQL repositories provide tenant-scoped production persistence.
+
+## Pilot identity boundary
+
+`src/auth/` validates Auth0 access tokens, resolves one active membership by `(issuer, subject)`, derives an immutable `TenantContext`, and applies the centralized OWNER/ADMIN/MEMBER policy. Assisted invitations persist only token hashes and require an exact provisioned identity match before atomic membership activation. The browser PKCE seam lives in `web/lib/auth.js`. Server composition validates the branded auth context, mints a separate branded persistence context, and injects it into PR-3 PostgreSQL routers/transactions. `PostgresAuthRepository.run(TenantContext, work)` applies the same runtime role and request-context assumptions for membership and invitation persistence. See [Authentication and TenantContext](AUTHENTICATION_AND_TENANT_CONTEXT.md).
 
 ## Main verticals
 - Prospects and qualification create source CRM evidence.

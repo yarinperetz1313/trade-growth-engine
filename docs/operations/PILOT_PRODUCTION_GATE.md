@@ -17,8 +17,8 @@ Do not provision or invite external users until every applicable gate below has 
 
 - **Static hosting:** Cloudflare Pages is recommended, subject to static-host vendor/privacy approval.
 - **Domain and email:** approve the production domain/registrar; configure Auth0 custom domain, custom transactional SMTP, SPF, DKIM, and DMARC; verify authentication and marketing reputation separation before external invites.
-- **Auth0:** confirm AU tenancy, selected plan, magic-link/custom-domain capabilities, sender constraints, and required production features.
-- **Auth0 magic-link delivery (before PR-4):** **PR-4 is blocked** until product-owner validation records that the Auth0 AU plan supports passwordless magic links; the flow is **Classic Login with same-browser/device completion**, or a tenant setting or alternative is separately approved; mobile/email-client behavior, callback/redirect allowlists, and phishing/resend/session protections are covered; and a deterministic E2E acceptance test proves the selected path. Do not assume cross-browser tenant configuration. If magic-link UX is rejected, stop PR-4 for an explicit product decision. There is no implicit OTP fallback.
+- **Auth0:** confirm the AU tenant and plan support New Universal Login passwordless email OTP, the production custom domain, sender constraints, and required features. Classic Login and magic links are not accepted Pilot fallbacks.
+- **Auth0 OTP acceptance:** provision a dedicated AU non-production tenant and test SMTP/email-capture provider. Prove Authorization Code Flow with PKCE, exact callback/logout/origin allowlists, latest-message selection after the test start, earlier/replayed OTP rejection, invited membership activation, provisioned-but-uninvited denial, and complete cleanup. Until credentials and provider configuration exist, this remains a deployment gate; deterministic local seams are not real-flow evidence.
 - **Privacy:** complete privacy/DPA review for every selected vendor and the tenant deletion policy.
 - **Cloud locations:** reverify [Cloud Run locations](https://cloud.google.com/run/docs/locations) and [Cloud SQL PostgreSQL standard-backup location/retention controls](https://cloud.google.com/sql/docs/postgres/backup-recovery/manage-standard-backups) immediately before provisioning. These official sources were **verified 2026-08-30**; provider defaults are not approval evidence.
 
@@ -26,9 +26,10 @@ Do not provision or invite external users until every applicable gate below has 
 
 1. Assign the transferable operator owner and on-call decision maker.
 2. Capture configuration evidence for region, roles, backup location, 14 daily backups, URLs, and identity validation.
-3. Execute and time the full-restore → logical-tenant-export → tenant-restore drill in Australia.
-4. Validate tenant boundaries, record RPO/RTO results, clean up the temporary instance, and retain the drill record.
-5. Obtain privacy/vendor sign-off and confirm all open gates are closed before enabling external invites.
+3. Execute the Auth0 AU email-OTP acceptance test and retain redacted evidence without tokens, OTPs, or session values.
+4. Execute and time the full-restore → logical-tenant-export → tenant-restore drill in Australia.
+5. Validate tenant boundaries, record RPO/RTO results, clean up temporary resources, and retain the drill record.
+6. Obtain privacy/vendor sign-off and confirm all open gates are closed before enabling external invites.
 
 ## Sign-off
 
