@@ -4,11 +4,10 @@ const {
   RevenueLeakCaseError,
   canonicalJson,
   deepFreeze,
-  normalizeTimestamp
+  normalizeCommercialValue,
+  normalizeTimestamp,
+  requireCanonicalCommercialValue
 } = require("./revenueLeakCaseDomain");
-const {
-  canonicalizeDecimalLiteral
-} = require("../imports/numericEvidence");
 
 const ACTIVE_STATES = new Set(["OPEN", "SNOOZED"]);
 
@@ -31,6 +30,21 @@ function toIso(value) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
+function commercialValueFromRow(row) {
+  try {
+    return normalizeCommercialValue({
+      classification: row.commercial_value_classification,
+      amount: row.revenue_at_risk,
+      currency: row.currency
+    });
+  } catch {
+    fail(
+      "REVENUE_LEAK_CASE_INTEGRITY_CONFLICT",
+      "Persisted revenue leak case commercial value is malformed."
+    );
+  }
+}
+
 function revenueLeakCaseFromRow(row) {
   if (!row) return null;
   return deepFreeze({
@@ -51,13 +65,7 @@ function revenueLeakCaseFromRow(row) {
     evidence_fingerprint: row.evidence_fingerprint,
     series_key: row.series_key,
     semantic_key: row.semantic_key,
-    commercial_value: {
-      classification: row.commercial_value_classification,
-      amount: row.revenue_at_risk === null
-        ? null
-        : canonicalizeDecimalLiteral(String(row.revenue_at_risk)),
-      currency: row.currency
-    },
+    commercial_value: commercialValueFromRow(row),
     recommended_action_type: row.recommended_action_type,
     due_at: toIso(row.due_at),
     supersession_condition: cloneJson(row.supersession_condition),
@@ -175,6 +183,7 @@ function createPostgresRevenueLeakCaseRepository(client, tenantId, subjectId) {
   }
 
   async function reconcile(detection) {
+    requireCanonicalCommercialValue(detection?.commercial_value);
     const opportunity = await client.query(
       `select id from tge.opportunities
        where tenant_id = $1 and id = $2

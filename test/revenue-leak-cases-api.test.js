@@ -230,6 +230,94 @@ test("API rejects caller authority, malformed values, and non-oracular missing r
   });
 });
 
+test("API requires lossless decimal strings for KNOWN commercial values", async () => {
+  seedStore();
+  await withServer(app, async baseUrl => {
+    const impreciseNumber = await request(
+      baseUrl,
+      "POST",
+      "/api/revenue-leak-cases/reconcile",
+      detection({
+        commercial_value: {
+          classification: "KNOWN",
+          amount: 99999999999999.99,
+          currency: "AUD"
+        }
+      })
+    );
+    assert.equal(impreciseNumber.status, 400);
+    assert.equal(impreciseNumber.data.error, "REVENUE_LEAK_CASE_INPUT_INVALID");
+    assert.equal(impreciseNumber.data.details.field, "commercial_value.amount");
+
+    const exactString = await request(
+      baseUrl,
+      "POST",
+      "/api/revenue-leak-cases/reconcile",
+      detection({
+        commercial_value: {
+          classification: "KNOWN",
+          amount: "99999999999999.99",
+          currency: "AUD"
+        }
+      })
+    );
+    assert.equal(exactString.status, 201);
+    assert.deepEqual(exactString.data.data.commercial_value, {
+      classification: "KNOWN",
+      amount: "99999999999999.99",
+      currency: "AUD"
+    });
+  });
+});
+
+test("malformed persisted service-envelope fields fail closed across the API", async () => {
+  seedStore();
+  await withServer(app, async baseUrl => {
+    const created = await request(
+      baseUrl,
+      "POST",
+      "/api/revenue-leak-cases/reconcile",
+      detection()
+    );
+    const id = created.data.data.id;
+    const malformed = {
+      ...readCollection("revenue_leak_cases")[0],
+      ok: false,
+      statusCode: 200,
+      data: { forged: true }
+    };
+    writeCollection("revenue_leak_cases", [malformed]);
+
+    const read = await request(baseUrl, "GET", `/api/revenue-leak-cases/${id}`);
+    const list = await request(baseUrl, "GET", "/api/revenue-leak-cases");
+    const replay = await request(
+      baseUrl,
+      "POST",
+      "/api/revenue-leak-cases/reconcile",
+      detection()
+    );
+    const mutation = await request(
+      baseUrl,
+      "POST",
+      `/api/revenue-leak-cases/${id}/dismiss`,
+      { reason: "Caller-authored malformed truth must not be mutated." }
+    );
+
+    for (const response of [read, list]) {
+      assert.equal(response.status, 500);
+      assert.equal(
+        response.data.error,
+        "REVENUE_LEAK_CASE_PERSISTENCE_UNAVAILABLE"
+      );
+    }
+    for (const response of [replay, mutation]) {
+      assert.equal(response.status, 409);
+      assert.equal(response.data.error, "REVENUE_LEAK_CASE_INTEGRITY_CONFLICT");
+    }
+    assert.deepEqual(readCollection("revenue_leak_cases"), [malformed]);
+  });
+});
+
 test("tenant-bound router rejects an absent or forged server context", async () => {
   const service = {
     forTenant() {

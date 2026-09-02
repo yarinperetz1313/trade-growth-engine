@@ -151,13 +151,13 @@ function normalizeCommercialValue(value) {
   if (!Object.hasOwn(input, "amount") || !Object.hasOwn(input, "currency")) {
     invalid("KNOWN commercial value requires amount and currency.", "commercial_value");
   }
-  if (
-    (typeof input.amount !== "string" && typeof input.amount !== "number")
-    || (typeof input.amount === "number" && !Number.isFinite(input.amount))
-  ) {
-    invalid("KNOWN commercial value amount is invalid.", "commercial_value.amount");
+  if (typeof input.amount !== "string") {
+    invalid(
+      "KNOWN commercial value amount must be a lossless decimal string.",
+      "commercial_value.amount"
+    );
   }
-  const literal = String(input.amount);
+  const literal = input.amount;
   if (
     isNegativeNumberLiteral(literal)
     || !isCanonicalNumericLiteralRepresentable(literal)
@@ -174,6 +174,20 @@ function normalizeCommercialValue(value) {
     { max: 3, pattern: /^[A-Za-z]{3}$/ }
   ).toUpperCase();
   return { classification, amount, currency };
+}
+
+function requireCanonicalCommercialValue(value) {
+  const normalized = normalizeCommercialValue(value);
+  if (
+    JSON.stringify(canonicalJson(value))
+    !== JSON.stringify(canonicalJson(normalized))
+  ) {
+    invalid(
+      "Persisted commercial value must already be canonical.",
+      "commercial_value"
+    );
+  }
+  return normalized;
 }
 
 function deepFreeze(value) {
@@ -366,5 +380,6 @@ module.exports = {
   deepFreeze,
   fingerprint,
   normalizeCommercialValue,
+  requireCanonicalCommercialValue,
   normalizeTimestamp
 };

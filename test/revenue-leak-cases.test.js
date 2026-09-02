@@ -10,6 +10,10 @@ const {
   createJsonRevenueLeakCaseRepository
 } = require("../src/revenueLeakCases/jsonRevenueLeakCaseRepository");
 const {
+  createPostgresRevenueLeakCaseRepository,
+  revenueLeakCaseFromRow
+} = require("../src/revenueLeakCases/postgresRevenueLeakCaseRepository");
+const {
   createTenantContext
 } = require("../src/persistence/tenantContext");
 
@@ -177,15 +181,31 @@ test("commercial value keeps UNKNOWN and NOT_APPLICABLE distinct from known zero
   );
   assert.deepEqual(
     build(detection({
-      commercial_value: { classification: "KNOWN", amount: 0, currency: "AUD" }
+      commercial_value: { classification: "KNOWN", amount: "0", currency: "AUD" }
     })).commercial_value,
     { classification: "KNOWN", amount: "0", currency: "AUD" }
+  );
+  assert.deepEqual(
+    build(detection({
+      commercial_value: {
+        classification: "KNOWN",
+        amount: "99999999999999.99",
+        currency: "AUD"
+      }
+    })).commercial_value,
+    {
+      classification: "KNOWN",
+      amount: "99999999999999.99",
+      currency: "AUD"
+    }
   );
 
   for (const commercial_value of [
     { classification: "UNKNOWN", amount: 0 },
     { classification: "NOT_APPLICABLE", currency: "AUD" },
     { classification: "KNOWN", amount: 10 },
+    { classification: "KNOWN", amount: 0, currency: "AUD" },
+    { classification: "KNOWN", amount: 99999999999999.99, currency: "AUD" },
     { classification: "KNOWN", amount: -1, currency: "AUD" },
     { classification: "KNOWN", amount: "0.0000001", currency: "AUD" },
     { classification: "KNOWN", amount: "100000000000000", currency: "AUD" }
@@ -194,6 +214,140 @@ test("commercial value keeps UNKNOWN and NOT_APPLICABLE distinct from known zero
       () => build(detection({ commercial_value })),
       error => error.code === "REVENUE_LEAK_CASE_INPUT_INVALID"
     );
+  }
+});
+
+test("PostgreSQL row adaptation never coerces commercial numbers to decimal strings", () => {
+  assert.throws(
+    () => revenueLeakCaseFromRow({
+      commercial_value_classification: "KNOWN",
+      revenue_at_risk: 99999999999999.99,
+      currency: "AUD"
+    }),
+    error => error.code === "REVENUE_LEAK_CASE_INTEGRITY_CONFLICT"
+  );
+  assert.deepEqual(
+    revenueLeakCaseFromRow({
+      commercial_value_classification: "KNOWN",
+      revenue_at_risk: "99999999999999.990000",
+      currency: "AUD"
+    }).commercial_value,
+    {
+      classification: "KNOWN",
+      amount: "99999999999999.99",
+      currency: "AUD"
+    }
+  );
+});
+
+test("JSON and PostgreSQL adapters reject numeric detection values before persistence", async () => {
+  const numericDetection = {
+    ...structuredClone(build(detection({
+      commercial_value: {
+        classification: "KNOWN",
+        amount: "99999999999999.99",
+        currency: "AUD"
+      }
+    }))),
+    commercial_value: {
+      classification: "KNOWN",
+      amount: 99999999999999.99,
+      currency: "AUD"
+    }
+  };
+  const { repository: jsonCases, store } = repository();
+  await assert.rejects(
+    jsonCases.reconcile(context(), numericDetection),
+    error => error.code === "REVENUE_LEAK_CASE_INPUT_INVALID"
+  );
+  assert.deepEqual(store.state.revenue_leak_cases, []);
+
+  let queryCount = 0;
+  const postgresCases = createPostgresRevenueLeakCaseRepository({
+    async query() {
+      queryCount += 1;
+      throw new Error("Persistence must not be reached.");
+    }
+  }, TENANT_A, context().subjectId);
+  await assert.rejects(
+    postgresCases.reconcile(numericDetection),
+    error => error.code === "REVENUE_LEAK_CASE_INPUT_INVALID"
+  );
+  assert.equal(queryCount, 0);
+});
+
+test("JSON case truth fails closed before list, read, replay, mutation, and linkage", async t => {
+  const persisted = {
+    ...structuredClone(build()),
+    tenant_id: TENANT_A
+  };
+  const corruptions = [
+    ["caller-controlled service envelope", record => ({
+      ...record,
+      ok: false,
+      statusCode: 200,
+      data: { forged: true }
+    })],
+    ["prohibited attribution fields", record => ({
+      ...record,
+      recovered_revenue: "42000",
+      attribution: { method: "caller-authored" }
+    })],
+    ["lifecycle", record => ({ ...record, state: "SNOOZED" })],
+    ["evidence", record => ({
+      ...record,
+      evidence_snapshot: {
+        ...record.evidence_snapshot,
+        facts: {}
+      }
+    })],
+    ["audit", record => ({ ...record, audit: [{ transition: "OPEN" }] })],
+    ["commercial value", record => ({
+      ...record,
+      commercial_value: {
+        classification: "KNOWN",
+        amount: 99999999999999.99,
+        currency: "AUD"
+      }
+    })],
+    ["timestamps", record => ({ ...record, updated_at: "not-a-timestamp" })]
+  ];
+  const operations = [
+    ["list", cases => cases.list(context())],
+    ["read", cases => cases.findById(context(), "case-1")],
+    ["duplicate replay", cases => cases.reconcile(context(), build())],
+    ["lifecycle mutation", cases => cases.transition(context(), "case-1", {
+      to: "SNOOZED",
+      reason: "Wait for a reply.",
+      wake_at: "2026-09-05T00:00:00.000Z",
+      at: "2026-09-02T02:00:00.000Z"
+    })],
+    ["RevenueAction linkage", cases => cases.linkRevenueAction(context(), "case-1", {
+      revenue_action_id: "action-1",
+      at: "2026-09-02T03:00:00.000Z"
+    })]
+  ];
+
+  for (const [corruptionName, corrupt] of corruptions) {
+    await t.test(corruptionName, async () => {
+      for (const [operationName, operation] of operations) {
+        const malformed = corrupt(structuredClone(persisted));
+        const { repository: cases, store } = repository({
+          revenue_leak_cases: [malformed]
+        });
+        const before = structuredClone(store.state.revenue_leak_cases);
+        await assert.rejects(
+          operation(cases),
+          error => error.code === "REVENUE_LEAK_CASE_INTEGRITY_CONFLICT",
+          `${operationName} must reject malformed persisted ${corruptionName}`
+        );
+        assert.deepEqual(
+          store.state.revenue_leak_cases,
+          before,
+          `${operationName} must not mutate malformed persisted ${corruptionName}`
+        );
+      }
+    });
   }
 });
 
