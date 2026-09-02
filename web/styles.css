@@ -1351,6 +1351,79 @@ p {
   font-size: 10px;
 }
 
+.mapping-evidence h4,
+.reviewed-mapping > h4 {
+  color: #dce3ee;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  margin: 0 0 8px;
+}
+
+.mapping-evidence dl {
+  display: grid;
+  gap: 5px 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.mapping-evidence dl > div,
+.mapping-evidence-detail {
+  color: #7f8999;
+  font-size: 9px;
+}
+
+.mapping-evidence dt,
+.mapping-evidence dd {
+  display: inline;
+  margin: 0;
+}
+
+.mapping-evidence dt {
+  color: #596477;
+  margin-right: 5px;
+}
+
+.mapping-evidence-detail {
+  margin-top: 8px;
+}
+
+.mapping-evidence-detail > strong,
+.mapping-evidence-detail > span {
+  display: inline;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.mapping-evidence-detail > strong {
+  color: #596477;
+  margin-right: 5px;
+}
+
+.mapping-evidence-detail ul,
+.timestamp-coverage {
+  margin: 5px 0 0;
+  padding-left: 18px;
+}
+
+.reviewed-mapping {
+  border: 1px solid rgba(255, 255, 255, .055);
+  border-radius: 9px;
+  padding: 14px;
+}
+
+.reviewed-mapping > .mapping-evidence {
+  margin-bottom: 14px;
+}
+
+.reviewed-mapping .mapping-list > .mapping-evidence {
+  border-bottom: 1px solid rgba(255, 255, 255, .05);
+  padding: 12px 14px;
+}
+
+.reviewed-mapping .mapping-list > .mapping-evidence:last-child {
+  border-bottom: 0;
+}
+
 .data-health.stale {
   opacity: .58;
 }

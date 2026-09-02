@@ -445,6 +445,8 @@ test("unusable mutation POST outcomes require reconciliation unless failure is d
   assert.equal(requiresImportPostReconciliation({ status: 403, code: "ACCESS_DENIED" }), false);
   assert.equal(requiresImportPostReconciliation({ status: 422, code: "IMPORT_COMMIT_VALIDATION_FAILED" }), false);
   assert.equal(requiresImportPostReconciliation({ status: 409, code: "IMPORT_COMMIT_CONFLICT" }), false);
+  assert.equal(requiresImportPostReconciliation({ code: "BROWSER_AUTH_UNAVAILABLE" }), false);
+  assert.equal(requiresImportPostReconciliation({ code: "BROWSER_AUTHORITY_INVALID" }), false);
 });
 
 test("operation generations reject late responses after reset or a newer import", async () => {

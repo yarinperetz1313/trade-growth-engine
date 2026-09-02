@@ -21,23 +21,24 @@
 - [x] Adversarial evidence, mapping-change, Data Health, confirmation, conflict, authorization, retry/reconciliation, empty, loading, error, and success coverage.
 - [x] Project-truth documentation, progressive verification, base-diff self-review, and rebased implementation checkpoint `f594ed8`.
 - [x] Fresh-review remediation at rebased checkpoint `5a743f3`: fail-closed 2xx import response contracts, GET-before-repeated-POST recovery, reconciliation request coalescing, complete source identity gating, and visible bounded 422 row evidence.
-- [x] Final-review remediation: bounded render-safe preview evidence, coherent non-authoritative analysis, staged-total/disposition-aware committed results, mandatory reconciliation after ambiguous mutation POST responses, frozen commit retry payloads, generation-guarded pending/reset state, and browser-side rejection before reading files above the server limit.
+- [x] Final-review remediation: just-in-time Auth0 bearer delivery without caller-authored authority, complete mapping/source-identity/timestamp evidence, mandatory reconciliation after ambiguous mutation POST responses, fail-closed coherent response envelopes, frozen retries, generation-guarded reset/pending state, and browser-side rejection before reading files above the server limit.
 
 ## Verification
 
 | Level | Command or inspection | Expected evidence |
 | --- | --- | --- |
-| Smallest remediation tests | `node --test test/import-browser-contracts.test.js` | **PASS: 12/12.** Bounded preview row/cell evidence, coherent draft analysis (including the real deterministic server shape), committed disposition/staged-total reconciliation, ambiguous-POST classification, operation-generation invalidation, and the pre-read file-size boundary fail closed. |
-| Targeted PR-5D browser | `npm run test:e2e -- test/e2e/import-workflow.spec.js` | **BLOCKED in ACP before test execution:** Playwright health checks fail with `connect EPERM 127.0.0.1:3100 - Local (0.0.0.0:0)`. The updated spec contains **15** cases, including adversarial semantic payloads, mandatory reconciliation after invalid mutation success, identical commit retry, oversized-file rejection, and pending/reset races; coordinator host execution is required. |
-| Full managed browser | `npm run test:e2e` | **NOT RUN in ACP after the same confirmed localhost blocker.** The managed suite now contains **29** cases and requires coordinator host execution. |
-| Fast verification | `npm run verify:fast` | **PASS for the exact staged snapshot in a disposable repository:** engineering harness and integration **204/204**. One prior exact-tree run hit a transient HTTP/TLS socket collision in `intelligence-api.test.js`; its isolated **13/13** rerun and the unchanged full rerun passed. A current-worktree run separately exposed only an unrelated, unstaged auth-contract failure; the staged PR-5D snapshot excludes that concurrent work. |
-| Database | Existing PR-5C PostgreSQL suites | Not rerun: PR-5D changes no server, repository, migration, auth, tenant, commit, retry, reconciliation, or audit contract. Those suites remain authoritative. |
-| Build | `npm run build` | **PASS for the exact staged snapshot:** Vite 8.2.2, 25 modules transformed. |
-| Review | `git diff --check`, remediation diff inspection, and worktree status | **PASS:** remediation diff inspected against the four fresh-review findings and whitespace check passed; the resulting checkpoint hash is reported in the handoff. |
+| Smallest remediation tests | `node --test test/browser-auth-contract.test.js test/import-browser-contracts.test.js` | **PASS: 17/17.** Production Auth0 bootstrap, fresh bearer acquisition and authority rejection, bounded/coherent preview-analysis-commit envelopes, ambiguous-POST classification, operation-generation invalidation, and the pre-read file-size boundary fail closed. |
+| Affected import/browser tests | `node --test test/browser-auth-contract.test.js test/import-browser-contracts.test.js test/import-csv.test.js test/import-staging.test.js test/import-mapping.test.js test/import-commit.test.js test/import-repository.test.js` | **PASS: 77/77** with the HTTP contract tests permitted to use temporary loopback listeners. |
+| Targeted PR-5D browser | `npm run test:e2e -- test/e2e/import-workflow.spec.js` | **PASS: 16/16** through the managed temporary-store wrapper, including evidence rendering, ambiguous outcome reconciliation, terminal 4xx behavior, oversized-file rejection, identical retry, and late-response reset races. |
+| Full managed browser | `npm run test:e2e` | **PASS: 30/30** through the managed temporary-store wrapper. |
+| Fast verification | `npm run verify:fast` | **PASS:** engineering harness and integration **208/208**. Sandbox-only listener/index denials were rerun with the required local permissions; an API-base compatibility assertion and a development-only auth-config request were corrected before the final green run. |
+| Database | Existing PR-5C PostgreSQL suites | Not rerun: PR-5D changes no server authentication/authorization, repository, migration, tenant, commit, retry, reconciliation, or audit contract. Those suites remain authoritative. |
+| Build | `npm run build` | **PASS:** Vite 8.2.2, 28 modules transformed. |
+| Review | `git diff --check`, remediation diff inspection, and worktree status | **PASS before checkpoint:** combined scope and security reviews found no remaining code blocker; final commit hashes and clean status are reported in the handoff. |
 
 ## Review and handoff
 
-- Implementer self-check: bounded remediation only; no server, persistence, migration, auth, connector, or retention/deletion behavior changed.
-- Fresh reviewer findings/resolution: all four findings have regression coverage and bounded fixes; targeted and full host-side managed Playwright remain required because ACP cannot bind/connect to the managed localhost server.
-- Final-review evidence: pure response/recovery/state tests and the full fast gate are green. Targeted and full managed browser execution remain coordinator-owned because ACP cannot connect to its managed localhost server; no current-pass browser success is claimed.
+- Implementer self-check: bounded remediation only; no server authentication/authorization, tenant, persistence, migration, connector, or retention/deletion contract changed.
+- Fresh reviewer findings/resolution: all seven bounded findings have regression coverage and scoped fixes; the three unexpected test/fixture artifacts were inspected, corrected where needed, and adopted as durable coverage.
+- Final-review evidence: focused contracts, affected import/browser tests, targeted and full managed Playwright, the full fast gate, and the production build are green.
 - Debt/follow-up: raw-evidence retention/deletion acceptance and implementation remain a separate reviewed follow-up.

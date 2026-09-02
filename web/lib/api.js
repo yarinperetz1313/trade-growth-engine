@@ -3,54 +3,18 @@ import {
   unwrapImportCommitResponse,
   unwrapImportPreviewResponse
 } from "./importContracts.mjs";
+import {
+  createBrowserApiRequest
+} from "./browserApiRequest.mjs";
 
-const API_BASE =
+export const API_BASE =
   import.meta.env.VITE_API_URL ||
   "http://localhost:3000";
 
-async function request(
-  path,
-  options = {}
-) {
-  const response =
-    await fetch(
-      `${API_BASE}${path}`,
-      {
-        headers: {
-          "Content-Type":
-            "application/json",
-          ...(options.headers || {})
-        },
-        ...options
-      }
-    );
-
-  let body = null;
-
-  try {
-    body =
-      await response.json();
-  } catch {
-    body = null;
-  }
-
-  if (!response.ok || body?.ok === false) {
-    const error = new Error(
-      body?.message ||
-      body?.error ||
-      `Request failed: ${response.status}`
-    );
-
-    error.name = "ApiError";
-    error.status = response.status;
-    error.code = body?.error || null;
-    error.details = body?.details;
-
-    throw error;
-  }
-
-  return body;
-}
+const request = createBrowserApiRequest({
+  apiBase: API_BASE,
+  fetchImpl: (...args) => fetch(...args)
+});
 
 export function getHealth() {
   return request(

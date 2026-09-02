@@ -477,7 +477,16 @@ test("reconciles a semantically invalid 2xx commit before an identical retry", a
   const operations = [];
   const commitBodies = [];
   let commitPosts = 0;
+  let wrongBatchGets = 0;
   await mockReadyToCommit(page);
+  await page.route(`${apiBaseUrl}/api/import-batches/response-authored-batch/commit`, route => {
+    wrongBatchGets += 1;
+    return json(route, 500, {
+      ok: false,
+      error: "WRONG_RECONCILIATION_TARGET",
+      message: "The response-authored batch must never be queried."
+    });
+  });
   await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/commit`, route => {
     const method = route.request().method();
     operations.push(method);
@@ -492,6 +501,7 @@ test("reconciles a semantically invalid 2xx commit before an identical retry", a
     commitBodies.push(route.request().postDataJSON());
     if (commitPosts === 1) {
       const invalid = committedFixture();
+      invalid.batch.id = "response-authored-batch";
       invalid.rows[0].disposition = "EXACT_DUPLICATE";
       return json(route, 200, { ok: true, data: invalid });
     }
@@ -510,6 +520,7 @@ test("reconciles a semantically invalid 2xx commit before an identical retry", a
   await page.getByRole("button", { name: "Retry same commit" }).click();
   await expect(page.getByRole("heading", { name: "Import committed" })).toBeVisible();
   expect(operations).toEqual(["POST", "GET", "POST"]);
+  expect(wrongBatchGets).toBe(0);
   expect(commitBodies[1]).toEqual(commitBodies[0]);
   expect(commitBodies[1].idempotencyKey).toBe(commitBodies[0].idempotencyKey);
 });

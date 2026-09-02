@@ -273,7 +273,7 @@ export default function ImportWorkspace() {
       if (requiresImportPostReconciliation(caught)) {
         setUnknownOutcome({
           kind: "commit",
-          batchId: caught.details?.attemptedId || attempt.batchId
+          batchId: attempt.batchId
         });
         setError(apiError(caught));
         setPhase("unknown-commit");

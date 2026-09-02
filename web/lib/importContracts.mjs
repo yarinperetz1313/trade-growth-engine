@@ -65,6 +65,10 @@ export function isConfirmedMissingReconciliation(error) {
 
 export function requiresImportPostReconciliation(error) {
   const status = error?.status;
+  if ([
+    "BROWSER_AUTHORITY_INVALID",
+    "BROWSER_AUTH_UNAVAILABLE"
+  ].includes(error?.code)) return false;
   return error?.code === "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN"
     || error?.code === "IMPORT_RESPONSE_INVALID"
     || !Number.isInteger(status)
