@@ -10,7 +10,8 @@ test("exposes only shipped navigation and wires Dashboard CTAs", async ({ page }
     "Dashboard",
     "Prospects",
     "Opportunities",
-    "Pipeline"
+    "Pipeline",
+    "Imports"
   ]);
   await expect(page.getByRole("button", { name: "+ New Campaign" })).toHaveCount(0);
   await expect(page.locator(".avatar")).toHaveCount(0);

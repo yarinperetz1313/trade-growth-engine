@@ -6,7 +6,8 @@ or persist mappings, mutate import lifecycle state, reconcile source IDs, or
 read or write canonical CRM records. PR-5C's separate
 [controlled canonical import commit](CANONICAL_IMPORT_COMMIT.md) consumes an
 explicit reviewed selection request and rebuilds this validation from locked
-staging evidence. Browser UI remains with PR-5D.
+staging evidence. PR-5D presents this contract through the
+[browser CSV import workflow](BROWSER_IMPORT_WORKFLOW.md).
 
 ## HTTP contract
 

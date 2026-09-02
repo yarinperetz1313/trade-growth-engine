@@ -2,7 +2,8 @@
 
 ## Active plan
 
-- [`active/pilot-readiness.md`](active/pilot-readiness.md) — **PR-0 through PR-2 are COMPLETE. PR-3 and PR-4 are integrated in code, complete, and merged through [PR #16](https://github.com/yarinperetz1313/trade-growth-engine/pull/16) at `b0a8e36`; the underlying combined state at `9fe7cea` is verified by [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854), which passed the complete combined gate. PR-5–PR-7 remain not started.**
+- [`active/pilot-readiness.md`](active/pilot-readiness.md) — **PR-0 through PR-2 are COMPLETE; PR-3 and PR-4 are integrated in code and complete; PR-5A through PR-5D are implemented in their bounded slices. Raw-evidence retention/deletion acceptance is explicitly deferred to a separate reviewed follow-up; PR-6–PR-7 remain unstarted.**
+- [`active/pr-5d-browser-import.md`](active/pr-5d-browser-import.md) — **PR-5D browser import workflow is in progress using contract-mocked managed Playwright; retention/deletion remains explicitly deferred.**
 
 ## When to create a plan
 Create a plan before work that spans sessions, changes a safety boundary, has multiple dependent slices, or needs reviewable verification evidence. Use [`TEMPLATE.md`](TEMPLATE.md), place in-progress plans in `active/`, and move completed plans to `completed/` with final evidence and follow-ups.

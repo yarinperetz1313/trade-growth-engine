@@ -1,5 +1,6 @@
 import OpportunityCommandCenter from "./components/OpportunityCommandCenter.jsx";
 import RevenueCommandCenter from "./components/RevenueCommandCenter.jsx";
+import ImportWorkspace from "./components/ImportWorkspace.jsx";
 import React, {
   useEffect,
   useMemo,
@@ -16,11 +17,15 @@ import SystemStatus from "./components/SystemStatus";
 import usePipelineData from "./hooks/usePipelineData";
 
 import {
+  API_BASE,
   getProspects,
   createOpportunityFromProspect,
   getOpportunities,
   updateOpportunityStage
 } from "./lib/api";
+import {
+  initializeBrowserAuth
+} from "./lib/auth";
 import {
   formatCommercialValue,
   isKnownCommercialValue
@@ -30,7 +35,8 @@ const nav = [
   ["dashboard", "Dashboard"],
   ["prospects", "Prospects"],
   ["opportunities", "Opportunities"],
-  ["pipeline", "Pipeline"]
+  ["pipeline", "Pipeline"],
+  ["imports", "Imports"]
 ];
 
 const money = formatCommercialValue;
@@ -213,6 +219,10 @@ function App() {
 
         {page === "opportunities" && (
           <Opportunities />
+        )}
+
+        {page === "imports" && (
+          <ImportWorkspace />
         )}
 
       </main>
@@ -1592,10 +1602,26 @@ function Opportunities() {
   );
 }
 
-createRoot(
+const root = createRoot(
   document.getElementById(
     "root"
   )
-).render(
-  <App />
 );
+
+async function bootstrapApplication() {
+  try {
+    if (import.meta.env.PROD) {
+      await initializeBrowserAuth({ apiBase: API_BASE });
+    }
+    root.render(<App />);
+  } catch {
+    root.render(
+      <main className="page" role="alert">
+        <h1>Authentication unavailable</h1>
+        <p>The secure browser session could not be initialized.</p>
+      </main>
+    );
+  }
+}
+
+bootstrapApplication();

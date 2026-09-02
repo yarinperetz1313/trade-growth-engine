@@ -5,7 +5,9 @@ mapping selections. It writes canonical `prospects`, `opportunities`, `tasks`,
 or `activities`; reconciles source identity through `tge.import_id_map`; records
 truthful row and audit outcomes; and transitions exactly one batch from
 `PREVIEWED` to `COMMITTED` in one tenant transaction. RevenueActions, retention
-deletion, browser flow, XLSX, connectors, and JSON cutover remain out of scope.
+deletion, XLSX, connectors, and JSON cutover remain out of scope. PR-5D now
+drives this endpoint through the separate
+[browser CSV import workflow](BROWSER_IMPORT_WORKFLOW.md).
 
 ## HTTP contract
 

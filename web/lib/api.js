@@ -1,43 +1,20 @@
-const API_BASE =
+import {
+  unwrapImportAnalysisResponse,
+  unwrapImportCommitResponse,
+  unwrapImportPreviewResponse
+} from "./importContracts.mjs";
+import {
+  createBrowserApiRequest
+} from "./browserApiRequest.mjs";
+
+export const API_BASE =
   import.meta.env.VITE_API_URL ||
   "http://localhost:3000";
 
-async function request(
-  path,
-  options = {}
-) {
-  const response =
-    await fetch(
-      `${API_BASE}${path}`,
-      {
-        headers: {
-          "Content-Type":
-            "application/json",
-          ...(options.headers || {})
-        },
-        ...options
-      }
-    );
-
-  let body = null;
-
-  try {
-    body =
-      await response.json();
-  } catch {
-    body = null;
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      body?.message ||
-      body?.error ||
-      `Request failed: ${response.status}`
-    );
-  }
-
-  return body;
-}
+const request = createBrowserApiRequest({
+  apiBase: API_BASE,
+  fetchImpl: (...args) => fetch(...args)
+});
 
 export function getHealth() {
   return request(
@@ -266,4 +243,61 @@ export function transitionRevenueAction(
       body: JSON.stringify(body)
     }
   );
+}
+
+export async function createImportPreview(
+  input
+) {
+  return unwrapImportPreviewResponse(await request(
+    "/api/import-batches/preview",
+    {
+      method: "POST",
+      body: JSON.stringify(input)
+    }
+  ));
+}
+
+export async function getImportPreview(
+  batchId
+) {
+  return unwrapImportPreviewResponse(await request(
+    `/api/import-batches/${encodeURIComponent(batchId)}/preview`
+  ), batchId);
+}
+
+export async function analyzeImportPreview(
+  batchId,
+  input = {},
+  expectations = {}
+) {
+  return unwrapImportAnalysisResponse(await request(
+    `/api/import-batches/${encodeURIComponent(batchId)}/analysis`,
+    {
+      method: "POST",
+      body: JSON.stringify(input)
+    }
+  ), expectations);
+}
+
+export async function commitImportBatch(
+  batchId,
+  input,
+  expectations = {}
+) {
+  return unwrapImportCommitResponse(await request(
+    `/api/import-batches/${encodeURIComponent(batchId)}/commit`,
+    {
+      method: "POST",
+      body: JSON.stringify(input)
+    }
+  ), batchId, expectations);
+}
+
+export async function getImportCommit(
+  batchId,
+  expectations = {}
+) {
+  return unwrapImportCommitResponse(await request(
+    `/api/import-batches/${encodeURIComponent(batchId)}/commit`
+  ), batchId, expectations);
 }

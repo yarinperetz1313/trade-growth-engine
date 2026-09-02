@@ -13,6 +13,11 @@ Do not provision or invite external users until every applicable gate below has 
 | Imports and retention | Staged CSV/XLSX checks enforce limits and explicit ambiguity resolution; raw files: **7 days**; audit metadata: **12 months**; committed CRM data follows the approved tenant deletion policy. |
 | Revenue actions | Deterministic recommendation/evidence, explicit manual approval, and no external automatic send remain intact while later database mutations become transactional. |
 
+The seven-day raw-file target above is policy intent, not completed acceptance
+evidence. Raw-evidence retention/deletion acceptance and implementation are
+**DEFERRED to a separate reviewed follow-up**; the PR-5D browser workflow does
+not close this production gate.
+
 ## Provisioning and vendor gates
 
 - **Static hosting:** Cloudflare Pages is recommended, subject to static-host vendor/privacy approval.
