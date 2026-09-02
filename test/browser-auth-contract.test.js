@@ -45,16 +45,26 @@ test("browser auth seam uses Auth0 PKCE SDK with memory-only token storage", () 
 test("production auth bootstrap uses the configured API origin before protected requests", async () => {
   const { initializeBrowserAuth } = await import("../web/lib/auth.js");
   const calls = [];
+  const replacements = [];
   const auth = {
     async handleCallback() {
       calls.push("callback");
+      return { appState: { invitationToken: "must-not-reach-url" } };
     }
   };
   const result = await initializeBrowserAuth({
     apiBase: "https://api.example.test",
+    history: {
+      state: { preserved: true },
+      replaceState(state, title, url) {
+        replacements.push({ state, title, url });
+      }
+    },
     location: {
+      hash: "#imports",
       origin: "https://app.example.test",
-      pathname: "/auth/callback"
+      pathname: "/auth/callback",
+      search: "?code=oauth-code-secret&state=oauth-state-secret"
     },
     fetchImpl: async url => {
       calls.push(url);
@@ -86,6 +96,133 @@ test("production auth bootstrap uses the configured API origin before protected 
     logoutUrl: "https://app.example.test/signed-out"
   });
   assert.equal(calls[2], "callback");
+  assert.deepEqual(replacements, [{
+    state: { preserved: true },
+    title: "",
+    url: "/auth/callback"
+  }]);
+  assert.doesNotMatch(JSON.stringify(replacements), /oauth-code-secret|oauth-state-secret|invitationToken/);
+});
+
+test("direct or refreshed callback navigation does not consume an absent OAuth response", async () => {
+  const { initializeBrowserAuth } = await import("../web/lib/auth.js");
+  let callbackCalls = 0;
+  let replacementCalls = 0;
+  const auth = {
+    async handleCallback() {
+      callbackCalls += 1;
+    }
+  };
+  const config = {
+    audience: "https://api.example.test",
+    callbackUrls: ["https://app.example.test/auth/callback"],
+    clientId: "public-client",
+    issuer: "https://tenant.au.auth0.com/",
+    logoutUrls: ["https://app.example.test/signed-out"]
+  };
+
+  for (const search of ["", "?view=imports"]) {
+    assert.equal(await initializeBrowserAuth({
+      history: {
+        replaceState() {
+          replacementCalls += 1;
+        }
+      },
+      location: {
+        hash: "#imports",
+        origin: "https://app.example.test",
+        pathname: "/auth/callback",
+        search
+      },
+      fetchImpl: async () => new Response(JSON.stringify(config), { status: 200 }),
+      createAuth: async () => auth
+    }), auth);
+  }
+
+  assert.equal(callbackCalls, 0);
+  assert.equal(replacementCalls, 0);
+});
+
+test("malformed OAuth callback parameters fail closed without invoking Auth0", async () => {
+  const { initializeBrowserAuth } = await import("../web/lib/auth.js");
+  let callbackCalls = 0;
+  const config = {
+    audience: "https://api.example.test",
+    callbackUrls: ["https://app.example.test/auth/callback"],
+    clientId: "public-client",
+    issuer: "https://tenant.au.auth0.com/",
+    logoutUrls: ["https://app.example.test/signed-out"]
+  };
+
+  for (const search of [
+    "?code=only-code",
+    "?state=only-state",
+    "?code=&state=state",
+    "?code=code&state=",
+    "?code=one&code=two&state=state",
+    "?code=code&state=state&error_description=contradictory"
+  ]) {
+    await assert.rejects(
+      initializeBrowserAuth({
+        history: { replaceState: () => assert.fail("invalid callbacks must not be consumed") },
+        location: {
+          hash: "",
+          origin: "https://app.example.test",
+          pathname: "/auth/callback",
+          search
+        },
+        fetchImpl: async () => new Response(JSON.stringify(config), { status: 200 }),
+        createAuth: async () => ({
+          async handleCallback() {
+            callbackCalls += 1;
+          }
+        })
+      }),
+      error => error?.code === "BROWSER_AUTH_CALLBACK_INVALID"
+        && !error.message.includes("only-code")
+        && !error.message.includes("only-state")
+    );
+  }
+
+  assert.equal(callbackCalls, 0);
+});
+
+test("a consumed callback fails closed if its sensitive URL cannot be replaced", async () => {
+  const { initializeBrowserAuth } = await import("../web/lib/auth.js");
+  let callbackCalls = 0;
+
+  await assert.rejects(
+    initializeBrowserAuth({
+      history: {
+        replaceState() {
+          throw new Error("browser denied replacement");
+        }
+      },
+      location: {
+        hash: "#access_token=must-not-survive",
+        origin: "https://app.example.test",
+        pathname: "/auth/callback",
+        search: "?code=oauth-code-secret&state=oauth-state-secret"
+      },
+      fetchImpl: async () => new Response(JSON.stringify({
+        audience: "https://api.example.test",
+        callbackUrls: ["https://app.example.test/auth/callback"],
+        clientId: "public-client",
+        issuer: "https://tenant.au.auth0.com/",
+        logoutUrls: ["https://app.example.test/signed-out"]
+      }), { status: 200 }),
+      createAuth: async () => ({
+        async handleCallback() {
+          callbackCalls += 1;
+        }
+      })
+    }),
+    error => error?.code === "BROWSER_AUTH_CALLBACK_INVALID"
+      && !error.message.includes("oauth-code-secret")
+      && !error.message.includes("must-not-survive")
+  );
+
+  assert.equal(callbackCalls, 1);
 });
 
 test("auth bootstrap fails closed unless local mode explicitly permits a missing route", async () => {

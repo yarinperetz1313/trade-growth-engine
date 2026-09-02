@@ -357,6 +357,28 @@ test("unsupported staged targets retain a coherent fail-closed analysis envelope
     unsupported
   );
 
+  const incompleteComplement = structuredClone(unsupported);
+  incompleteComplement.mapping.unmappedSourceColumns = headers.slice(1);
+  incompleteComplement.dataHealth.unknownUnmappedStatuses.unmappedSourceColumns =
+    headers.slice(1);
+  assert.throws(
+    () => unwrapImportAnalysisResponse(
+      { ok: true, data: incompleteComplement },
+      { headers, sourceCollection: "revenue_actions", totalRows: 2 }
+    ),
+    error => error?.code === "IMPORT_RESPONSE_INVALID"
+  );
+
+  const falseUnsupported = structuredClone(unsupported);
+  falseUnsupported.mapping.targetCollection = "opportunities";
+  assert.throws(
+    () => unwrapImportAnalysisResponse(
+      { ok: true, data: falseUnsupported },
+      { headers, sourceCollection: "opportunities", totalRows: 2 }
+    ),
+    error => error?.code === "IMPORT_RESPONSE_INVALID"
+  );
+
   unsupported.dataHealth.unknownUnmappedStatuses.unmappedSourceColumns = [];
   assert.throws(
     () => unwrapImportAnalysisResponse(
@@ -425,6 +447,174 @@ test("browser analysis validation accepts the real deterministic mapping respons
         sourceCollection: "prospects",
         totalRows: parsed.rows.length
       }
+    ),
+    error => error?.code === "IMPORT_RESPONSE_INVALID"
+  );
+});
+
+test("analysis enforces each collection's complete canonical field contract", async () => {
+  const { unwrapImportAnalysisResponse } = await contracts;
+  const cases = [
+    ["prospects", "external_id,company,email\np-1,Acme,hello@example.com", "service"],
+    ["opportunities", "external_id,company,deal_stage,amount\no-1,Acme,PROPOSAL,100", "priority"],
+    ["tasks", "external_id,opportunity_id,title,status\nt-1,o-1,Call,OPEN", "description"],
+    ["activities", "external_id,opportunity_id,type\na-1,o-1,CALL", "description"]
+  ];
+
+  for (const [sourceCollection, csv, removableField] of cases) {
+    const { analysis, expectations } = browserAnalysis(csv, sourceCollection);
+    assert.deepEqual(
+      unwrapImportAnalysisResponse({ ok: true, data: analysis }, expectations),
+      analysis
+    );
+
+    const omitted = structuredClone(analysis);
+    omitted.mapping.fields = omitted.mapping.fields.filter(field => (
+      field.targetField !== removableField
+    ));
+    omitted.dataHealth.unknownUnmappedStatuses.unmappedTargetFields =
+      omitted.dataHealth.unknownUnmappedStatuses.unmappedTargetFields.filter(field => (
+        field !== removableField
+      ));
+
+    const invented = structuredClone(analysis);
+    invented.mapping.fields.push({
+      targetField: "invented_canonical_field",
+      sourceColumn: null,
+      sourceColumnOrdinal: null,
+      sampleValues: [],
+      inferredType: "UNKNOWN",
+      declaredType: "TEXT",
+      selectedType: "TEXT",
+      required: false,
+      optional: true,
+      suggestion: {
+        state: "UNMAPPED",
+        strategy: "NO_DETERMINISTIC_MATCH",
+        nonAuthoritative: true,
+        accepted: false
+      },
+      validationIssues: []
+    });
+    invented.dataHealth.unknownUnmappedStatuses.unmappedTargetFields.push(
+      "invented_canonical_field"
+    );
+
+    const reordered = structuredClone(analysis);
+    reordered.mapping.fields.reverse();
+    reordered.dataHealth.unknownUnmappedStatuses.unmappedTargetFields =
+      reordered.mapping.fields
+        .filter(field => field.sourceColumn === null)
+        .map(field => field.targetField);
+
+    const wrongType = structuredClone(analysis);
+    wrongType.mapping.fields[0].declaredType = "NUMBER";
+
+    const wrongRequiredState = structuredClone(analysis);
+    wrongRequiredState.mapping.fields[0].required = false;
+    wrongRequiredState.mapping.fields[0].optional = true;
+
+    for (const invalid of [
+      omitted,
+      invented,
+      reordered,
+      wrongType,
+      wrongRequiredState
+    ]) {
+      assert.throws(
+        () => unwrapImportAnalysisResponse({ ok: true, data: invalid }, expectations),
+        error => error?.code === "IMPORT_RESPONSE_INVALID",
+        `${sourceCollection} must reject a non-canonical mapping vector`
+      );
+    }
+  }
+});
+
+test("analysis requires the exact unmapped source and commercial missing-count complements", async () => {
+  const { analysisFixture, previewFixture } = await fixtures;
+  const { unwrapImportAnalysisResponse } = await contracts;
+  const expectations = {
+    headers: previewHeaders(await fixtures),
+    previewRecords: previewFixture().records,
+    sourceCollection: "opportunities",
+    totalRows: 2
+  };
+
+  const omittedUnmappedSource = analysisFixture();
+  omittedUnmappedSource.mapping.unmappedSourceColumns.shift();
+  omittedUnmappedSource.dataHealth.unknownUnmappedStatuses.unmappedSourceColumns.shift();
+
+  const mappedSourceReportedUnmapped = analysisFixture();
+  mappedSourceReportedUnmapped.mapping.unmappedSourceColumns.push("company");
+  mappedSourceReportedUnmapped.dataHealth.unknownUnmappedStatuses.unmappedSourceColumns.push(
+    "company"
+  );
+
+  const omittedMissingCount = analysisFixture();
+  delete omittedMissingCount.dataHealth.missingValueCounts.value;
+
+  const inventedMissingCount = analysisFixture();
+  inventedMissingCount.dataHealth.missingValueCounts.probability = 0;
+
+  for (const invalid of [
+    omittedUnmappedSource,
+    mappedSourceReportedUnmapped,
+    omittedMissingCount,
+    inventedMissingCount
+  ]) {
+    assert.throws(
+      () => unwrapImportAnalysisResponse({ ok: true, data: invalid }, expectations),
+      error => error?.code === "IMPORT_RESPONSE_INVALID"
+    );
+  }
+});
+
+test("prospect contactability is mandatory, exact, and forbidden for other collections", async () => {
+  const { unwrapImportAnalysisResponse } = await contracts;
+  const prospects = browserAnalysis(
+    "external_id,company,email\np-1,Acme,hello@example.com\np-2,Beta,",
+    "prospects"
+  );
+  const opportunities = browserAnalysis(
+    "external_id,company,deal_stage\no-1,Acme,PROPOSAL\no-2,Beta,QUALIFIED",
+    "opportunities"
+  );
+
+  const omitted = structuredClone(prospects.analysis);
+  delete omitted.dataHealth.contactabilityCoverage;
+
+  const wrongOrder = structuredClone(prospects.analysis);
+  wrongOrder.dataHealth.contactabilityCoverage.fields = ["website", "phone", "email"];
+
+  const wrongEvidenceVector = structuredClone(prospects.analysis);
+  wrongEvidenceVector.dataHealth.contactabilityCoverage = {
+    coveredRows: 2,
+    totalRows: 2,
+    percentage: 100,
+    fields: ["business_name"]
+  };
+
+  const extraneous = structuredClone(opportunities.analysis);
+  extraneous.dataHealth.contactabilityCoverage = {
+    coveredRows: 2,
+    totalRows: 2,
+    percentage: 100,
+    fields: ["business_name"]
+  };
+
+  for (const invalid of [omitted, wrongOrder, wrongEvidenceVector]) {
+    assert.throws(
+      () => unwrapImportAnalysisResponse(
+        { ok: true, data: invalid },
+        prospects.expectations
+      ),
+      error => error?.code === "IMPORT_RESPONSE_INVALID"
+    );
+  }
+  assert.throws(
+    () => unwrapImportAnalysisResponse(
+      { ok: true, data: extraneous },
+      opportunities.expectations
     ),
     error => error?.code === "IMPORT_RESPONSE_INVALID"
   );
@@ -606,4 +796,40 @@ test("oversized browser files fail before arrayBuffer while the inclusive server
 
 function previewHeaders(loadedFixtures) {
   return loadedFixtures.previewFixture().batch.previewSummary.headers;
+}
+
+function browserAnalysis(csv, sourceCollection) {
+  const parsed = parseCsvUpload({
+    contentBase64: Buffer.from(csv, "utf8").toString("base64")
+  });
+  const records = parsed.rows.map(row => ({
+    id: `row:${row.sourceOrdinal}`,
+    importBatchId: "browser-analysis-batch",
+    sourceCollection,
+    sourceOrdinal: row.sourceOrdinal,
+    sourceRowNumber: row.sourceRowNumber,
+    rawPayload: row.rawPayload,
+    rawPayloadSha256: row.rawPayloadSha256,
+    disposition: "PENDING"
+  }));
+  const staged = {
+    batch: {
+      id: "browser-analysis-batch",
+      previewSummary: {
+        headers: parsed.headers,
+        rowCount: records.length,
+        sourceCollection
+      }
+    },
+    records
+  };
+  return {
+    analysis: buildImportAnalysis(staged),
+    expectations: {
+      headers: parsed.headers,
+      previewRecords: records,
+      sourceCollection,
+      totalRows: records.length
+    }
+  };
 }

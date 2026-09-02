@@ -29,6 +29,7 @@ export async function initializeBrowserAuth({
   apiBase = "",
   allowMissingConfig = false,
   fetchImpl = fetch,
+  history = globalThis.window?.history,
   location = window.location,
   createAuth = createBrowserAuth
 } = {}) {
@@ -50,9 +51,14 @@ export async function initializeBrowserAuth({
     location.origin,
     "Logout return URL"
   );
+  const callbackState = browserAuthCallbackState(location, callbackUrl);
+  if (callbackState === "INVALID") {
+    throw browserAuthCallbackError();
+  }
   const auth = await createAuth({ config, callbackUrl, logoutUrl });
-  if (`${location.origin}${location.pathname}` === callbackUrl) {
+  if (callbackState === "READY") {
     await auth.handleCallback();
+    clearConsumedCallbackUrl(location, history);
   }
   return auth;
 }
@@ -117,4 +123,60 @@ function allowedUrlForOrigin(urls, origin, label) {
     : null;
   if (!url) throw new Error(`${label} is not allowlisted for this origin.`);
   return url;
+}
+
+function browserAuthCallbackState(location, callbackUrl) {
+  let expected;
+  try {
+    expected = new URL(callbackUrl);
+  } catch {
+    return "INVALID";
+  }
+  if (
+    location?.origin !== expected.origin
+    || location?.pathname !== expected.pathname
+  ) return "NONE";
+
+  const params = new URLSearchParams(
+    typeof location.search === "string" ? location.search : ""
+  );
+  const codes = params.getAll("code");
+  const states = params.getAll("state");
+  const hasOAuthError = ["error", "error_description", "error_uri"]
+    .some(name => params.has(name));
+  const hasOAuthResponse = codes.length > 0
+    || states.length > 0
+    || hasOAuthError;
+  if (!hasOAuthResponse) return "NONE";
+  return codes.length === 1
+    && states.length === 1
+    && validOAuthCallbackValue(codes[0])
+    && validOAuthCallbackValue(states[0])
+    && !hasOAuthError
+    ? "READY"
+    : "INVALID";
+}
+
+function validOAuthCallbackValue(value) {
+  return typeof value === "string"
+    && value.trim().length > 0
+    && new TextEncoder().encode(value).byteLength <= 4096
+    && !/[\u0000-\u001f\u007f]/.test(value);
+}
+
+function clearConsumedCallbackUrl(location, history) {
+  if (!history || typeof history.replaceState !== "function") {
+    throw browserAuthCallbackError();
+  }
+  try {
+    history.replaceState(history.state ?? null, "", location.pathname);
+  } catch {
+    throw browserAuthCallbackError();
+  }
+}
+
+function browserAuthCallbackError() {
+  const error = new Error("The authentication callback is invalid or could not be consumed safely.");
+  error.code = "BROWSER_AUTH_CALLBACK_INVALID";
+  return error;
 }

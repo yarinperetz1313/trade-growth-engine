@@ -178,7 +178,9 @@ export function analysisFixture({ valueColumn = "amount", rowCount = 2 } = {}) {
         validationIssues: []
       },
       fields,
-      unmappedSourceColumns: ["note", "null_literal", "optional_trailing", valueColumn === "amount" ? "quoted value" : "amount"]
+      unmappedSourceColumns: valueColumn === "amount"
+        ? ["quoted value", "note", "null_literal", "optional_trailing"]
+        : ["amount", "note", "null_literal", "optional_trailing"]
     },
     rows: previewFixture({ rowCount }).records.map(record => ({
       ...record,
@@ -211,7 +213,9 @@ export function analysisFixture({ valueColumn = "amount", rowCount = 2 } = {}) {
       unknownUnmappedStatuses: {
         unknownValueCount: rowCount === 0 ? 0 : 4,
         unmappedTargetFields: fields.filter(field => field.sourceColumn === null).map(field => field.targetField),
-        unmappedSourceColumns: ["note", "null_literal", "optional_trailing", valueColumn === "amount" ? "quoted value" : "amount"]
+        unmappedSourceColumns: valueColumn === "amount"
+          ? ["quoted value", "note", "null_literal", "optional_trailing"]
+          : ["amount", "note", "null_literal", "optional_trailing"]
       },
       timestampCoverage: {
         created_at: { coveredRows: 0, invalidRows: 0, missingRows: rowCount, totalRows: rowCount, percentage: 0 },

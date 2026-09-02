@@ -4,7 +4,7 @@ Auth0 proves browser identity; Trade Growth Engine grants tenant access. The Pil
 
 ## Request path
 
-1. The browser SDK completes Authorization Code Flow with PKCE and keeps access tokens in memory.
+1. The browser SDK completes Authorization Code Flow with PKCE and keeps access tokens in memory. Production bootstrap invokes callback handling only on the exact allowlisted callback path with one non-empty `code`, one non-empty `state`, and no OAuth error parameters; the SDK remains responsible for state and PKCE verification. Direct or refreshed callback-path navigation without an OAuth response does not invoke callback handling. After a successful exchange, bootstrap replaces the consumed query and fragment with the callback path before rendering; malformed callbacks or failed URL cleanup fail closed. Protected requests obtain a fresh bearer from the memory-only SDK provider rather than accepting caller-authored authority.
 2. The API validates the bearer token against one exact HTTPS issuer, one audience, the issuer's exact JWKS endpoint, and RS256. Expiry, issued-at time, and subject are required.
 3. The server queries active memberships by the validated `(issuer, subject)` pair. Zero or multiple active memberships fail closed.
 4. Exactly one result creates an immutable `TenantContext` containing only `tenantId`, `issuer`, `subject`, and canonical role.

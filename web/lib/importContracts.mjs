@@ -28,6 +28,62 @@ const SOURCE_COLLECTIONS = new Set([
   "revenue_actions",
   "tasks"
 ]);
+const ANALYSIS_TARGETS = Object.freeze({
+  prospects: targetContract([
+    ["id", "TEXT", true],
+    ["business_name", "TEXT", true],
+    ["website", "TEXT", false],
+    ["email", "TEXT", false],
+    ["phone", "TEXT", false],
+    ["service", "TEXT", false],
+    ["location", "TEXT", false],
+    ["source", "TEXT", false],
+    ["source_url", "TEXT", false],
+    ["dedupe_key", "TEXT", false],
+    ["qualification_score", "NUMBER", false],
+    ["qualification_status", "STATUS", false],
+    ["created_at", "TIMESTAMP", false],
+    ["updated_at", "TIMESTAMP", false]
+  ], ["business_name", "email", "id", "phone", "website"], [
+    "email", "phone", "website"
+  ]),
+  opportunities: targetContract([
+    ["id", "TEXT", true],
+    ["prospect_id", "TEXT", false],
+    ["business_name", "TEXT", true],
+    ["stage", "STATUS", true],
+    ["priority", "STATUS", false],
+    ["qualification_score", "NUMBER", false],
+    ["value", "NUMBER", false],
+    ["probability", "NUMBER", false],
+    ["weighted_value", "NUMBER", false],
+    ["next_action", "TEXT", false],
+    ["contact_name", "TEXT", false],
+    ["created_at", "TIMESTAMP", false],
+    ["updated_at", "TIMESTAMP", false]
+  ], ["business_name", "contact_name", "id", "stage", "value"]),
+  tasks: targetContract([
+    ["id", "TEXT", true],
+    ["opportunity_id", "TEXT", true],
+    ["title", "TEXT", true],
+    ["description", "TEXT", false],
+    ["due_at", "TIMESTAMP", false],
+    ["priority", "STATUS", false],
+    ["status", "STATUS", true],
+    ["completed_at", "TIMESTAMP", false],
+    ["created_at", "TIMESTAMP", false],
+    ["updated_at", "TIMESTAMP", false]
+  ], ["id", "opportunity_id", "status", "title"]),
+  activities: targetContract([
+    ["id", "TEXT", true],
+    ["opportunity_id", "TEXT", true],
+    ["prospect_id", "TEXT", false],
+    ["type", "STATUS", true],
+    ["description", "TEXT", false],
+    ["created_at", "TIMESTAMP", false],
+    ["updated_at", "TIMESTAMP", false]
+  ], ["id", "opportunity_id", "type"])
+});
 
 export function unwrapImportPreviewResponse(body, expectedBatchId = null) {
   return unwrapImportResponse(body, value => (
@@ -166,6 +222,7 @@ function isAnalysis(value, expectations) {
     ? expectations.headers
     : null;
   const expectedTotalRows = expectations?.totalRows;
+  const target = ANALYSIS_TARGETS[mapping?.targetCollection];
 
   if (
     !isObject(value)
@@ -195,27 +252,32 @@ function isAnalysis(value, expectations) {
   }
 
   if (mapping.status === "UNSUPPORTED_TARGET") {
-    return mapping.selectionState === "UNAVAILABLE"
+    return mapping.targetCollection === "revenue_actions"
+      && mapping.selectionState === "UNAVAILABLE"
       && Array.isArray(mapping.fields)
       && mapping.fields.length === 0
       && !Object.hasOwn(mapping, "sourceIdentity")
       && isStringList(mapping.unmappedSourceColumns, MAX_COLUMNS, headers)
+      && (headers === null || sameStringList(mapping.unmappedSourceColumns, headers))
       && health.validRows === 0
       && health.rowsWithBlockingErrors === health.totalRows
+      && Object.keys(health.missingValueCounts).length === 0
       && health.unknownUnmappedStatuses.unmappedTargetFields.length === 0
       && sameStringList(
         health.unknownUnmappedStatuses.unmappedSourceColumns,
         mapping.unmappedSourceColumns
       )
       && Object.keys(health.timestampCoverage).length === 0
+      && health.contactabilityCoverage === undefined
       && analysisEvidenceIsCoherent(value, expectations);
   }
 
   if (
-    !["SUGGESTED_DRAFT", "USER_EDITED_DRAFT"].includes(mapping.selectionState)
+    !target
+    || mapping.status !== "DRAFT"
+    || !["SUGGESTED_DRAFT", "USER_EDITED_DRAFT"].includes(mapping.selectionState)
     || !Array.isArray(mapping.fields)
-    || mapping.fields.length === 0
-    || mapping.fields.length > MAX_COLUMNS
+    || mapping.fields.length !== target.fields.length
     || !isSourceIdentity(
       mapping.sourceIdentity,
       headers,
@@ -227,9 +289,9 @@ function isAnalysis(value, expectations) {
 
   const targetFields = new Set();
   const sourceColumns = new Set();
-  for (const field of mapping.fields) {
+  for (const [index, field] of mapping.fields.entries()) {
     if (
-      !isMappingField(field, headers, health.totalRows, value.rows)
+      !isMappingField(field, headers, health.totalRows, value.rows, target.fields[index])
       || targetFields.has(field.targetField)
     ) return false;
     targetFields.add(field.targetField);
@@ -238,16 +300,34 @@ function isAnalysis(value, expectations) {
       sourceColumns.add(field.sourceColumn);
     }
   }
+  if (mapping.sourceIdentity.sourceColumn !== null) {
+    sourceColumns.add(mapping.sourceIdentity.sourceColumn);
+  }
+  const expectedUnmappedSources = headers === null
+    ? null
+    : headers.filter(header => !sourceColumns.has(header));
   const expectedUnmappedTargets = mapping.fields
     .filter(field => field.sourceColumn === null)
     .map(field => field.targetField);
   const expectedTimestampFields = mapping.fields
     .filter(field => field.declaredType === "TIMESTAMP")
     .map(field => field.targetField);
-  return sameStringList(
-    health.unknownUnmappedStatuses.unmappedTargetFields,
-    expectedUnmappedTargets
-  )
+  return sameStringSet(Object.keys(health.missingValueCounts), target.important)
+    && (target.contactability === null
+      ? health.contactabilityCoverage === undefined
+      : (
+        isObject(health.contactabilityCoverage)
+        && sameStringList(
+          health.contactabilityCoverage.fields,
+          target.contactability
+        )
+      ))
+    && (expectedUnmappedSources === null
+      || sameStringList(mapping.unmappedSourceColumns, expectedUnmappedSources))
+    && sameStringList(
+      health.unknownUnmappedStatuses.unmappedTargetFields,
+      expectedUnmappedTargets
+    )
     && sameStringList(
       health.unknownUnmappedStatuses.unmappedSourceColumns,
       mapping.unmappedSourceColumns
@@ -510,9 +590,9 @@ function isCellEvidence(cell, expectedOrdinal = null) {
     && utf8Length(cell.raw) <= MAX_CELL_BYTES;
 }
 
-function isMappingField(field, headers, totalRows, rows) {
+function isMappingField(field, headers, totalRows, rows, definition) {
   return isObject(field)
-    && isBoundedString(field.targetField, 128)
+    && field.targetField === definition.targetField
     && isMappedColumn(field.sourceColumn, field.sourceColumnOrdinal, headers)
     && Array.isArray(field.sampleValues)
     && field.sampleValues.length === (field.sourceColumn === null
@@ -523,10 +603,10 @@ function isMappingField(field, headers, totalRows, rows) {
     ))
     && samplesMatchRows(field.sampleValues, field.sourceColumnOrdinal, rows)
     && INFERRED_TYPES.has(field.inferredType)
-    && SELECTED_TYPES.has(field.declaredType)
+    && field.declaredType === definition.declaredType
     && SELECTED_TYPES.has(field.selectedType)
-    && typeof field.required === "boolean"
-    && field.optional === !field.required
+    && field.required === definition.required
+    && field.optional === !definition.required
     && isDraftSuggestion(field.suggestion)
     && Array.isArray(field.validationIssues)
     && field.validationIssues.length <= MAX_MAPPING_ISSUES
@@ -841,4 +921,16 @@ function isIntegerBetween(value, minimum, maximum) {
 
 function percentage(covered, total) {
   return total === 0 ? 0 : Number(((covered / total) * 100).toFixed(2));
+}
+
+function targetContract(fields, important, contactability = null) {
+  return Object.freeze({
+    fields: Object.freeze(fields.map(([targetField, declaredType, required]) => (
+      Object.freeze({ targetField, declaredType, required })
+    ))),
+    important: Object.freeze([...important]),
+    contactability: contactability === null
+      ? null
+      : Object.freeze([...contactability])
+  });
 }

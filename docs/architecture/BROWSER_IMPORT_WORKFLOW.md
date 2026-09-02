@@ -52,8 +52,14 @@ constraints for valid/blocking rows, duplicate conflicts, missing and unknown
 values, source identity, timestamps, and contactability. Exact equality is
 required when all rows or the preview aggregate provide complete evidence;
 responses capped at 100 rows are checked against the tight bounds supported by
-that sample. Contradictory success envelopes fail closed. Explicitly unsupported
-staged targets retain their contract-defined preview-only analysis shape.
+that sample. The browser also requires the complete ordered canonical field
+vector for the declared collection, including each declared type and
+required/optional state; the exact unmapped-source complement; the
+collection-specific commercially important missing-count keys; and prospect-only
+contactability over exactly email, phone, and website. Omitted, invented, or
+contradictory success evidence fails closed before review or confirmation.
+Explicitly unsupported `revenue_actions` retain their contract-defined
+preview-only analysis shape and cannot be presented as a supported draft.
 
 ## Explicit deferral
 

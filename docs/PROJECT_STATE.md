@@ -39,6 +39,13 @@ isolation, commit, retry, reconciliation, and audit behavior. Raw-evidence
 retention/deletion acceptance and implementation are **DEFERRED to a separate
 reviewed follow-up**; PR-5D does not claim them complete.
 
+PR-5D final-review remediation gates production Auth0 callback consumption on a
+structurally complete OAuth code/state response, scrubs the consumed callback URL
+before rendering, and fails closed on malformed callbacks or cleanup failure. Its
+analysis boundary now requires each collection's exact canonical mapping and
+Data Health metadata—including prospect-only contactability—before UI review or
+confirmation, while retaining unsupported-target and 100-row evidence bounds.
+
 PR-5C fresh-review remediation additionally makes parser-unknown identities
 non-authoritative, keeps unsafe and underflowing decimal staging evidence lossless,
 hashes the complete reviewed-selection vector, fails closed on PostgreSQL
