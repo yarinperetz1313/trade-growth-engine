@@ -17,9 +17,19 @@ Trade Growth Engine is a local-first sales intelligence application.
 - Opportunities and pipeline calculate stage, probability, value, and weighted value.
 - Deal intelligence reads persisted opportunity, prospect, activity, and task state to produce deterministic health and next-best-action guidance.
 - Intelligence actions mutate CRM state and return refreshed state to close the loop.
+- RevenueLeakCase stores immutable, tenant-scoped leak evidence and deterministic
+  reconciliation history before any future recovery consumer acts on it. The
+  initial contract supports only `STALLED_OPPORTUNITY`; no detector or UI exists.
 
 ## Boundary rule
 Keep intelligence deterministic unless a module explicitly performs AI/web research. Do not blend speculative market analysis into CRM health scoring.
 
 ## Opportunity Execution Engine
 `src/revenueActions/` contains the durable execution domain and repository. `src/api/revenueActions.js` remains a thin Express boundary. It consumes deterministic opportunity intelligence and the read-only revenue snapshot, but does not change either scoring model. The Opportunity Command Center is the only detailed execution UI; the Revenue Command Center remains a projection/navigation surface.
+
+## Revenue leak case foundation
+
+`src/revenueLeakCases/` owns canonical detection identity, explicit commercial
+value semantics, minimal audited lifecycle, JSON/PostgreSQL repositories, and
+optional same-opportunity RevenueAction linkage. `src/api/revenueLeakCases.js`
+is the thin tenant-bound HTTP seam. See [RevenueLeakCase foundation](REVENUE_LEAK_CASE.md).

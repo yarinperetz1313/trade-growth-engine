@@ -39,6 +39,7 @@ test("E2E temp-store lifecycle cleans only managed tge-e2e stores", async () => 
     assert.equal(JSON.parse(fs.readFileSync(path.join(firstStoreDir, "opportunities.json"), "utf8")).length, 4);
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(firstStoreDir, "tasks.json"), "utf8")), []);
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(firstStoreDir, "revenue_actions.json"), "utf8")), []);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(firstStoreDir, "revenue_leak_cases.json"), "utf8")), []);
     assert.equal(cleanupE2eStore(firstStoreDir), true);
     assert.equal(fs.existsSync(firstStoreDir), false);
 

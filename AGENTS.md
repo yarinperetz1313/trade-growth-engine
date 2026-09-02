@@ -6,7 +6,7 @@ Trade Growth Engine is a local-first CRM with deterministic deal intelligence an
 - API launcher: `src/index.js`; reusable server entry: `src/app/index.js`; Express composition: `src/app/server.js`.
 - API router: `src/api/index.js` mounts health, prospects, leads, qualification, opportunities, tasks, revenue intelligence, and revenue actions without a parent path prefix.
 - Web entry: `web/main.jsx`; API client: `web/lib/api.js`.
-- Domain/persistence: `src/{prospects,leads,opportunities,pipeline,sales,revenueActions}`, `src/services/localStore.js`.
+- Domain/persistence: `src/{prospects,leads,opportunities,pipeline,sales,revenueActions,revenueLeakCases}`, `src/services/localStore.js`.
 - Deterministic intelligence: `src/intelligence/dealIntelligence.js`; action mutations: `src/api/intelligenceActions.js`.
 
 ## Canonical references
@@ -15,6 +15,7 @@ Trade Growth Engine is a local-first CRM with deterministic deal intelligence an
 - Architecture: [`docs/architecture/OVERALL_ARCHITECTURE.md`](docs/architecture/OVERALL_ARCHITECTURE.md)
 - API semantics: [`docs/architecture/API_ACTION_SEMANTICS.md`](docs/architecture/API_ACTION_SEMANTICS.md)
 - Revenue-action lifecycle: [`docs/architecture/REVENUE_ACTION_EXECUTION.md`](docs/architecture/REVENUE_ACTION_EXECUTION.md)
+- Revenue-leak case foundation: [`docs/architecture/REVENUE_LEAK_CASE.md`](docs/architecture/REVENUE_LEAK_CASE.md)
 
 ## Scoped instructions
 This file is the default. The nearest `AGENTS.md` overrides it for files in its directory: `test/`, `web/`, `src/api/`, and `src/intelligence/`.

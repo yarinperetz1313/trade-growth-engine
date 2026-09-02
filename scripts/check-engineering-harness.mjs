@@ -175,6 +175,11 @@ function validateE2eContract() {
     'writeCollection(storeDir, "revenue_actions", [])',
     "E2E seed must include empty revenue_actions"
   );
+  requireText(
+    lifecycle,
+    'writeCollection(storeDir, "revenue_leak_cases", [])',
+    "E2E seed must include empty revenue_leak_cases"
+  );
 }
 
 function validateDatabaseFoundationContract() {
@@ -209,6 +214,9 @@ function validateDatabaseFoundationContract() {
   );
   const canonicalImportMigration = readFile(
     "database/migrations/011_canonical_import_commit.sql"
+  );
+  const revenueLeakCaseMigration = readFile(
+    "database/migrations/012_revenue_leak_case_foundation.sql"
   );
   const migrationFiles = fs
     .readdirSync(path.join(rootDir, "database", "migrations"))
@@ -316,6 +324,16 @@ function validateDatabaseFoundationContract() {
     "Migration 011 must serialize canonical source identity"
   );
   requireText(
+    revenueLeakCaseMigration,
+    "create table tge.revenue_leak_cases",
+    "Migration 012 must add RevenueLeakCase storage"
+  );
+  requireText(
+    revenueLeakCaseMigration,
+    "RevenueLeakCase detection evidence is immutable.",
+    "Migration 012 must protect immutable RevenueLeakCase evidence"
+  );
+  requireText(
     databaseTest,
     "TGE_TEST_DATABASE_URL",
     "Database tests must require an explicit real PostgreSQL URL"
@@ -341,7 +359,8 @@ function validateDatabaseFoundationContract() {
       "008_revenue_action_outcome_integrity.sql",
       "009_revenue_action_cancellation_integrity.sql",
       "010_auth_membership_and_invitations.sql",
-      "011_canonical_import_commit.sql"
+      "011_canonical_import_commit.sql",
+      "012_revenue_leak_case_foundation.sql"
     ])
   ) {
     failures.push(

@@ -1,6 +1,6 @@
 # Engineering Harness
 
-This is the operational contract for making Trade Growth Engine changes safely and reviewably. It adds no product scope: Phase 2 is locked, and Pilot Readiness PR-0 has documented its future-state contracts without provisioning or product implementation.
+This is the operational contract for making Trade Growth Engine changes safely and reviewably. Pilot Readiness PR-0 documented future-state contracts without provisioning; later approved changes must keep their scope and evidence explicit.
 
 ## Quick path
 1. Read the nearest `AGENTS.md` and the current-state/architecture reference for the affected boundary.
@@ -41,8 +41,8 @@ For local database verification, start the pinned disposable service with `docke
 - runtime/generated stores are not tracked;
 - executable/configuration and relevant untracked documentation have no developer-home absolute path;
 - `src/intelligence/` has no web-client dependency or `fetch` call;
-- E2E retains managed-store creation/seeding/cleanup, `LOCAL_STORE_DIR` injection, serial fixed-port configuration, and an empty seeded `revenue_actions` collection.
-- migration `001` retains its locked checksum; append-only migrations through PR-5C `011` (after PR-3 `005`–`009` and PR-4 `010`), the checksum-ledger runner, audited-baseline refusal, post-bootstrap owner-role execution, pinned PostgreSQL 16.15 Compose/CI service, explicit database URL, and full-gate wiring remain present.
+- E2E retains managed-store creation/seeding/cleanup, `LOCAL_STORE_DIR` injection, serial fixed-port configuration, and empty seeded `revenue_actions` and `revenue_leak_cases` collections.
+- migration `001` retains its locked checksum; append-only migrations through RevenueLeakCase foundation `012` (after PR-3 `005`–`009`, PR-4 `010`, and PR-5C `011`), the checksum-ledger runner, audited-baseline refusal, post-bootstrap owner-role execution, pinned PostgreSQL 16.15 Compose/CI service, explicit database URL, and full-gate wiring remain present.
 - the PR-4 Auth0 decision, issuer-bound membership, hashed assisted invitations, memory-only browser SDK configuration, and deployment-gated real OTP acceptance contract remain aligned across code and canonical docs.
 - the active Pilot Readiness plan and its two canonical contracts agree on a small set of locked production facts; it does not scan historical plans or certify provisioned infrastructure.
 
@@ -89,7 +89,8 @@ Each plan records debt and follow-ups. Failed gates and review findings become e
 
 ## Known limitations
 
-- Phase 2 is locked for this upgrade; its code is not being extended here.
+- The existing RevenueAction lifecycle and external-action boundary are not
+  expanded by the RevenueLeakCase foundation.
 - Pilot Readiness PR-3 persistence and PR-4 auth are integrated in code, complete, and merged through [PR #16](https://github.com/yarinperetz1313/trade-growth-engine/pull/16); JSON remains the local default and production Auth0/SMTP proof remains gated.
 - Real Auth0 AU email-OTP E2E remains deployment-gated until tenant and SMTP/email-capture credentials are provisioned.
 - Browser CI is configured locally; a green CI outcome cannot be established from this checkout alone.
