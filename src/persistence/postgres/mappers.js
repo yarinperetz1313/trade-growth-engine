@@ -27,6 +27,7 @@ const SYSTEM_FIELDS = new Set([
 const JSON_NULL = Symbol("postgres-json-null");
 const EXACT_JSON_NUMBER = Symbol("postgres-exact-json-number");
 const {
+  areDecimalLiteralsEquivalent,
   isDecimalNumberLiteral,
   isExactZeroLiteral,
   jsonNumberLiteral
@@ -331,7 +332,7 @@ function opportunityFromRow(row) {
     delete record.value;
   } else if (["KNOWN", "ZERO"].includes(row.commercial_value_state)) {
     const exactImportValue = row.metadata?.import?.numeric_evidence?.value;
-    record.value = exactImportValue?.valueKind === "NUMERIC"
+    record.value = matchingNumericEvidence(exactImportValue, row.commercial_value)
       ? losslessImportedNumber(exactImportValue.raw)
       : toNumber(row.commercial_value);
   } else {
@@ -344,9 +345,17 @@ function opportunityFromRow(row) {
 
 function importedNumericValue(row, field, storedValue) {
   const evidence = row.metadata?.import?.numeric_evidence?.[field];
-  return evidence?.valueKind === "NUMERIC"
+  return matchingNumericEvidence(evidence, storedValue)
     ? losslessImportedNumber(evidence.raw)
     : toNumber(storedValue);
+}
+
+function matchingNumericEvidence(evidence, storedValue) {
+  return evidence?.valueKind === "NUMERIC"
+    && typeof evidence.raw === "string"
+    && storedValue !== null
+    && storedValue !== undefined
+    && areDecimalLiteralsEquivalent(evidence.raw, String(storedValue));
 }
 
 function losslessImportedNumber(raw) {
@@ -354,7 +363,7 @@ function losslessImportedNumber(raw) {
   if (!Number.isFinite(numeric) || (numeric === 0 && !isExactZeroLiteral(raw))) {
     return raw;
   }
-  if (/^[+-]?\d+$/.test(raw.trim()) && !Number.isSafeInteger(numeric)) {
+  if (!areDecimalLiteralsEquivalent(raw, String(numeric))) {
     return raw;
   }
   return numeric;

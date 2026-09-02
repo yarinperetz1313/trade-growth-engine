@@ -69,7 +69,10 @@ The analysis preserves `MISSING`, `BLANK`, `NULL`, `UNKNOWN`, `KNOWN_ZERO`,
 timestamp, exact-row, source-ID, and nonnumeric/unknown conditions without
 coercing source evidence. It also enforces nonblank required values,
 non-negative numeric commercial value, the canonical probability range, and
-task status/completion-timestamp consistency. Known zero remains valid numeric
+task status/completion-timestamp consistency. Every parser-recognized mapped
+numeric is also checked losslessly against PostgreSQL `numeric`'s integer-digit
+and fractional-scale limits; literals that PostgreSQL would overflow or round
+are blocking row errors before canonical SQL. Known zero remains valid numeric
 evidence, including probability zero. A draft `selectedType` cannot bypass the
 separately declared canonical target type or its validation constraints.
 

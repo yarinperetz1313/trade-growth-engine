@@ -58,6 +58,13 @@
   migration/function `NULL` checks fail closed; canonical and dedupe uniqueness
   races become savepoint-backed conflicts; and illegal lifecycle attempts are
   bounded, audited conflicts without new transitions.
+- Bounded final-review findings/resolution: three additional findings were
+  reproduced and remediated regression-first. Generic PostgreSQL updates now
+  retain matching exact import numerics and provenance without allowing stale
+  evidence to mask a changed value; the imports route preserves
+  `IMPORT_COMMIT_REQUEST_INVALID`; and every mapped numeric is checked against
+  PostgreSQL's exact integer/scale envelope before materialization, with at most
+  100 detailed failed-row outcomes while full summary counts still reconcile.
 - Final-review evidence:
   - RED: `node --test test/import-commit.test.js` failed with
     `MODULE_NOT_FOUND`; follow-on service, repository, static migration, and API
@@ -88,6 +95,21 @@
     final rerun passed **51/51**; the server was stopped and its test-only
     directory removed.
   - Build: `npm run build` passed with Vite **8.2.2**, **22** modules.
-  - Hygiene: `git diff --check` passed; migrations `001`–`010` were not edited.
+  - Bounded final-review focused GREEN: `node --test
+    test/import-commit.test.js test/import-repository.test.js
+    test/import-staging.test.js test/import-mapping.test.js
+    test/postgres-persistence.test.js` passed **72/72**.
+    The regression-first run had failed on exact decimal update readback and
+    missing PostgreSQL numeric validation; loopback-only route tests initially
+    hit sandbox `EPERM`, then passed with loopback permission.
+  - Bounded final-review fast gate: `npm run verify:fast` passed the engineering
+    harness and integration **182/182**.
+  - Bounded final-review database gate:
+    `TGE_TEST_DATABASE_URL=postgresql://127.0.0.1:55433/postgres npm run test:db`
+    passed **52/52** against a disposable PostgreSQL **16.15** cluster. The
+    cluster was stopped and its generated test directory removed.
+  - Bounded final-review build: `npm run build` passed with Vite **8.2.2**,
+    **22** modules.
+  - Hygiene: `git diff --check` passed; migrations `001`–`011` were not edited.
 - Debt/follow-up: PR-5D owns browser flow/adversarial browser coverage and final
   Issue #13 UI breadth. Production provisioning and JSON cutover remain gated.

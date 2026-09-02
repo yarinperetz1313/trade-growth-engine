@@ -102,12 +102,17 @@ audit events, and lifecycle mutation together.
 Exact staged `raw_payload` and its hash are never rewritten. Decimal
 classification and range checks avoid JavaScript `Number` conversion before
 fingerprinting and persistence. Exact numeric strings are retained in canonical
-import metadata and PostgreSQL `numeric`; unsafe integers and underflowing
-decimals remain lossless on repository readback. Known numeric zero stays
-numeric zero, every parser-recognized unknown literal becomes canonical
-`unknown`, and missing, blank, null, unknown, and nonnumeric states are never
-invented as zero. Unrepresentable optional unknown values remain in immutable
-staging evidence rather than being invented in canonical columns.
+import metadata and PostgreSQL `numeric`; unsafe integers, high-precision
+decimals, and underflowing values remain lossless on repository readback and
+ordinary unrelated updates. Stored import provenance is preserved during
+metadata patches, while numeric evidence is retired only when its logical field
+value changes. Mapped numeric literals outside PostgreSQL's exact representable
+integer/scale envelope fail as bounded row validation instead of reaching SQL.
+Known numeric zero stays numeric zero, every parser-recognized unknown literal
+becomes canonical `unknown`, and missing, blank, null, unknown, and nonnumeric
+states are never invented as zero. Unrepresentable optional unknown values
+remain in immutable staging evidence rather than being invented in canonical
+columns.
 
 Migration 011 checks and security-definer functions reject missing hashes,
 outcomes, and request/input fingerprints explicitly; PostgreSQL `NULL` cannot

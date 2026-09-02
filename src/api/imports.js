@@ -2,6 +2,7 @@ const express = require("express");
 
 const { AuthorizationError } = require("../auth/authorization");
 const { ImportCsvError } = require("../imports/csvParser");
+const { ImportCommitError } = require("../imports/importCommit");
 const { ImportContractError } = require("../imports/importService");
 const { ImportMappingError } = require("../imports/importMapping");
 const {
@@ -100,6 +101,7 @@ function route(handler) {
       }
       if (
         error instanceof ImportContractError
+        || error instanceof ImportCommitError
         || error instanceof ImportCsvError
         || error instanceof ImportMappingError
         || error instanceof AuthorizationError

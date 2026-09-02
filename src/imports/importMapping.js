@@ -3,7 +3,8 @@ const FIELD_SAMPLE_LIMIT = 5;
 const TASK_STATUSES = new Set(["OPEN", "IN_PROGRESS", "COMPLETED", "CANCELLED"]);
 const {
   isGreaterThanOneLiteral,
-  isNegativeNumberLiteral
+  isNegativeNumberLiteral,
+  isPostgresNumericLiteralRepresentable
 } = require("./numericEvidence");
 
 class ImportMappingError extends Error {
@@ -415,6 +416,13 @@ function validateRows(records, headers, fields, targetCollection, sourceIdentity
       }
       if (mappedField.declaredType === "NUMBER" && !["NUMERIC", "KNOWN_ZERO"].includes(evidence.valueKind)) {
         warnings.push({ code: "NONNUMERIC_VALUE_PRESERVED", ...issueBase });
+      }
+      if (
+        mappedField.declaredType === "NUMBER"
+        && ["NUMERIC", "KNOWN_ZERO"].includes(evidence.valueKind)
+        && !isPostgresNumericLiteralRepresentable(evidence.raw)
+      ) {
+        errors.push({ code: "POSTGRES_NUMERIC_UNREPRESENTABLE", ...issueBase });
       }
       if (mappedField.declaredType === "TIMESTAMP" && !validTimestamp(evidence.raw)) {
         errors.push({ code: "TIMESTAMP_INVALID", ...issueBase });

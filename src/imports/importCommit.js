@@ -7,6 +7,7 @@ const { hashImportEvidence } = require("./csvParser");
 const SOURCE_SYSTEM_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const IDEMPOTENCY_KEY_MAX_BYTES = 255;
 const SOURCE_RECORD_ID_MAX_BYTES = 512;
+const COMMIT_OUTCOME_ISSUE_LIMIT = 100;
 
 class ImportCommitError extends Error {
   constructor(code, message, status = 400) {
@@ -246,7 +247,9 @@ function blockedPlan(
       failed: outcome === "FAILED" ? total : 0
     },
     conflicts: outcome === "CONFLICTED" ? issues : [],
-    failures: outcome === "FAILED" ? issues : [],
+    failures: outcome === "FAILED"
+      ? issues.slice(0, COMMIT_OUTCOME_ISSUE_LIMIT)
+      : [],
     evidence
   };
 }

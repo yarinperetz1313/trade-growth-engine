@@ -3282,6 +3282,7 @@ function registerPostgresRepositoryContractTests({
       batchId,
       "source_id,id,business_name,stage,value,probability\n" +
         "source-large,exact-large,Large Trade,QUALIFIED,9007199254740993,1e-4000\n" +
+        "source-decimal,exact-decimal,Decimal Trade,QUALIFIED,1.234567890123456789,0.1234567890123456789\n" +
         "source-tiny,exact-tiny,Tiny Trade,QUALIFIED,1e-4000,0\n" +
         "source-unknown,exact-unknown,Unknown Trade,QUALIFIED,n/a,0\n" +
         "source-zero,exact-zero,Zero Trade,QUALIFIED,0,0"
@@ -3295,14 +3296,17 @@ function registerPostgresRepositoryContractTests({
     );
     assert.equal(result.outcome, "COMMITTED");
 
-    const [large, tiny, unknown, zero] = await Promise.all([
+    const [large, decimal, tiny, unknown, zero] = await Promise.all([
       repositories.opportunities.findById(tenant.context, "exact-large"),
+      repositories.opportunities.findById(tenant.context, "exact-decimal"),
       repositories.opportunities.findById(tenant.context, "exact-tiny"),
       repositories.opportunities.findById(tenant.context, "exact-unknown"),
       repositories.opportunities.findById(tenant.context, "exact-zero")
     ]);
     assert.equal(large.value, "9007199254740993");
     assert.equal(large.probability, "1e-4000");
+    assert.equal(decimal.value, "1.234567890123456789");
+    assert.equal(decimal.probability, "0.1234567890123456789");
     assert.equal(tiny.value, "1e-4000");
     assert.equal(unknown.value, "unknown");
     assert.equal(zero.value, 0);
@@ -3314,18 +3318,54 @@ function registerPostgresRepositoryContractTests({
        from tge.opportunities
        where tenant_id = $1 and id = any($2::text[])
        order by id`,
-      [tenant.tenantId, ["exact-large", "exact-tiny", "exact-unknown", "exact-zero"]]
+      [tenant.tenantId, [
+        "exact-large", "exact-decimal", "exact-tiny", "exact-unknown", "exact-zero"
+      ]]
     );
     const byId = Object.fromEntries(stored.rows.map(row => [row.id, row]));
     assert.equal(byId["exact-large"].numeric_value, "9007199254740993");
     assert.equal(byId["exact-large"].raw_value, "9007199254740993");
     assert.equal(byId["exact-large"].exact_raw, "9007199254740993");
+    assert.equal(byId["exact-decimal"].numeric_value, "1.234567890123456789");
+    assert.equal(byId["exact-decimal"].raw_value, "1.234567890123456789");
+    assert.equal(byId["exact-decimal"].exact_raw, "1.234567890123456789");
     assert.equal(byId["exact-tiny"].exact_raw, "1e-4000");
     assert.equal(byId["exact-tiny"].commercial_value_state, "KNOWN");
     assert.equal(byId["exact-unknown"].commercial_value_state, "UNKNOWN_LITERAL");
     assert.equal(byId["exact-unknown"].raw_value, '"unknown"');
     assert.equal(byId["exact-zero"].commercial_value_state, "ZERO");
     assert.equal(byId["exact-zero"].numeric_value, "0");
+
+    const updatedDecimal = await repositories.opportunities.update(
+      tenant.context,
+      "exact-decimal",
+      { next_action: "Unrelated exact-evidence update" }
+    );
+    const updatedTiny = await repositories.opportunities.update(
+      tenant.context,
+      "exact-tiny",
+      { next_action: "Unrelated underflow-evidence update" }
+    );
+    assert.equal(updatedDecimal.value, "1.234567890123456789");
+    assert.equal(updatedDecimal.probability, "0.1234567890123456789");
+    assert.equal(updatedTiny.value, "1e-4000");
+    const afterUpdates = await getAdminClient().query(
+      `select id, commercial_value::text as numeric_value,
+         commercial_value_state, commercial_value_raw::text as raw_value,
+         metadata#>>'{import,numeric_evidence,value,raw}' as exact_raw
+       from tge.opportunities
+       where tenant_id = $1 and id = any($2::text[])
+       order by id`,
+      [tenant.tenantId, ["exact-decimal", "exact-tiny"]]
+    );
+    const updatedById = Object.fromEntries(afterUpdates.rows.map(row => [row.id, row]));
+    assert.equal(updatedById["exact-decimal"].numeric_value, "1.234567890123456789");
+    assert.equal(updatedById["exact-decimal"].commercial_value_state, "KNOWN");
+    assert.equal(updatedById["exact-decimal"].raw_value, "1.234567890123456789");
+    assert.equal(updatedById["exact-decimal"].exact_raw, "1.234567890123456789");
+    assert.equal(updatedById["exact-tiny"].numeric_value, byId["exact-tiny"].numeric_value);
+    assert.equal(updatedById["exact-tiny"].commercial_value_state, "KNOWN");
+    assert.equal(updatedById["exact-tiny"].exact_raw, "1e-4000");
 
     const unknownIdentityBatch = `canonical-unknown-identity-${randomUUID()}`;
     await stageCsvBatch(
@@ -3349,6 +3389,47 @@ function registerPostgresRepositoryContractTests({
       [tenant.tenantId]
     );
     assert.equal(unknownIdentityMaps.rows[0].count, 0);
+  });
+
+  test("canonical import rejects PostgreSQL-unrepresentable numerics before SQL materialization", async () => {
+    const pool = createPool();
+    const repositories = createPostgresRepositories({ pool });
+    const tenant = await createTenant("canonical-import-numeric-bounds");
+    const batchId = `canonical-numeric-bounds-${randomUUID()}`;
+    await stageCsvBatch(
+      repositories,
+      tenant.context,
+      batchId,
+      "source_id,id,business_name,stage,value,probability\n" +
+        "source-huge,unrepresentable-huge,Huge Trade,QUALIFIED,1e999999999999999999999,0\n" +
+        "source-tiny,unrepresentable-tiny,Tiny Trade,QUALIFIED,1e-16384,0"
+    );
+
+    const result = await commitCsvBatch(
+      repositories,
+      tenant.context,
+      batchId,
+      canonicalOpportunityInput(`numeric-bounds-${randomUUID()}`)
+    );
+
+    assert.equal(result.outcome, "FAILED");
+    assert.equal(result.summary.failed, 2);
+    assert.equal(result.failures.length, 2);
+    assert.equal(result.failures.every(failure => failure.validationErrors.some(issue =>
+      issue.code === "POSTGRES_NUMERIC_UNREPRESENTABLE"
+      && issue.targetField === "value"
+    )), true);
+    const batch = await getAdminClient().query(
+      `select status from tge.import_batches where tenant_id = $1 and id = $2`,
+      [tenant.tenantId, batchId]
+    );
+    const canonical = await getAdminClient().query(
+      `select id from tge.opportunities
+       where tenant_id = $1 and id = any($2::text[])`,
+      [tenant.tenantId, ["unrepresentable-huge", "unrepresentable-tiny"]]
+    );
+    assert.equal(batch.rows[0].status, "PREVIEWED");
+    assert.deepEqual(canonical.rows, []);
   });
 
   test("migration 011 rejects NULL identity hashes and function evidence", async () => {

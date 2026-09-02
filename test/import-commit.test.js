@@ -206,6 +206,26 @@ test("canonical commit validates every staged row beyond the preview sample", ()
   assert.equal(plan.failures[0].sourceOrdinal, 100);
 });
 
+test("canonical commit bounds PostgreSQL numeric validation details while counting every row", () => {
+  const rows = Array.from({ length: 105 }, (_, index) => (
+    `src-${index},opp-${index},Trade ${index},QUALIFIED,1e999999999999999999999,0`
+  ));
+  const plan = buildCanonicalCommitPlan(stagedEvidence(
+    "source_id,id,business_name,stage,value,probability\n" + rows.join("\n")
+  ), commitInput());
+
+  assert.equal(plan.outcome, "FAILED");
+  assert.equal(plan.summary.total, 105);
+  assert.equal(plan.summary.failed, 105);
+  assert.equal(plan.failures.length, 100);
+  assert.equal(plan.failures[0].sourceOrdinal, 0);
+  assert.equal(plan.failures.at(-1).sourceOrdinal, 99);
+  assert.equal(plan.failures.every(failure => failure.validationErrors.some(issue =>
+    issue.code === "POSTGRES_NUMERIC_UNREPRESENTABLE"
+    && issue.targetField === "value"
+  )), true);
+});
+
 test("the first exact source-ordered row wins and exact repeats are explicit skips", () => {
   const evidence = stagedEvidence(
     "source_id,id,business_name,stage,value,probability\n" +
@@ -442,6 +462,33 @@ test("commit and reconciliation HTTP routes stay thin and return auditable outco
   assert.equal(calls[1][1].batchId, "batch-commit");
 });
 
+test("malformed commit requests preserve the commit-specific API contract through the real service", async () => {
+  const owner = await authContext();
+  const persistence = {
+    adapter: "postgres",
+    forTenant() {
+      assert.fail("malformed commit requests must fail before persistence");
+    }
+  };
+  const router = createImportsRouter({
+    service: createImportService({ persistence }),
+    resolveAuthorizationContext: () => owner,
+    resolvePersistenceContext: () => persistenceContext(owner)
+  });
+  const response = await requestRouter(
+    router,
+    "/api/import-batches/batch-commit/commit",
+    { method: "POST", body: { ...commitInput(), tenantId: owner.tenantId } }
+  );
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(response.data, {
+    ok: false,
+    error: "IMPORT_COMMIT_REQUEST_INVALID",
+    message: "The canonical import commit request is invalid."
+  });
+});
+
 test("commit HTTP conflicts expose bounded outcome evidence without raw staged cells", async () => {
   const owner = await authContext();
   const safeDetails = {
@@ -530,6 +577,11 @@ async function requestRouter(
   const app = express();
   app.use(express.json());
   app.use(router);
+  app.use((error, _req, res, _next) => res.status(500).json({
+    ok: false,
+    error: "UNHANDLED_TEST_ERROR",
+    message: error.message
+  }));
   const server = app.listen(0, "127.0.0.1");
   await new Promise(resolve => server.once("listening", resolve));
   try {

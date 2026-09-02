@@ -1,4 +1,8 @@
 const DECIMAL_NUMBER_PATTERN = /^[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:e[+-]?\d+)?$/i;
+const POSTGRES_NUMERIC_MAX_INTEGER_DIGITS = 131072n;
+const POSTGRES_NUMERIC_MAX_FRACTIONAL_DIGITS = 16383n;
+const POSTGRES_NUMERIC_MAX_INPUT_EXPONENT = 2147483647n;
+const POSTGRES_NUMERIC_MIN_INPUT_EXPONENT = -2147483648n;
 
 function isDecimalNumberLiteral(value) {
   return typeof value === "string" && DECIMAL_NUMBER_PATTERN.test(value.trim());
@@ -33,6 +37,62 @@ function isGreaterThanOneLiteral(value) {
   return significant[0] !== "1" || /[1-9]/.test(significant.slice(1));
 }
 
+function isPostgresNumericLiteralRepresentable(value) {
+  const normalized = normalizeDecimalLiteral(value);
+  if (
+    !normalized
+    || normalized.exponent < POSTGRES_NUMERIC_MIN_INPUT_EXPONENT
+    || normalized.exponent > POSTGRES_NUMERIC_MAX_INPUT_EXPONENT
+  ) return false;
+  if (normalized.zero) return true;
+  const integerDigits = BigInt(normalized.digits.length) + normalized.power;
+  const fractionalDigits = normalized.power < 0n ? -normalized.power : 0n;
+  return integerDigits <= POSTGRES_NUMERIC_MAX_INTEGER_DIGITS
+    && fractionalDigits <= POSTGRES_NUMERIC_MAX_FRACTIONAL_DIGITS;
+}
+
+function areDecimalLiteralsEquivalent(left, right) {
+  const normalizedLeft = normalizeDecimalLiteral(left);
+  const normalizedRight = normalizeDecimalLiteral(right);
+  if (!normalizedLeft || !normalizedRight) return false;
+  if (normalizedLeft.zero || normalizedRight.zero) {
+    return normalizedLeft.zero && normalizedRight.zero;
+  }
+  return normalizedLeft.negative === normalizedRight.negative
+    && normalizedLeft.digits === normalizedRight.digits
+    && normalizedLeft.power === normalizedRight.power;
+}
+
+function normalizeDecimalLiteral(value) {
+  if (!isDecimalNumberLiteral(value)) return null;
+  const literal = value.trim();
+  const negative = literal.startsWith("-");
+  const unsigned = literal.replace(/^[+-]/, "");
+  const [coefficient, exponentText = "0"] = unsigned.split(/e/i);
+  const [integerPart = "", fractionPart = ""] = coefficient.split(".");
+  let digits = `${integerPart}${fractionPart}`.replace(/^0+/, "");
+  if (digits === "") {
+    return {
+      digits: "0",
+      exponent: BigInt(exponentText),
+      negative: false,
+      power: 0n,
+      zero: true
+    };
+  }
+  const trailingZeros = digits.match(/0+$/)?.[0].length || 0;
+  if (trailingZeros > 0) digits = digits.slice(0, -trailingZeros);
+  return {
+    digits,
+    exponent: BigInt(exponentText),
+    negative,
+    power: BigInt(exponentText)
+      - BigInt(fractionPart.length)
+      + BigInt(trailingZeros),
+    zero: false
+  };
+}
+
 function jsonNumberLiteral(value) {
   const normalized = value.trim().replace(/^\+/, "");
   const [coefficient, exponent] = normalized.split(/e/i);
@@ -49,9 +109,13 @@ function jsonNumberLiteral(value) {
 
 module.exports = {
   DECIMAL_NUMBER_PATTERN,
+  POSTGRES_NUMERIC_MAX_FRACTIONAL_DIGITS,
+  POSTGRES_NUMERIC_MAX_INTEGER_DIGITS,
+  areDecimalLiteralsEquivalent,
   isDecimalNumberLiteral,
   isExactZeroLiteral,
   isGreaterThanOneLiteral,
   isNegativeNumberLiteral,
+  isPostgresNumericLiteralRepresentable,
   jsonNumberLiteral
 };
