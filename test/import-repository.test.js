@@ -387,3 +387,153 @@ test("same committed request reconciles without rebuilding, inserting, mapping, 
     "commit"
   ]);
 });
+
+test("illegal lifecycle commit attempts append bounded conflict evidence without transitions", async () => {
+  const calls = [];
+  const privateRaw = "private-cell-must-not-leak";
+  const client = {
+    async query(sql, params) {
+      calls.push([sql, params]);
+      if (/lock_import_commit_batch/i.test(sql)) {
+        return { rows: [{
+          tenant_id: context.tenantId,
+          id: "batch-1",
+          status: "STAGED",
+          source_filename: privateRaw,
+          source_sha256: "a".repeat(64),
+          preview_summary: { sourceCollection: "prospects", rowCount: 1 },
+          metadata_retain_until: "2027-09-01T00:00:00.000Z"
+        }] };
+      }
+      return { rows: [] };
+    },
+    release() {}
+  };
+  const repositories = createPostgresRepositories({
+    pool: { connect: async () => client }
+  });
+
+  const result = await repositories.imports.commitCanonical(context, {
+    batchId: "batch-1",
+    committedAt: "2026-09-02T00:00:00.000Z",
+    subjectId: context.subjectId,
+    input: {
+      sourceSystem: "pilot-crm",
+      idempotencyKey: "commit-attempt-1",
+      sourceIdentitySelection: { sourceColumn: "source_id" },
+      selections: []
+    },
+    prepare() {
+      assert.fail("an illegal lifecycle attempt must not prepare canonical rows");
+    }
+  });
+
+  assert.equal(result.outcome, "CONFLICTED");
+  assert.equal(result.conflicts[0].code, "IMPORT_LIFECYCLE_CONFLICT");
+  assert.equal(
+    calls.some(([sql]) => /record_import_commit_lifecycle_conflict/i.test(sql)),
+    true
+  );
+  const audit = calls.find(([sql]) => /insert into tge\.audit_events/i.test(sql));
+  assert.ok(audit);
+  assert.equal(audit[1][2], "IMPORT_COMMIT_CONFLICTED");
+  assert.equal(JSON.stringify(audit[1]).includes(privateRaw), false);
+});
+
+test("canonical uniqueness violations roll back to a savepoint and become bounded conflicts", async () => {
+  const calls = [];
+  const staged = draft().records[0];
+  const client = {
+    async query(sql, params) {
+      calls.push([sql, params]);
+      if (/lock_import_commit_batch/i.test(sql)) {
+        return { rows: [{
+          tenant_id: context.tenantId,
+          id: "batch-1",
+          status: "PREVIEWED",
+          source_filename: "source.csv",
+          source_sha256: "a".repeat(64),
+          preview_summary: { sourceCollection: "prospects", rowCount: 1 },
+          metadata_retain_until: "2027-09-01T00:00:00.000Z"
+        }] };
+      }
+      if (/lock_import_commit_records/i.test(sql)) {
+        return { rows: [{
+          import_batch_id: "batch-1",
+          id: staged.id,
+          source_collection: staged.sourceCollection,
+          source_id: staged.sourceId,
+          source_ordinal: staged.sourceOrdinal,
+          raw_payload: staged.rawPayload,
+          raw_payload_sha256: staged.rawPayloadSha256,
+          disposition: staged.disposition,
+          metadata: staged.metadata
+        }] };
+      }
+      if (/from tge\.import_id_map|select id from tge\.prospects/i.test(sql)) {
+        return { rows: [] };
+      }
+      if (/insert into tge\.prospects/i.test(sql)) {
+        const error = new Error("duplicate detail must not escape");
+        error.code = "23505";
+        error.constraint = "prospects_tenant_id_dedupe_key_key";
+        throw error;
+      }
+      return { rows: [] };
+    },
+    release() {}
+  };
+  const repositories = createPostgresRepositories({
+    pool: { connect: async () => client }
+  });
+
+  const result = await repositories.imports.commitCanonical(context, {
+    batchId: "batch-1",
+    committedAt: "2026-09-02T00:00:00.000Z",
+    subjectId: context.subjectId,
+    input: {
+      sourceSystem: "pilot-crm",
+      idempotencyKey: "commit-attempt-1",
+      sourceIdentitySelection: { sourceColumn: "source_id" },
+      selections: []
+    },
+    prepare() {
+      return {
+        outcome: "READY",
+        batchId: "batch-1",
+        sourceCollection: "prospects",
+        sourceSystem: "pilot-crm",
+        requestFingerprint: "d".repeat(64),
+        rows: [{
+          stagingRecordId: staged.id,
+          stagingSourceId: staged.sourceId,
+          sourceCollection: "prospects",
+          sourceOrdinal: 0,
+          sourceRowNumber: 2,
+          sourceRecordId: "source-1",
+          rawPayloadSha256: staged.rawPayloadSha256,
+          canonicalTargetId: "prospect-1",
+          canonicalPayloadSha256: "e".repeat(64),
+          canonicalRecord: {
+            id: "prospect-1",
+            business_name: "Acme",
+            dedupe_key: "same"
+          },
+          disposition: "COMMITTED"
+        }],
+        summary: { total: 1, committed: 1, skipped: 0, conflicted: 0, failed: 0 },
+        conflicts: []
+      };
+    }
+  });
+
+  assert.equal(result.outcome, "CONFLICTED");
+  assert.deepEqual(result.conflicts, [{
+    code: "PROSPECT_DEDUPE_KEY_COLLISION",
+    sourceOrdinal: 0,
+    targetId: "prospect-1"
+  }]);
+  assert.equal(calls.some(([sql]) => /^SAVEPOINT canonical_import_materialization$/i.test(sql)), true);
+  assert.equal(calls.some(([sql]) => /^ROLLBACK TO SAVEPOINT canonical_import_materialization$/i.test(sql)), true);
+  assert.equal(calls.some(([sql]) => /record_import_commit_attempt/i.test(sql)), true);
+});

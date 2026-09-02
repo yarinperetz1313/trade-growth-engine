@@ -25,6 +25,12 @@ const SYSTEM_FIELDS = new Set([
   "revenue_action_id"
 ]);
 const JSON_NULL = Symbol("postgres-json-null");
+const EXACT_JSON_NUMBER = Symbol("postgres-exact-json-number");
+const {
+  isDecimalNumberLiteral,
+  isExactZeroLiteral,
+  jsonNumberLiteral
+} = require("../../imports/numericEvidence");
 
 function clone(value) {
   if (value === undefined) return undefined;
@@ -42,7 +48,7 @@ function rejectCallerTenant(record) {
   }
 }
 
-function classifyCommercialValue(opportunity) {
+function classifyCommercialValue(opportunity, options = {}) {
   if (!Object.hasOwn(opportunity, "value")) {
     return { numeric: null, state: "MISSING", raw: undefined };
   }
@@ -67,6 +73,18 @@ function classifyCommercialValue(opportunity) {
     const error = new TypeError("Commercial value must be a number, string, null, or absent.");
     error.code = "COMMERCIAL_VALUE_INVALID";
     throw error;
+  }
+
+  if (
+    options.exactNumericFields?.value?.valueKind === "NUMERIC"
+    && options.exactNumericFields.value.raw === raw
+    && isDecimalNumberLiteral(raw)
+  ) {
+    return {
+      numeric: raw,
+      state: isExactZeroLiteral(raw) ? "ZERO" : "KNOWN",
+      raw: { [EXACT_JSON_NUMBER]: jsonNumberLiteral(raw) }
+    };
   }
 
   if (raw.trim() === "") return { numeric: null, state: "BLANK", raw };
@@ -131,7 +149,7 @@ function prospectToRow(record, options) {
 
 function opportunityToRow(record, options) {
   rejectCallerTenant(record);
-  const value = classifyCommercialValue(record);
+  const value = classifyCommercialValue(record, options);
   return cleanUndefined({
     id: record.id,
     prospect_id: record.prospect_id ?? null,
@@ -272,7 +290,11 @@ function prospectFromRow(row) {
     "dedupe_key",
     "qualification_status"
   ]) optional(record, key, row[key]);
-  optional(record, "qualification_score", toNumber(row.qualification_score));
+  optional(
+    record,
+    "qualification_score",
+    importedNumericValue(row, "qualification_score", row.qualification_score)
+  );
   optionalJson(record, "evidence", row.evidence, []);
   optionalJson(record, "metadata", row.metadata, {});
   applyTimestamps(record, row);
@@ -286,9 +308,21 @@ function opportunityFromRow(row) {
   required(record, "stage", row.stage);
   optional(record, "prospect_id", row.prospect_id);
   optional(record, "priority", row.priority);
-  optional(record, "qualification_score", toNumber(row.qualification_score));
-  optional(record, "probability", toNumber(row.probability));
-  optional(record, "weighted_value", toNumber(row.weighted_value));
+  optional(
+    record,
+    "qualification_score",
+    importedNumericValue(row, "qualification_score", row.qualification_score)
+  );
+  optional(
+    record,
+    "probability",
+    importedNumericValue(row, "probability", row.probability)
+  );
+  optional(
+    record,
+    "weighted_value",
+    importedNumericValue(row, "weighted_value", row.weighted_value)
+  );
   optional(record, "next_action", row.next_action);
   optional(record, "contact_name", row.contact_name);
   optionalJson(record, "metadata", row.metadata, {});
@@ -296,13 +330,34 @@ function opportunityFromRow(row) {
   if (row.commercial_value_state === "MISSING") {
     delete record.value;
   } else if (["KNOWN", "ZERO"].includes(row.commercial_value_state)) {
-    record.value = toNumber(row.commercial_value);
+    const exactImportValue = row.metadata?.import?.numeric_evidence?.value;
+    record.value = exactImportValue?.valueKind === "NUMERIC"
+      ? losslessImportedNumber(exactImportValue.raw)
+      : toNumber(row.commercial_value);
   } else {
     record.value = clone(row.commercial_value_raw);
   }
 
   applyTimestamps(record, row);
   return record;
+}
+
+function importedNumericValue(row, field, storedValue) {
+  const evidence = row.metadata?.import?.numeric_evidence?.[field];
+  return evidence?.valueKind === "NUMERIC"
+    ? losslessImportedNumber(evidence.raw)
+    : toNumber(storedValue);
+}
+
+function losslessImportedNumber(raw) {
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric) || (numeric === 0 && !isExactZeroLiteral(raw))) {
+    return raw;
+  }
+  if (/^[+-]?\d+$/.test(raw.trim()) && !Number.isSafeInteger(numeric)) {
+    return raw;
+  }
+  return numeric;
 }
 
 function taskFromRow(row) {
@@ -394,6 +449,7 @@ function cleanUndefined(record) {
 
 function encodeColumnValue(column, value) {
   if (value === JSON_NULL) return "null";
+  if (value?.[EXACT_JSON_NUMBER]) return value[EXACT_JSON_NUMBER];
   if (!JSON_COLUMNS.has(column) || value === null) return value;
   return JSON.stringify(value);
 }

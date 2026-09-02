@@ -43,6 +43,10 @@ audit event. Selection array order is not material. Reusing the key with a
 materially different request, or retrying a committed batch with a different
 key, returns a deterministic conflict.
 
+Fingerprints cover the complete server-normalized target vector, so an omitted
+optional selection and the same explicit `sourceColumn: null` selection are the
+same reviewed request.
+
 ## Atomicity and identity
 
 The public repository opens one tenant transaction, locks the batch and all
@@ -55,6 +59,13 @@ Migration `011_canonical_import_commit.sql` extends the existing ID map with:
 - canonical payload SHA-256 and commit idempotency key; and
 - partial tenant-global uniqueness for source identity and each supported
   typed canonical target.
+
+Parser-classified unknown identity literals (`unknown`, `n/a`, `na`, and
+`not known`, including case and outer-space variants) are unavailable
+identities, never tenant-global source IDs. Prospect dedupe keys join the
+deterministic advisory-lock order. Canonical and ID-map inserts also run behind
+a transaction savepoint so PostgreSQL uniqueness/TOCTOU races become bounded
+import conflicts without retaining any earlier row from the attempt.
 
 Within a batch, the first source-ordered row is materialized. Only a repeat with
 the same source identity, exact raw cells, and canonical payload is
@@ -73,6 +84,13 @@ conflicted attempt recording, and `PREVIEWED → COMMITTED` finalization.
 Finalization verifies row counts, legal dispositions, and authoritative ID-map
 evidence before changing the batch status.
 
+Commit attempts against `STAGED`, `READY`, `FAILED`, or `EXPIRED` batches do
+not broaden lifecycle transitions. They retain their status, store a bounded
+conflict summary through a narrow security-definer function, and append one
+`IMPORT_COMMIT_CONFLICTED` event without raw cells. A mismatched attempt against
+an already committed batch appends bounded evidence without rewriting the
+committed summary or timestamp.
+
 Successful results report `committed`, `skipped`, `conflicted`, and `failed`
 counts that reconcile to every staged row. Conflicted or validation-failed
 attempts keep the batch `PREVIEWED`, keep staging rows `PENDING`, write no
@@ -81,11 +99,19 @@ contain identities, hashes, and outcome codes—not copied raw cell values.
 Database or injected failures roll back canonical rows, maps, row outcomes,
 audit events, and lifecycle mutation together.
 
-Exact staged `raw_payload` and its hash are never rewritten. Mapping converts
-known numeric zero to numeric zero, preserves unknown/nonnumeric commercial
-value as raw commercial evidence, and never substitutes zero for missing,
-blank, null, or unknown input. Unrepresentable optional unknown values remain
-in immutable staging evidence rather than being invented in canonical columns.
+Exact staged `raw_payload` and its hash are never rewritten. Decimal
+classification and range checks avoid JavaScript `Number` conversion before
+fingerprinting and persistence. Exact numeric strings are retained in canonical
+import metadata and PostgreSQL `numeric`; unsafe integers and underflowing
+decimals remain lossless on repository readback. Known numeric zero stays
+numeric zero, every parser-recognized unknown literal becomes canonical
+`unknown`, and missing, blank, null, unknown, and nonnumeric states are never
+invented as zero. Unrepresentable optional unknown values remain in immutable
+staging evidence rather than being invented in canonical columns.
+
+Migration 011 checks and security-definer functions reject missing hashes,
+outcomes, and request/input fingerprints explicitly; PostgreSQL `NULL` cannot
+pass these boundaries through three-valued logic.
 
 If PostgreSQL does not acknowledge `COMMIT`, the API returns
 `POSTGRES_TRANSACTION_OUTCOME_UNKNOWN` with only the batch ID. The caller must

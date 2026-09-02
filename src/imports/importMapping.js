@@ -1,6 +1,10 @@
 const ROW_SAMPLE_LIMIT = 100;
 const FIELD_SAMPLE_LIMIT = 5;
 const TASK_STATUSES = new Set(["OPEN", "IN_PROGRESS", "COMPLETED", "CANCELLED"]);
+const {
+  isGreaterThanOneLiteral,
+  isNegativeNumberLiteral
+} = require("./numericEvidence");
 
 class ImportMappingError extends Error {
   constructor(code, message, status = 400) {
@@ -419,7 +423,10 @@ function validateRows(records, headers, fields, targetCollection, sourceIdentity
         targetCollection === "opportunities"
         && mappedField.targetField === "probability"
         && ["NUMERIC", "KNOWN_ZERO"].includes(evidence.valueKind)
-        && (Number(evidence.raw) < 0 || Number(evidence.raw) > 1)
+        && (
+          isNegativeNumberLiteral(evidence.raw)
+          || isGreaterThanOneLiteral(evidence.raw)
+        )
       ) {
         errors.push({ code: "PROBABILITY_OUT_OF_RANGE", ...issueBase });
       }
@@ -427,7 +434,7 @@ function validateRows(records, headers, fields, targetCollection, sourceIdentity
         targetCollection === "opportunities"
         && mappedField.targetField === "value"
         && ["NUMERIC", "KNOWN_ZERO"].includes(evidence.valueKind)
-        && Number(evidence.raw) < 0
+        && isNegativeNumberLiteral(evidence.raw)
       ) {
         errors.push({ code: "COMMERCIAL_VALUE_OUT_OF_RANGE", ...issueBase });
       }

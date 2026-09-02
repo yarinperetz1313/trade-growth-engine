@@ -106,21 +106,70 @@ function persistenceContext(authorizationContext) {
   });
 }
 
-test("canonical commit preserves unknown commercial value and known numeric zero", () => {
+test("canonical commit preserves exact commercial evidence and known numeric zero", () => {
   const plan = buildCanonicalCommitPlan(stagedEvidence(
     "source_id,id,business_name,stage,value,probability\n" +
-    "src-1,opp-1,Unknown Trade,QUALIFIED,unknown,0\n" +
-    "src-2,opp-2,Zero Trade,QUALIFIED,0,0"
+    "src-1,opp-1,Large Trade,QUALIFIED,9007199254740993,0\n" +
+    "src-2,opp-2,Tiny Trade,QUALIFIED,1e-4000,0\n" +
+    "src-3,opp-3,Unknown Trade,QUALIFIED,n/a,0\n" +
+    "src-4,opp-4,Zero Trade,QUALIFIED,0,0"
   ), commitInput());
 
   assert.equal(plan.outcome, "READY");
-  assert.equal(plan.rows.length, 2);
-  assert.equal(plan.rows[0].canonicalRecord.value, "unknown");
+  assert.equal(plan.rows.length, 4);
+  assert.equal(plan.rows[0].canonicalRecord.value, "9007199254740993");
+  assert.equal(plan.rows[1].canonicalRecord.value, "1e-4000");
+  assert.equal(plan.rows[2].canonicalRecord.value, "unknown");
   assert.equal(plan.rows[0].canonicalRecord.probability, 0);
-  assert.equal(plan.rows[1].canonicalRecord.value, 0);
-  assert.equal(plan.rows[1].canonicalRecord.probability, 0);
+  assert.equal(plan.rows[3].canonicalRecord.value, 0);
+  assert.equal(plan.rows[3].canonicalRecord.probability, 0);
+  assert.equal(
+    new Set(plan.rows.map(row => row.canonicalPayloadSha256)).size,
+    plan.rows.length
+  );
   assert.match(plan.rows[0].canonicalPayloadSha256, /^[0-9a-f]{64}$/);
   assert.equal(plan.rows[0].rawPayloadSha256, plan.evidence.records[0].rawPayloadSha256);
+});
+
+test("parser-classified unknown source identities fail without becoming global IDs", () => {
+  for (const literal of ["unknown", "n/a", "na", "not known", " N/A "]) {
+    const plan = buildCanonicalCommitPlan(stagedEvidence(
+      "source_id,id,business_name,stage,value,probability\n" +
+      `${literal},opp-1,Unknown Identity,QUALIFIED,0,0`
+    ), commitInput());
+
+    assert.equal(plan.outcome, "FAILED", literal);
+    assert.equal(plan.summary.failed, 1, literal);
+    assert.equal(plan.failures[0].code, "CANONICAL_ROW_VALIDATION_FAILED");
+    assert.equal(
+      plan.failures[0].validationErrors.some(issue =>
+        issue.code === "SOURCE_IDENTITY_UNKNOWN"),
+      true,
+      literal
+    );
+  }
+});
+
+test("request fingerprints use the complete normalized reviewed-selection vector", () => {
+  const evidence = stagedEvidence(
+    "source_id,id,business_name,stage,value,probability\n" +
+    "src-1,opp-1,Acme,QUALIFIED,0,0"
+  );
+  const omitted = buildCanonicalCommitPlan(evidence, commitInput());
+  const explicitUnmapped = buildCanonicalCommitPlan(evidence, commitInput({
+    selections: [
+      ...commitInput().selections,
+      {
+        targetField: "contact_name",
+        sourceColumn: null,
+        selectedType: "TEXT"
+      }
+    ]
+  }));
+
+  assert.equal(omitted.outcome, "READY");
+  assert.equal(explicitUnmapped.outcome, "READY");
+  assert.equal(omitted.requestFingerprint, explicitUnmapped.requestFingerprint);
 });
 
 test("canonical commit rejects malformed and duplicate reviewed selections", () => {

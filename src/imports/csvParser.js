@@ -1,5 +1,9 @@
 const crypto = require("node:crypto");
 const { TextDecoder } = require("node:util");
+const {
+  isDecimalNumberLiteral,
+  isExactZeroLiteral
+} = require("./numericEvidence");
 
 const CSV_LIMITS = Object.freeze({
   maxFileBytes: 256 * 1024,
@@ -250,8 +254,9 @@ function classifyCell(raw, present) {
   if (["unknown", "n/a", "na", "not known"].includes(normalized)) {
     return "UNKNOWN";
   }
-  const numeric = Number(normalized);
-  if (Number.isFinite(numeric)) return numeric === 0 ? "KNOWN_ZERO" : "NUMERIC";
+  if (isDecimalNumberLiteral(normalized)) {
+    return isExactZeroLiteral(normalized) ? "KNOWN_ZERO" : "NUMERIC";
+  }
   return "NONNUMERIC";
 }
 

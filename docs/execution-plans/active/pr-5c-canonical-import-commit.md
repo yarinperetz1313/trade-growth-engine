@@ -51,10 +51,13 @@
   review of transaction lock order, tenant/RLS boundaries, narrow function
   authority, raw-evidence handling, outcome reconciliation, and idempotency
   collisions. The review added strict nested reviewed-selection validation.
-- Fresh reviewer findings/resolution: no independent fresh-context review was
-  run in this implementation session. Handoff should focus on the migration's
-  security-definer invariants, advisory-lock ordering, and exact ID-map
-  reconciliation rules.
+- Fresh reviewer findings/resolution: the original implementation did not run
+  an independent fresh-context review. A subsequent six-finding review was
+  remediated regression-first: parser-unknown identities now fail; decimal
+  evidence is lossless; retry hashes use the complete normalized vector;
+  migration/function `NULL` checks fail closed; canonical and dedupe uniqueness
+  races become savepoint-backed conflicts; and illegal lifecycle attempts are
+  bounded, audited conflicts without new transitions.
 - Final-review evidence:
   - RED: `node --test test/import-commit.test.js` failed with
     `MODULE_NOT_FOUND`; follow-on service, repository, static migration, and API
@@ -68,11 +71,22 @@
     green. An earlier sandbox-only run had `EPERM` for loopback/temporary-Git
     operations, not product assertions, and its identical permitted rerun
     passed.
+  - Remediation focused GREEN: `node --test test/import-commit.test.js
+    test/import-repository.test.js test/import-staging.test.js
+    test/import-mapping.test.js test/database-migrations-static.test.js
+    test/database-migration-runner.test.js` passed **59/59** with permitted
+    loopback binding. The initial regressions failed on the six reviewed paths
+    before implementation; an earlier sandbox-only run's loopback `EPERM`
+    failures were environmental and the permitted rerun was green.
   - Fast gate: `npm run verify:fast` passed the engineering harness and
-    integration **174/174**.
+    integration **178/178** after remediation.
   - Database: `TGE_TEST_DATABASE_URL=postgresql://127.0.0.1:55433/postgres npm
-    run test:db` passed **47/47** against a disposable PostgreSQL **16.15**
-    cluster. The server was stopped and its test-only directory removed.
+    run test:db` passed **51/51** against a disposable PostgreSQL **16.15**
+    cluster during remediation, including exact numeric persistence/readback,
+    unknown identity, `NULL` negatives, illegal lifecycle evidence, concurrent
+    dedupe serialization, and a forced real constraint/TOCTOU collision. The
+    final rerun passed **51/51**; the server was stopped and its test-only
+    directory removed.
   - Build: `npm run build` passed with Vite **8.2.2**, **22** modules.
   - Hygiene: `git diff --check` passed; migrations `001`–`010` were not edited.
 - Debt/follow-up: PR-5D owns browser flow/adversarial browser coverage and final

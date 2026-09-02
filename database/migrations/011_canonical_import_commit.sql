@@ -15,11 +15,13 @@ alter table tge.import_id_map
       and commit_idempotency_key is null
     )
     or (
-      btrim(source_system) <> ''
+      source_system is not null
+      and btrim(source_system) <> ''
       and octet_length(source_system) <= 128
       and source_record_id is not null
       and btrim(source_record_id) <> ''
       and octet_length(source_record_id) <= 512
+      and canonical_payload_sha256 is not null
       and canonical_payload_sha256 ~ '^[0-9a-f]{64}$'
       and commit_idempotency_key is not null
       and btrim(commit_idempotency_key) <> ''
@@ -62,7 +64,9 @@ as $function$
   select batch.*
   from tge.import_batches batch
   where requested_tenant_id is not null
-    and requested_tenant_id = tge.current_tenant_id()
+    and requested_tenant_id is not distinct from tge.current_tenant_id()
+    and requested_batch_id is not null
+    and btrim(requested_batch_id) <> ''
     and batch.tenant_id = requested_tenant_id
     and batch.id = requested_batch_id
   for update
@@ -81,7 +85,9 @@ as $function$
   select record.*
   from tge.import_staging_records record
   where requested_tenant_id is not null
-    and requested_tenant_id = tge.current_tenant_id()
+    and requested_tenant_id is not distinct from tge.current_tenant_id()
+    and requested_batch_id is not null
+    and btrim(requested_batch_id) <> ''
     and record.tenant_id = requested_tenant_id
     and record.import_batch_id = requested_batch_id
     and exists (
@@ -119,9 +125,12 @@ begin
     or btrim(requested_batch_id) = ''
     or requested_record_id is null
     or btrim(requested_record_id) = ''
+    or requested_disposition is null
     or requested_disposition not in ('COMMITTED', 'EXACT_DUPLICATE')
     or requested_committed_at is null
-    or jsonb_typeof(requested_metadata) <> 'object'
+    or requested_metadata is null
+    or jsonb_typeof(requested_metadata) is distinct from 'object'
+    or requested_metadata->>'canonical_payload_sha256' is null
     or requested_metadata->>'canonical_payload_sha256'
       !~ '^[0-9a-f]{64}$'
     or coalesce(btrim(requested_metadata->>'source_system'), '') = ''
@@ -224,8 +233,16 @@ begin
     or requested_batch_id is null
     or btrim(requested_batch_id) = ''
     or requested_at is null
-    or jsonb_typeof(requested_summary) <> 'object'
-    or requested_summary->>'outcome' not in ('CONFLICTED', 'FAILED') then
+    or requested_summary is null
+    or jsonb_typeof(requested_summary) is distinct from 'object'
+    or requested_summary->>'outcome' is null
+    or requested_summary->>'outcome' not in ('CONFLICTED', 'FAILED')
+    or requested_summary->>'inputFingerprint' is null
+    or requested_summary->>'inputFingerprint' !~ '^[0-9a-f]{64}$'
+    or requested_summary->>'requestFingerprint' is null
+    or requested_summary->>'requestFingerprint' !~ '^[0-9a-f]{64}$'
+    or requested_summary->'summary' is null
+    or jsonb_typeof(requested_summary->'summary') is distinct from 'object' then
     raise exception using
       errcode = '23514',
       message = 'Canonical import attempt outcome is invalid.';
@@ -244,6 +261,60 @@ begin
     raise exception using
       errcode = '23514',
       message = 'Canonical import attempt lifecycle is invalid.';
+  end if;
+end
+$function$;
+
+create function tge.record_import_commit_lifecycle_conflict(
+  requested_tenant_id uuid,
+  requested_batch_id text,
+  requested_summary jsonb,
+  requested_at timestamptz
+)
+returns void
+language plpgsql
+volatile
+security definer
+set search_path = pg_catalog, tge
+as $function$
+declare
+  affected integer;
+begin
+  if requested_tenant_id is null
+    or requested_tenant_id is distinct from tge.current_tenant_id()
+    or requested_batch_id is null
+    or btrim(requested_batch_id) = ''
+    or requested_at is null
+    or requested_summary is null
+    or jsonb_typeof(requested_summary) is distinct from 'object'
+    or requested_summary->>'outcome' is null
+    or requested_summary->>'outcome' is distinct from 'CONFLICTED'
+    or requested_summary->>'lifecycleStatus' is null
+    or requested_summary->>'inputFingerprint' is null
+    or requested_summary->>'inputFingerprint' !~ '^[0-9a-f]{64}$'
+    or requested_summary->>'requestFingerprint' is null
+    or requested_summary->>'requestFingerprint' !~ '^[0-9a-f]{64}$'
+    or requested_summary->'summary' is null
+    or jsonb_typeof(requested_summary->'summary') is distinct from 'object' then
+    raise exception using
+      errcode = '23514',
+      message = 'Canonical import lifecycle conflict evidence is invalid.';
+  end if;
+
+  update tge.import_batches
+  set
+    conflict_summary = requested_summary,
+    updated_at = requested_at
+  where tenant_id = requested_tenant_id
+    and id = requested_batch_id
+    and status not in ('PREVIEWED', 'COMMITTED')
+    and status = requested_summary->>'lifecycleStatus';
+
+  get diagnostics affected = row_count;
+  if affected <> 1 then
+    raise exception using
+      errcode = '23514',
+      message = 'Canonical import lifecycle conflict is invalid.';
   end if;
 end
 $function$;
@@ -275,11 +346,15 @@ begin
     or btrim(requested_idempotency_key) = ''
     or octet_length(requested_idempotency_key) > 255
     or requested_committed_at is null
-    or jsonb_typeof(requested_commit_metadata) <> 'object'
+    or requested_commit_metadata is null
+    or jsonb_typeof(requested_commit_metadata) is distinct from 'object'
+    or requested_commit_metadata->>'requestFingerprint' is null
     or requested_commit_metadata->>'requestFingerprint'
       !~ '^[0-9a-f]{64}$'
+    or requested_commit_metadata->>'inputFingerprint' is null
     or requested_commit_metadata->>'inputFingerprint'
       !~ '^[0-9a-f]{64}$'
+    or requested_commit_metadata#>>'{result,outcome}' is null
     or requested_commit_metadata#>>'{result,outcome}' <> 'COMMITTED' then
     raise exception using
       errcode = '23514',
@@ -406,6 +481,9 @@ revoke all on function tge.record_import_commit_outcome(
 revoke all on function tge.record_import_commit_attempt(
   uuid, text, jsonb, timestamptz
 ) from public, tge_runtime;
+revoke all on function tge.record_import_commit_lifecycle_conflict(
+  uuid, text, jsonb, timestamptz
+) from public, tge_runtime;
 revoke all on function tge.finalize_import_commit(
   uuid, text, text, jsonb, timestamptz
 ) from public, tge_runtime;
@@ -420,6 +498,9 @@ grant execute on function tge.record_import_commit_outcome(
   uuid, text, text, text, timestamptz, jsonb
 ) to tge_runtime;
 grant execute on function tge.record_import_commit_attempt(
+  uuid, text, jsonb, timestamptz
+) to tge_runtime;
+grant execute on function tge.record_import_commit_lifecycle_conflict(
   uuid, text, jsonb, timestamptz
 ) to tge_runtime;
 grant execute on function tge.finalize_import_commit(

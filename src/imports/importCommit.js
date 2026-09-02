@@ -59,7 +59,7 @@ function buildCanonicalCommitPlan(evidence, input) {
   const requestFingerprint = hashImportEvidence({
     batchId: evidence.batch.id,
     idempotencyKey: input.idempotencyKey,
-    selections: [...input.selections].sort((left, right) =>
+    selections: [...reviewedSelections].sort((left, right) =>
       left.targetField.localeCompare(right.targetField)),
     sourceIdentitySelection: input.sourceIdentitySelection,
     sourceSha256: evidence.batch.sourceSha256,
@@ -73,6 +73,7 @@ function buildCanonicalCommitPlan(evidence, input) {
   const mappedFields = analysis.mapping.fields.filter(field => field.sourceColumn !== null);
   const prepared = evidence.records.map(record => {
     const analysisRow = analysisByOrdinal.get(record.sourceOrdinal);
+    const sourceIdentityCell = record.rawPayload?.cells?.[sourceIdentityOrdinal];
     const sourceIdentity = cellValue(record, sourceIdentityOrdinal, "TEXT", null);
     const canonicalRecord = Object.fromEntries(mappedFields.flatMap(field => {
       const value = cellValue(
@@ -83,6 +84,24 @@ function buildCanonicalCommitPlan(evidence, input) {
       );
       return value === MISSING ? [] : [[field.targetField, value]];
     }));
+    const numericEvidence = Object.fromEntries(mappedFields.flatMap(field => {
+      if (field.declaredType !== "NUMBER") return [];
+      const cell = record.rawPayload?.cells?.[field.sourceColumnOrdinal];
+      if (!cell || !["NUMERIC", "KNOWN_ZERO", "UNKNOWN"].includes(cell.valueKind)) {
+        return [];
+      }
+      return [[field.targetField, cell.valueKind === "NUMERIC"
+        ? { valueKind: cell.valueKind, raw: cell.raw }
+        : { valueKind: cell.valueKind }]];
+    }));
+    const validationErrors = [...(analysisRow?.errors || [])];
+    if (sourceIdentityCell?.valueKind === "UNKNOWN") {
+      validationErrors.push({
+        code: "SOURCE_IDENTITY_UNKNOWN",
+        identityRole: "SOURCE_IDENTITY",
+        sourceOrdinal: record.sourceOrdinal
+      });
+    }
     return {
       stagingRecordId: record.id,
       stagingSourceId: record.sourceId,
@@ -95,12 +114,14 @@ function buildCanonicalCommitPlan(evidence, input) {
       canonicalTargetId: canonicalRecord.id,
       canonicalPayloadSha256: hashImportEvidence({
         canonicalRecord,
+        numericEvidence,
         sourceCollection
       }),
       canonicalRecord,
+      numericEvidence,
       disposition: "COMMITTED",
       duplicateOfSourceOrdinal: null,
-      validationErrors: analysisRow?.errors || []
+      validationErrors
     };
   });
 
@@ -182,8 +203,10 @@ function cellValue(record, columnOrdinal, declaredType, targetField) {
   if (!cell || !cell.present || cell.valueKind === "MISSING") return MISSING;
   if (cell.valueKind === "NULL") return targetField === "value" ? null : MISSING;
   if (declaredType === "NUMBER") {
-    if (["NUMERIC", "KNOWN_ZERO"].includes(cell.valueKind)) {
-      return Number(cell.raw);
+    if (cell.valueKind === "KNOWN_ZERO") return 0;
+    if (cell.valueKind === "NUMERIC") return cell.raw;
+    if (cell.valueKind === "UNKNOWN") {
+      return targetField === "value" ? "unknown" : MISSING;
     }
     return targetField === "value" ? cell.raw : MISSING;
   }

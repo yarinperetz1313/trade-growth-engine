@@ -488,12 +488,23 @@ test("migration 011 adds globally deterministic import identity and narrow commi
     "lock_import_commit_records",
     "record_import_commit_outcome",
     "record_import_commit_attempt",
+    "record_import_commit_lifecycle_conflict",
     "finalize_import_commit"
   ]) {
     assert.match(commit, new RegExp(`create function tge\\.${name}\\(`));
     assert.match(commit, new RegExp(`grant execute on function tge\\.${name}\\(`));
   }
   assert.match(commit, /security definer/g);
+  assert.match(commit, /canonical_payload_sha256 is not null/);
+  assert.match(commit, /requested_metadata is null[\s\S]*jsonb_typeof\(requested_metadata\) is distinct from 'object'/);
+  assert.match(commit, /requested_metadata->>'canonical_payload_sha256' is null/);
+  assert.match(commit, /requested_summary is null[\s\S]*jsonb_typeof\(requested_summary\) is distinct from 'object'/);
+  assert.match(commit, /requested_summary->>'outcome' is null/);
+  assert.match(commit, /requested_summary->>'inputFingerprint' is null/);
+  assert.match(commit, /requested_summary->>'requestFingerprint' is null/);
+  assert.match(commit, /requested_commit_metadata->>'requestFingerprint' is null/);
+  assert.match(commit, /requested_commit_metadata->>'inputFingerprint' is null/);
+  assert.match(commit, /requested_commit_metadata#>>'\{result,outcome\}' is null/);
   assert.match(commit, /old_status = 'PREVIEWED'|status = 'PREVIEWED'/);
   assert.match(commit, /revoke execute on all functions in schema tge from public/);
   assert.doesNotMatch(commit, /grant[^;]*(?:update|delete)[^;]*tge\.import_/i);

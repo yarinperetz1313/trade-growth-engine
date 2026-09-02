@@ -3048,6 +3048,24 @@ function registerPostgresRepositoryContractTests({
       "2026-09-03T00:00:00.000Z"
     );
     assert.equal(retry.reconciled, true);
+    const normalizedRetry = await commitCsvBatch(
+      repositories,
+      tenantA.context,
+      batchId,
+      {
+        ...input,
+        selections: [
+          ...input.selections,
+          {
+            targetField: "contact_name",
+            sourceColumn: null,
+            selectedType: "TEXT"
+          }
+        ]
+      },
+      "2026-09-03T00:00:00.500Z"
+    );
+    assert.equal(normalizedRetry.reconciled, true);
     const evidenceAfterRetry = await getAdminClient().query(
       `select
          (select count(*)::int from tge.opportunities
@@ -3253,6 +3271,318 @@ function registerPostgresRepositoryContractTests({
     });
   });
 
+  test("canonical import preserves exact numeric and canonical unknown evidence", async () => {
+    const pool = createPool();
+    const repositories = createPostgresRepositories({ pool });
+    const tenant = await createTenant("canonical-import-exact-evidence");
+    const batchId = `canonical-exact-${randomUUID()}`;
+    await stageCsvBatch(
+      repositories,
+      tenant.context,
+      batchId,
+      "source_id,id,business_name,stage,value,probability\n" +
+        "source-large,exact-large,Large Trade,QUALIFIED,9007199254740993,1e-4000\n" +
+        "source-tiny,exact-tiny,Tiny Trade,QUALIFIED,1e-4000,0\n" +
+        "source-unknown,exact-unknown,Unknown Trade,QUALIFIED,n/a,0\n" +
+        "source-zero,exact-zero,Zero Trade,QUALIFIED,0,0"
+    );
+
+    const result = await commitCsvBatch(
+      repositories,
+      tenant.context,
+      batchId,
+      canonicalOpportunityInput(`exact-${randomUUID()}`)
+    );
+    assert.equal(result.outcome, "COMMITTED");
+
+    const [large, tiny, unknown, zero] = await Promise.all([
+      repositories.opportunities.findById(tenant.context, "exact-large"),
+      repositories.opportunities.findById(tenant.context, "exact-tiny"),
+      repositories.opportunities.findById(tenant.context, "exact-unknown"),
+      repositories.opportunities.findById(tenant.context, "exact-zero")
+    ]);
+    assert.equal(large.value, "9007199254740993");
+    assert.equal(large.probability, "1e-4000");
+    assert.equal(tiny.value, "1e-4000");
+    assert.equal(unknown.value, "unknown");
+    assert.equal(zero.value, 0);
+
+    const stored = await getAdminClient().query(
+      `select id, commercial_value::text as numeric_value,
+         commercial_value_state, commercial_value_raw::text as raw_value,
+         metadata#>>'{import,numeric_evidence,value,raw}' as exact_raw
+       from tge.opportunities
+       where tenant_id = $1 and id = any($2::text[])
+       order by id`,
+      [tenant.tenantId, ["exact-large", "exact-tiny", "exact-unknown", "exact-zero"]]
+    );
+    const byId = Object.fromEntries(stored.rows.map(row => [row.id, row]));
+    assert.equal(byId["exact-large"].numeric_value, "9007199254740993");
+    assert.equal(byId["exact-large"].raw_value, "9007199254740993");
+    assert.equal(byId["exact-large"].exact_raw, "9007199254740993");
+    assert.equal(byId["exact-tiny"].exact_raw, "1e-4000");
+    assert.equal(byId["exact-tiny"].commercial_value_state, "KNOWN");
+    assert.equal(byId["exact-unknown"].commercial_value_state, "UNKNOWN_LITERAL");
+    assert.equal(byId["exact-unknown"].raw_value, '"unknown"');
+    assert.equal(byId["exact-zero"].commercial_value_state, "ZERO");
+    assert.equal(byId["exact-zero"].numeric_value, "0");
+
+    const unknownIdentityBatch = `canonical-unknown-identity-${randomUUID()}`;
+    await stageCsvBatch(
+      repositories,
+      tenant.context,
+      unknownIdentityBatch,
+      "source_id,id,business_name,stage,value,probability\n" +
+        "n/a,unknown-identity,Unknown Identity,QUALIFIED,0,0"
+    );
+    const unknownIdentity = await commitCsvBatch(
+      repositories,
+      tenant.context,
+      unknownIdentityBatch,
+      canonicalOpportunityInput(`unknown-identity-${randomUUID()}`)
+    );
+    assert.equal(unknownIdentity.outcome, "FAILED");
+    const unknownIdentityMaps = await getAdminClient().query(
+      `select count(*)::int as count from tge.import_id_map
+       where tenant_id = $1 and source_system = 'pilot-crm'
+         and source_record_id = 'n/a'`,
+      [tenant.tenantId]
+    );
+    assert.equal(unknownIdentityMaps.rows[0].count, 0);
+  });
+
+  test("migration 011 rejects NULL identity hashes and function evidence", async () => {
+    const pool = createPool();
+    const repositories = createPostgresRepositories({ pool });
+    const tenant = await createTenant("canonical-import-null-guards");
+    const batchId = `canonical-null-${randomUUID()}`;
+    const staged = await stageCsvBatch(
+      repositories,
+      tenant.context,
+      batchId,
+      "source_id,id,business_name\nsource-null,prospect-null,Null Guard",
+      "prospects"
+    );
+    await repositories.prospects.insert(tenant.context, {
+      id: "prospect-null-target",
+      business_name: "Null Target"
+    });
+
+    async function rejectsCheck(sql, params) {
+      const client = await pool.connect();
+      try {
+        await client.query("begin");
+        await client.query(
+          "select tge.set_request_context($1::uuid, $2::text)",
+          [tenant.tenantId, tenant.context.subjectId]
+        );
+        await assert.rejects(client.query(sql, params), error => error.code === "23514");
+        await client.query("rollback");
+      } finally {
+        client.release();
+      }
+    }
+
+    await rejectsCheck(
+      `insert into tge.import_id_map (
+         tenant_id, import_batch_id, source_collection, source_id,
+         source_ordinal, source_system, source_record_id,
+         canonical_payload_sha256, commit_idempotency_key,
+         target_prospect_id, metadata
+       ) values ($1, $2, 'prospects', $3, 0, 'pilot-crm', 'source-null',
+         null, 'null-guard-attempt', 'prospect-null-target', '{}'::jsonb)`,
+      [tenant.tenantId, batchId, staged.records[0].sourceId]
+    );
+    await rejectsCheck(
+      `select tge.record_import_commit_outcome(
+         $1::uuid, $2::text, 'row:0', 'COMMITTED', $3::timestamptz,
+         '{}'::jsonb
+       )`,
+      [tenant.tenantId, batchId, "2026-09-02T00:00:00.000Z"]
+    );
+    await rejectsCheck(
+      `select tge.record_import_commit_attempt(
+         $1::uuid, $2::text, '{"summary":{}}'::jsonb, $3::timestamptz
+       )`,
+      [tenant.tenantId, batchId, "2026-09-02T00:00:00.000Z"]
+    );
+    await rejectsCheck(
+      `select tge.record_import_commit_attempt(
+         $1::uuid, $2::text,
+         '{"outcome":"FAILED","summary":{"total":1}}'::jsonb,
+         $3::timestamptz
+       )`,
+      [tenant.tenantId, batchId, "2026-09-02T00:00:00.000Z"]
+    );
+    await rejectsCheck(
+      `select tge.finalize_import_commit(
+         $1::uuid, $2::text, 'null-guard-attempt',
+         '{"result":{"outcome":"COMMITTED"}}'::jsonb,
+         $3::timestamptz
+       )`,
+      [tenant.tenantId, batchId, "2026-09-02T00:00:00.000Z"]
+    );
+  });
+
+  test("illegal import lifecycle commit attempts are audited without transitions or raw cells", async () => {
+    const pool = createPool();
+    const repositories = createPostgresRepositories({ pool });
+    const tenant = await createTenant("canonical-import-lifecycle-conflicts");
+    const privateRaw = "private-lifecycle-cell";
+
+    for (const status of ["STAGED", "READY", "FAILED", "EXPIRED"]) {
+      const batchId = `canonical-${status.toLowerCase()}-${randomUUID()}`;
+      await stageCsvBatch(
+        repositories,
+        tenant.context,
+        batchId,
+        "source_id,id,business_name,note\n" +
+          `source-${status},prospect-${status},Lifecycle ${status},${privateRaw}`,
+        "prospects"
+      );
+      await getAdminClient().query(
+        "update tge.import_batches set status = $3 where tenant_id = $1 and id = $2",
+        [tenant.tenantId, batchId, status]
+      );
+      const input = canonicalProspectInput(`lifecycle-${status}-${randomUUID()}`);
+      const result = await commitCsvBatch(
+        repositories,
+        tenant.context,
+        batchId,
+        input
+      );
+      assert.equal(result.outcome, "CONFLICTED", status);
+      assert.equal(result.batch.status, status);
+
+      const evidence = await getAdminClient().query(
+        `select batch.status, batch.conflict_summary, audit.payload
+         from tge.import_batches batch
+         join tge.audit_events audit
+           on audit.tenant_id = batch.tenant_id
+          and audit.entity_id = batch.id
+          and audit.event_type = 'IMPORT_COMMIT_CONFLICTED'
+         where batch.tenant_id = $1 and batch.id = $2`,
+        [tenant.tenantId, batchId]
+      );
+      assert.equal(evidence.rows[0].status, status);
+      assert.equal(evidence.rows[0].conflict_summary.lifecycleStatus, status);
+      assert.equal(JSON.stringify(evidence.rows[0]).includes(privateRaw), false);
+    }
+  });
+
+  test("prospect dedupe races become atomic bounded import conflicts", async () => {
+    const pool = createPool({ max: 4 });
+    const repositories = createPostgresRepositories({ pool });
+    const tenant = await createTenant("canonical-import-dedupe-race");
+    const leftBatch = `canonical-dedupe-left-${randomUUID()}`;
+    const rightBatch = `canonical-dedupe-right-${randomUUID()}`;
+    await stageCsvBatch(
+      repositories,
+      tenant.context,
+      leftBatch,
+      "source_id,id,business_name,dedupe_key\nsource-left,prospect-left,Left Trade,shared-key",
+      "prospects"
+    );
+    await stageCsvBatch(
+      repositories,
+      tenant.context,
+      rightBatch,
+      "source_id,id,business_name,dedupe_key\nsource-right,prospect-right,Right Trade,shared-key",
+      "prospects"
+    );
+
+    const [left, right] = await Promise.all([
+      commitCsvBatch(
+        repositories,
+        tenant.context,
+        leftBatch,
+        canonicalProspectInput(`dedupe-left-${randomUUID()}`)
+      ),
+      commitCsvBatch(
+        repositories,
+        tenant.context,
+        rightBatch,
+        canonicalProspectInput(`dedupe-right-${randomUUID()}`)
+      )
+    ]);
+    assert.deepEqual(
+      [left.outcome, right.outcome].sort(),
+      ["COMMITTED", "CONFLICTED"]
+    );
+    const conflict = [left, right].find(result => result.outcome === "CONFLICTED");
+    assert.equal(conflict.conflicts[0].code, "PROSPECT_DEDUPE_KEY_COLLISION");
+    const evidence = await getAdminClient().query(
+      `select
+         (select count(*)::int from tge.prospects
+          where tenant_id = $1 and dedupe_key = 'shared-key') as canonical,
+         (select count(*)::int from tge.import_id_map
+          where tenant_id = $1 and source_system = 'pilot-crm'
+            and source_record_id in ('source-left', 'source-right')) as maps,
+         (select count(*)::int from tge.audit_events
+          where tenant_id = $1 and event_type = 'IMPORT_COMMIT_CONFLICTED'
+            and entity_id in ($2, $3)) as conflicted_audits`,
+      [tenant.tenantId, leftBatch, rightBatch]
+    );
+    assert.deepEqual(evidence.rows[0], {
+      canonical: 1,
+      maps: 1,
+      conflicted_audits: 1
+    });
+
+    const toctouBatch = `canonical-dedupe-toctou-${randomUUID()}`;
+    await stageCsvBatch(
+      repositories,
+      tenant.context,
+      toctouBatch,
+      "source_id,id,business_name,dedupe_key\n" +
+        "source-toctou,prospect-toctou,TOCTOU Trade,toctou-key",
+      "prospects"
+    );
+    let insertedCompetitor = false;
+    const racingRepositories = createPostgresRepositories({
+      pool,
+      async failureInjector(name) {
+        if (name !== "beforeImportCanonicalInserted" || insertedCompetitor) return;
+        insertedCompetitor = true;
+        await getAdminClient().query(
+          `insert into tge.prospects (
+             tenant_id, id, business_name, dedupe_key, evidence, metadata,
+             created_at, updated_at
+           ) values ($1, 'prospect-toctou-winner', 'TOCTOU Winner',
+             'toctou-key', '[]'::jsonb, '{}'::jsonb, now(), now())`,
+          [tenant.tenantId]
+        );
+      }
+    });
+    const toctou = await commitCsvBatch(
+      racingRepositories,
+      tenant.context,
+      toctouBatch,
+      canonicalProspectInput(`dedupe-toctou-${randomUUID()}`)
+    );
+    assert.equal(toctou.outcome, "CONFLICTED");
+    assert.equal(
+      toctou.conflicts[0].code,
+      "PROSPECT_DEDUPE_KEY_COLLISION"
+    );
+    const toctouEvidence = await getAdminClient().query(
+      `select
+         (select count(*)::int from tge.prospects
+          where tenant_id = $1 and dedupe_key = 'toctou-key') as canonical,
+         (select count(*)::int from tge.import_id_map
+          where tenant_id = $1 and source_record_id = 'source-toctou') as maps,
+         (select count(*)::int from tge.audit_events
+          where tenant_id = $1 and entity_id = $2
+            and event_type = 'IMPORT_COMMIT_CONFLICTED') as audits`,
+      [tenant.tenantId, toctouBatch]
+    );
+    assert.deepEqual(toctouEvidence.rows[0], {
+      canonical: 1,
+      maps: 0,
+      audits: 1
+    });
+  });
+
   test("concurrent canonical identities serialize and injected failure rolls back every write", async () => {
     const pool = createPool({ max: 4 });
     const repositories = createPostgresRepositories({ pool });
@@ -3429,6 +3759,27 @@ function registerPostgresRepositoryContractTests({
           targetField: "probability",
           sourceColumn: "probability",
           selectedType: "NUMBER"
+        }
+      ]
+    };
+  }
+
+  function canonicalProspectInput(idempotencyKey) {
+    return {
+      sourceSystem: "pilot-crm",
+      idempotencyKey,
+      sourceIdentitySelection: { sourceColumn: "source_id" },
+      selections: [
+        { targetField: "id", sourceColumn: "id", selectedType: "TEXT" },
+        {
+          targetField: "business_name",
+          sourceColumn: "business_name",
+          selectedType: "TEXT"
+        },
+        {
+          targetField: "dedupe_key",
+          sourceColumn: "dedupe_key",
+          selectedType: "TEXT"
         }
       ]
     };

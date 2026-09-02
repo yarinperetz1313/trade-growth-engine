@@ -1,4 +1,5 @@
 const { hashImportEvidence } = require("../../imports/csvParser");
+const { TARGETS } = require("../../imports/importMapping");
 const {
   activityToRow,
   encodeColumnValue,
@@ -167,16 +168,17 @@ function createImportRepository(client, tenantId, checkpoint = async () => {}) {
 
     async commitCanonical(request) {
       validateRepositoryCommitRequest(request);
-      const inputFingerprint = commitInputFingerprint(
-        request.batchId,
-        request.input
-      );
       const batchResult = await client.query(
         "select * from tge.lock_import_commit_batch($1::uuid, $2::text)",
         [tenantId, request.batchId]
       );
       if (!batchResult.rows[0]) return null;
       const lockedBatch = mapBatch(batchResult.rows[0]);
+      const inputFingerprint = commitInputFingerprint(
+        request.batchId,
+        request.input,
+        lockedBatch.previewSummary?.sourceCollection
+      );
       if (lockedBatch.status === "COMMITTED") {
         if (
           lockedBatch.commitIdempotencyKey === request.input.idempotencyKey
@@ -193,31 +195,30 @@ function createImportRepository(client, tenantId, checkpoint = async () => {}) {
           code: "BATCH_ALREADY_COMMITTED",
           batchId: request.batchId
         }]);
-        await insertAuditEvent(client, tenantId, {
-          id: `import-commit-attempt:${request.batchId}:${inputFingerprint}:CONFLICTED`,
-          eventType: "IMPORT_COMMIT_CONFLICTED",
-          subjectId: request.subjectId,
-          entityId: request.batchId,
-          payload: {
-            input_fingerprint: inputFingerprint,
-            outcomes: conflict.summary,
-            conflicts: conflict.conflicts,
-            external_action_performed: false
-          },
-          occurredAt: request.committedAt,
-          retainUntil: auditRetainUntil(
-            lockedBatch.metadataRetainUntil,
-            request.committedAt
-          )
-        }, true);
+        await appendLifecycleConflictAudit(
+          client,
+          tenantId,
+          lockedBatch,
+          conflict,
+          request,
+          inputFingerprint
+        );
         return conflict;
       }
       if (lockedBatch.status !== "PREVIEWED") {
-        return conflictResult(lockedBatch, "IMPORT_LIFECYCLE_CONFLICT", [{
+        const conflict = conflictResult(lockedBatch, "IMPORT_LIFECYCLE_CONFLICT", [{
           code: "IMPORT_LIFECYCLE_CONFLICT",
           batchId: request.batchId,
           status: lockedBatch.status
         }]);
+        return recordLifecycleConflict(
+          client,
+          tenantId,
+          lockedBatch,
+          conflict,
+          request,
+          inputFingerprint
+        );
       }
 
       const stagedResult = await client.query(
@@ -344,6 +345,12 @@ function createImportRepository(client, tenantId, checkpoint = async () => {}) {
         target,
         newRows
       ));
+      conflicts.push(...await findCanonicalUniquenessConflicts(
+        client,
+        tenantId,
+        target,
+        newRows
+      ));
       if (conflicts.length > 0) {
         const blocked = {
           ...plan,
@@ -367,27 +374,65 @@ function createImportRepository(client, tenantId, checkpoint = async () => {}) {
         );
       }
 
-      for (const row of newRows) {
-        await insertCanonicalRow(
+      await client.query("SAVEPOINT canonical_import_materialization");
+      let uniquenessConflict = null;
+      let materializingRow = null;
+      try {
+        for (const row of newRows) {
+          materializingRow = row;
+          await checkpoint("beforeImportCanonicalInserted", {
+            batchId: request.batchId,
+            sourceOrdinal: row.sourceOrdinal,
+            targetId: row.canonicalTargetId
+          });
+          await insertCanonicalRow(
+            client,
+            tenantId,
+            target,
+            row,
+            plan,
+            request.committedAt,
+            request.batchId
+          );
+          await checkpoint("afterImportCanonicalInserted", {
+            batchId: request.batchId,
+            sourceOrdinal: row.sourceOrdinal,
+            targetId: row.canonicalTargetId
+          });
+          await insertIdMap(client, tenantId, target, row, plan, request);
+          await checkpoint("afterImportIdMapInserted", {
+            batchId: request.batchId,
+            sourceOrdinal: row.sourceOrdinal,
+            targetId: row.canonicalTargetId
+          });
+        }
+        await client.query("RELEASE SAVEPOINT canonical_import_materialization");
+      } catch (error) {
+        uniquenessConflict = canonicalUniquenessConflict(error, materializingRow);
+        if (!uniquenessConflict) throw error;
+        await client.query("ROLLBACK TO SAVEPOINT canonical_import_materialization");
+        await client.query("RELEASE SAVEPOINT canonical_import_materialization");
+      }
+      if (uniquenessConflict) {
+        return recordBlockedAttempt(
           client,
           tenantId,
-          target,
-          row,
-          plan,
-          request.committedAt,
-          request.batchId
+          lockedBatch,
+          {
+            ...plan,
+            outcome: "CONFLICTED",
+            conflicts: [uniquenessConflict],
+            summary: {
+              total: plan.rows.length,
+              committed: 0,
+              skipped: 0,
+              conflicted: plan.rows.length,
+              failed: 0
+            }
+          },
+          request,
+          inputFingerprint
         );
-        await checkpoint("afterImportCanonicalInserted", {
-          batchId: request.batchId,
-          sourceOrdinal: row.sourceOrdinal,
-          targetId: row.canonicalTargetId
-        });
-        await insertIdMap(client, tenantId, target, row, plan, request);
-        await checkpoint("afterImportIdMapInserted", {
-          batchId: request.batchId,
-          sourceOrdinal: row.sourceOrdinal,
-          targetId: row.canonicalTargetId
-        });
       }
 
       const resultRows = plan.rows.map(row => ({
@@ -522,7 +567,10 @@ function createImportRepository(client, tenantId, checkpoint = async () => {}) {
 async function lockImportIdentities(client, tenantId, plan, rows) {
   const locks = rows.flatMap(row => [
     `source:${tenantId}:${plan.sourceSystem}:${plan.sourceCollection}:${row.sourceRecordId}`,
-    `target:${tenantId}:${plan.sourceCollection}:${row.canonicalTargetId}`
+    `target:${tenantId}:${plan.sourceCollection}:${row.canonicalTargetId}`,
+    ...(plan.sourceCollection === "prospects" && row.canonicalRecord?.dedupe_key != null
+      ? [`prospect-dedupe:${tenantId}:${row.canonicalRecord.dedupe_key}`]
+      : [])
   ]).sort();
   for (const lock of [...new Set(locks)]) {
     await client.query(
@@ -587,6 +635,25 @@ async function findMissingReferences(client, tenantId, target, rows) {
   return conflicts;
 }
 
+async function findCanonicalUniquenessConflicts(client, tenantId, target, rows) {
+  if (target.table !== "prospects") return [];
+  const keys = rows
+    .map(row => row.canonicalRecord.dedupe_key)
+    .filter(value => value !== null && value !== undefined);
+  const conflicts = duplicates(keys).map(() => ({
+    code: "PROSPECT_DEDUPE_KEY_COLLISION"
+  }));
+  if (keys.length === 0 || conflicts.length > 0) return conflicts;
+  const result = await client.query(
+    `select dedupe_key from tge.prospects
+     where tenant_id = $1 and dedupe_key = any($2::text[])
+     order by dedupe_key
+     for key share`,
+    [tenantId, keys]
+  );
+  return result.rows.map(() => ({ code: "PROSPECT_DEDUPE_KEY_COLLISION" }));
+}
+
 async function insertCanonicalRow(
   client,
   tenantId,
@@ -605,7 +672,8 @@ async function insertCanonicalRow(
         source_system: plan.sourceSystem,
         source_record_id: row.sourceRecordId,
         source_ordinal: row.sourceOrdinal,
-        raw_payload_sha256: row.rawPayloadSha256
+        raw_payload_sha256: row.rawPayloadSha256,
+        numeric_evidence: row.numericEvidence || {}
       }
     },
     created_at: row.canonicalRecord.created_at || committedAt,
@@ -613,7 +681,7 @@ async function insertCanonicalRow(
       || row.canonicalRecord.created_at
       || committedAt
   };
-  const mapped = target.toRow(record);
+  const mapped = target.toRow(record, { exactNumericFields: row.numericEvidence });
   const entries = Object.entries(mapped);
   const columns = ["tenant_id", ...entries.map(([column]) => column)];
   const values = [tenantId, ...entries.map(([column, value]) =>
@@ -709,6 +777,62 @@ async function recordBlockedAttempt(
   return safe;
 }
 
+async function recordLifecycleConflict(
+  client,
+  tenantId,
+  batch,
+  conflict,
+  request,
+  inputFingerprint
+) {
+  const summary = {
+    inputFingerprint,
+    requestFingerprint: inputFingerprint,
+    outcome: "CONFLICTED",
+    summary: conflict.summary,
+    lifecycleStatus: batch.status
+  };
+  await client.query(
+    `select tge.record_import_commit_lifecycle_conflict(
+       $1::uuid, $2::text, $3::jsonb, $4::timestamptz
+     )`,
+    [tenantId, request.batchId, JSON.stringify(summary), request.committedAt]
+  );
+  await appendLifecycleConflictAudit(
+    client,
+    tenantId,
+    batch,
+    conflict,
+    request,
+    inputFingerprint
+  );
+  return conflict;
+}
+
+async function appendLifecycleConflictAudit(
+  client,
+  tenantId,
+  batch,
+  conflict,
+  request,
+  inputFingerprint
+) {
+  await insertAuditEvent(client, tenantId, {
+    id: `import-commit-attempt:${request.batchId}:${inputFingerprint}:CONFLICTED`,
+    eventType: "IMPORT_COMMIT_CONFLICTED",
+    subjectId: request.subjectId,
+    entityId: request.batchId,
+    payload: {
+      input_fingerprint: inputFingerprint,
+      outcomes: conflict.summary,
+      conflicts: conflict.conflicts.map(safeIssue),
+      external_action_performed: false
+    },
+    occurredAt: request.committedAt,
+    retainUntil: auditRetainUntil(batch.metadataRetainUntil, request.committedAt)
+  }, true);
+}
+
 async function insertAuditEvent(client, tenantId, event, ignoreDuplicate = false) {
   await client.query(
     `insert into tge.audit_events (
@@ -766,15 +890,53 @@ function auditRetainUntil(batchRetention, occurredAt) {
     : required;
 }
 
-function commitInputFingerprint(batchId, input) {
+function commitInputFingerprint(batchId, input, sourceCollection) {
+  const definitions = TARGETS[sourceCollection]?.fields || [];
+  const supplied = new Map((input.selections || []).map(selection => [
+    selection.targetField,
+    selection
+  ]));
+  const selections = definitions.length > 0
+    ? definitions.map(definition => supplied.get(definition.targetField) || {
+      targetField: definition.targetField,
+      sourceColumn: null,
+      selectedType: definition.declaredType
+    })
+    : [...(input.selections || [])];
   return hashImportEvidence({
     batchId,
     input: {
       ...input,
-      selections: [...(input.selections || [])].sort((left, right) =>
+      selections: selections.sort((left, right) =>
         left.targetField.localeCompare(right.targetField))
     }
   });
+}
+
+function canonicalUniquenessConflict(error, row) {
+  if (error?.code !== "23505" || !row) return null;
+  const constraint = error.constraint || "";
+  let code;
+  if (constraint === "prospects_tenant_id_dedupe_key_key") {
+    code = "PROSPECT_DEDUPE_KEY_COLLISION";
+  } else if (/^(prospects|opportunities|tasks|activities)_pkey$/.test(constraint)) {
+    code = "CANONICAL_ID_COLLISION";
+  } else if (constraint === "import_id_map_source_identity_uidx") {
+    code = "SOURCE_IDENTITY_MAP_CONFLICT";
+  } else if (/^import_id_map_global_target_.*_uidx$/.test(constraint)) {
+    code = "CANONICAL_ID_COLLISION";
+  } else if (/^import_id_map_.*(?:_key|_uidx|_pkey)$/.test(constraint)) {
+    code = "IMPORT_ID_MAP_COLLISION";
+  } else if (/^(prospects|opportunities|tasks|activities)_/.test(constraint)) {
+    code = "CANONICAL_UNIQUENESS_COLLISION";
+  } else {
+    return null;
+  }
+  return {
+    code,
+    sourceOrdinal: row.sourceOrdinal,
+    targetId: row.canonicalTargetId
+  };
 }
 
 function safeIssue(issue) {

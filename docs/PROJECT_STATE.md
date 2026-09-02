@@ -29,6 +29,13 @@ distinct unknown value states and perform no external actions. XLSX, controlled
 retention deletion, browser/adversarial breadth, and JSON cutover remain later
 Issue #13 work.
 
+PR-5C fresh-review remediation additionally makes parser-unknown identities
+non-authoritative, keeps unsafe and underflowing decimal evidence lossless,
+hashes the complete reviewed-selection vector, fails closed on PostgreSQL
+`NULL`, normalizes canonical/dedupe uniqueness races into atomic conflicts, and
+audits illegal lifecycle attempts without allowing new transitions or raw-cell
+leaks.
+
 Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 
 The Product Truth audit/fix work unit is complete: [PR #17](https://github.com/yarinperetz1313/trade-growth-engine/pull/17) merged at `5231838` and closed [Issue #7](https://github.com/yarinperetz1313/trade-growth-engine/issues/7). This did not provision Auth0, SMTP, production persistence, import execution, or cutover, and it did not begin Pilot Readiness PR-5 or later slices.
