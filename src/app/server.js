@@ -9,6 +9,9 @@ const {
   createRevenueActionsRouter
 } = require("../api/revenueActions");
 const {
+  createRevenueLeakCasesRouter
+} = require("../api/revenueLeakCases");
+const {
   createPostgresCoreRouter
 } = require("../api/postgresCore");
 const {
@@ -26,6 +29,9 @@ const {
 const {
   createPostgresRevenueActionService
 } = require("../revenueActions/postgresRevenueActionService");
+const {
+  createRevenueLeakCaseService
+} = require("../revenueLeakCases/revenueLeakCaseService");
 const {
   createImportService
 } = require("../imports/importService");
@@ -103,6 +109,12 @@ function createApp({
     api = createApiRouter({
       importsRouter,
       postgresCoreRouter,
+      revenueLeakCasesRouter: persistence?.repositories?.revenueLeakCases
+        ? createRevenueLeakCasesRouter({
+          service: createRevenueLeakCaseService({ persistence }),
+          resolveTenantContext: requestTenantContext
+        })
+        : null,
       revenueActionsRouter: createRevenueActionsRouter({
         service: injectedService,
         resolveTenantContext: requestTenantContext

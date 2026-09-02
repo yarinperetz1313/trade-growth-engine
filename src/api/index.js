@@ -42,8 +42,14 @@ const revenueActions =
     "./revenueActions"
   );
 
+const revenueLeakCases =
+  require(
+    "./revenueLeakCases"
+  );
+
 function createApiRouter({
   importsRouter = null,
+  revenueLeakCasesRouter = revenueLeakCases,
   revenueActionsRouter = revenueActions,
   postgresCoreRouter = null
 } = {}) {
@@ -93,6 +99,12 @@ if (importsRouter) {
 router.use(
   revenueActionsRouter
 );
+
+if (revenueLeakCasesRouter) {
+  router.use(
+    revenueLeakCasesRouter
+  );
+}
 
   router.get(
   "/api",
