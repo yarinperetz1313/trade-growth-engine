@@ -213,6 +213,10 @@ function createPostgresRepositories({
     findPreview: (context, batchId) => run(
       context,
       scoped => scoped.imports.findPreview(batchId)
+    ),
+    findAnalysisEvidence: (context, batchId) => run(
+      context,
+      scoped => scoped.imports.findAnalysisEvidence(batchId)
     )
   };
 

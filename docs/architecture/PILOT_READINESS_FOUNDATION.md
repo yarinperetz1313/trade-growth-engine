@@ -42,9 +42,10 @@ Forced RLS reads transaction-local `app.tenant_id` and `app.subject_id`. These c
 ## Import safety, retention, and deletion
 
 The implemented PR-5A CSV staging/preview subset is specified in
-[CSV import staging and preview](IMPORT_STAGING_PREVIEW.md). Later Issue #13
-slices still own mapping, validation, Data Health, canonical commit, ID
-reconciliation, retention deletion, and browser/adversarial breadth.
+[CSV import staging and preview](IMPORT_STAGING_PREVIEW.md). PR-5B's preview-only
+analysis is specified in [deterministic import mapping and Data Health](IMPORT_MAPPING_DATA_HEALTH.md).
+Later Issue #13 slices still own accepted mapping persistence, canonical commit,
+ID reconciliation, retention deletion, and browser/adversarial breadth.
 
 Imports are tenant-scoped and staged: CSV/XLSX upload → preview → explicit commit. Exact duplicates are skipped; ambiguous records require explicit user resolution; imports never merge into or overwrite existing CRM data implicitly. Every PR-2 ID-map row references its exact staging source and exactly one real tenant-owned prospect, opportunity, task, activity, or RevenueAction through a typed foreign key. Runtime may only select and insert batch, staging, ID-map, and audit evidence.
 

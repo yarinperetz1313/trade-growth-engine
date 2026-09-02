@@ -7,6 +7,7 @@ const {
 } = require("../auth/authorization");
 const { requireTenantContext } = require("../persistence/tenantContext");
 const { CSV_LIMITS, parseCsvUpload } = require("./csvParser");
+const { buildImportAnalysis } = require("./importMapping");
 
 const SOURCE_COLLECTIONS = new Set([
   "prospects", "opportunities", "activities", "tasks", "revenue_actions"
@@ -80,6 +81,7 @@ function createImportService({
     });
     const previewSummary = {
       format: "CSV",
+      sourceCollection: input.sourceCollection,
       byteCount: parsed.byteCount,
       rowCount: records.length,
       columnCount: parsed.headers.length,
@@ -143,7 +145,34 @@ function createImportService({
     return preview;
   }
 
-  return Object.freeze({ createPreview, readPreview });
+  async function analyzePreview({
+    authorizationContext,
+    persistenceContext,
+    batchId,
+    input = {}
+  }) {
+    const { trustedPersistence } = authorize(
+      authorizationContext,
+      persistenceContext
+    );
+    validateBatchId(batchId);
+    if (
+      !input
+      || typeof input !== "object"
+      || Array.isArray(input)
+      || !Object.keys(input).every(key => [
+        "selections", "sourceIdentitySelection"
+      ].includes(key))
+      || Object.keys(input).length > 2
+    ) invalidRequest();
+    const evidence = await persistence
+      .forTenant(trustedPersistence)
+      .imports.findAnalysisEvidence(batchId);
+    if (!evidence) unavailable();
+    return buildImportAnalysis(evidence, input);
+  }
+
+  return Object.freeze({ analyzePreview, createPreview, readPreview });
 }
 
 function validateCreateInput(input) {
@@ -189,6 +218,12 @@ function unavailable() {
     "The requested import batch is unavailable.",
     404
   );
+}
+
+function validateBatchId(batchId) {
+  if (typeof batchId !== "string" || !batchId || batchId.length > 200) {
+    unavailable();
+  }
 }
 
 function normalizeClock(value) {

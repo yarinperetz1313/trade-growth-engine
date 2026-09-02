@@ -105,6 +105,25 @@ function createImportRepository(client, tenantId) {
         records: records.rows.map(mapRecord),
         previewRowLimit: PREVIEW_ROW_LIMIT
       };
+    },
+
+    async findAnalysisEvidence(batchId) {
+      const batch = await client.query(
+        `select * from tge.import_batches
+         where tenant_id = $1 and id = $2`,
+        [tenantId, batchId]
+      );
+      if (!batch.rows[0]) return null;
+      const records = await client.query(
+        `select * from tge.import_staging_records
+         where tenant_id = $1 and import_batch_id = $2
+         order by source_ordinal`,
+        [tenantId, batchId]
+      );
+      return {
+        batch: mapBatch(batch.rows[0]),
+        records: records.rows.map(mapRecord)
+      };
     }
   };
 }

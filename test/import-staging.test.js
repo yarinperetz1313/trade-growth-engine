@@ -73,6 +73,10 @@ function fakePersistence() {
           async findPreview(batchId) {
             calls.push(["findPreview", batchId]);
             return structuredClone(previews.get(`${context.tenantId}:${batchId}`) || null);
+          },
+          async findAnalysisEvidence(batchId) {
+            calls.push(["findAnalysisEvidence", batchId]);
+            return structuredClone(previews.get(`${context.tenantId}:${batchId}`) || null);
           }
         },
         prospects: forbidden("prospects"),
@@ -117,6 +121,7 @@ test("OWNER and ADMIN atomically stage a CSV preview with immutable evidence onl
     assert.equal(preview.batch.authorizedBySubjectId, `auth0|${role}`);
     assert.deepEqual(preview.batch.previewSummary, {
       format: "CSV",
+      sourceCollection: "prospects",
       byteCount: 44,
       rowCount: 2,
       columnCount: 3,
@@ -225,6 +230,87 @@ test("preview reads are admin-only and cross-tenant equals nonexistent", async (
   }
 });
 
+test("analysis returns a reviewable draft over all staged rows without canonical access or persistence", async () => {
+  const persistence = fakePersistence();
+  const service = createImportService({ persistence, idFactory: () => "batch-analysis" });
+  const owner = await authContext();
+  const persistenceContext = bridgeAuthTenantContext(owner);
+  await service.createPreview({
+    authorizationContext: owner,
+    persistenceContext,
+    input: {
+      sourceCollection: "prospects",
+      upload: upload("External Key,Trading Name,Email Address\np-1,Acme,a@example.com")
+    }
+  });
+
+  const analysis = await service.analyzePreview({
+    authorizationContext: owner,
+    persistenceContext,
+    batchId: "batch-analysis",
+    input: {
+      sourceIdentitySelection: { sourceColumn: "External Key" },
+      selections: [
+        { targetField: "id", sourceColumn: "External Key", selectedType: "TEXT" },
+        { targetField: "business_name", sourceColumn: "Trading Name", selectedType: "TEXT" }
+      ]
+    }
+  });
+
+  assert.equal(analysis.mapping.status, "DRAFT");
+  assert.equal(analysis.mapping.accepted, false);
+  assert.equal(analysis.mapping.selectionState, "USER_EDITED_DRAFT");
+  assert.equal(analysis.mapping.sourceIdentity.sourceColumn, "External Key");
+  assert.equal(analysis.mapping.sourceIdentity.suggestion.state, "USER_SELECTED");
+  assert.equal(analysis.dataHealth.totalRows, 1);
+  assert.deepEqual(
+    persistence.calls.slice(-2).map(([name]) => name),
+    ["forTenant", "findAnalysisEvidence"]
+  );
+});
+
+test("analysis API is tenant-safe and normalizes invalid draft selections", async () => {
+  const owner = await authContext();
+  const persistenceContext = bridgeAuthTenantContext(owner);
+  const persistence = fakePersistence();
+  const service = createImportService({ persistence, idFactory: () => "analysis-api" });
+  await service.createPreview({
+    authorizationContext: owner,
+    persistenceContext,
+    input: { sourceCollection: "prospects", upload: upload("id,business_name\np-1,Acme") }
+  });
+  const router = createImportsRouter({
+    service,
+    resolveAuthorizationContext: () => owner,
+    resolvePersistenceContext: () => persistenceContext
+  });
+
+  const response = await requestRouter(router, "/api/import-batches/analysis-api/analysis", {
+    method: "POST",
+    body: { selections: [
+      { targetField: "id", sourceColumn: "id", selectedType: "TEXT" },
+      { targetField: "business_name", sourceColumn: "id", selectedType: "TEXT" }
+    ] }
+  });
+  assert.equal(response.status, 400);
+  assert.deepEqual(response.data, {
+    ok: false,
+    error: "IMPORT_MAPPING_SELECTION_INVALID",
+    message: "The draft import mapping selection is invalid."
+  });
+
+  const ownerB = await authContext({ tenantId: TENANT_B });
+  await assert.rejects(
+    service.analyzePreview({
+      authorizationContext: ownerB,
+      persistenceContext: bridgeAuthTenantContext(ownerB),
+      batchId: "analysis-api",
+      input: {}
+    }),
+    error => error.code === "IMPORT_BATCH_UNAVAILABLE" && error.status === 404
+  );
+});
+
 test("import router normalizes unavailable previews without an existence oracle", async () => {
   const owner = await authContext();
   const persistenceContext = bridgeAuthTenantContext(owner);
@@ -238,6 +324,9 @@ test("import router normalizes unavailable previews without an existence oracle"
         "The requested import batch is unavailable.",
         404
       );
+    },
+    async analyzePreview() {
+      assert.fail("analyzePreview is not expected");
     }
   };
   const router = createImportsRouter({

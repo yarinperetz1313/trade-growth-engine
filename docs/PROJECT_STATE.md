@@ -1,6 +1,6 @@
 # Project State
 
-_Last locally audited on 2026-09-01. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+_Last locally audited on 2026-09-02. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
 ## Current verified shape
 Trade Growth Engine is a Vite React + Express local-first CRM. `src/index.js` starts the server, `src/api/` exposes thin structured HTTP boundaries, and `web/main.jsx` provides hash-routed UI. Local JSON persistence flows through `src/services/localStore.js`; tests and E2E use isolated stores. The [Legacy JSON Compatibility Contract](architecture/LEGACY_JSON_COMPATIBILITY.md) and deterministic fixtures characterize that adapter for the future persistence cutover.
@@ -13,13 +13,16 @@ PR-3 and PR-4 are complete and merged through [PR #16](https://github.com/yarinp
 
 The server validates the independently branded PR-4 auth context, mints a separate trusted PR-3 persistence context from only its tenant ID and subject, and injects it into the PostgreSQL routers and transactions. Auth-enabled business APIs still return `503 TENANT_PERSISTENCE_UNAVAILABLE` when the PostgreSQL adapter/bridge is absent. Production provisioning, controlled import transitions/deletion, import execution, and JSON cutover do not exist yet. A provisioned Auth0 AU tenant, SMTP/domain evidence, and real external-email OTP E2E remain release gates.
 
-Pilot Readiness PR-5A now supplies the bounded CSV-only import contract, parser,
+Pilot Readiness PR-5A supplies the bounded CSV-only import contract, parser,
 OWNER/ADMIN staging service, tenant-scoped PostgreSQL batch/staging/audit
-repository, and a read-only 100-row preview. It reuses the PR-2 evidence tables
-and PR-3 transaction boundary, preserves exact raw cells and distinct unknown
-value states, and performs no canonical writes or external actions. XLSX,
-mapping, validation, Data Health, canonical commit/ID reconciliation, controlled
-retention deletion, and browser/adversarial breadth remain later Issue #13 work.
+repository, and a read-only 100-row preview. PR-5B adds deterministic exact-name
+then ordered-alias draft mapping, preview-only user selections, row-level
+validation, and all-staged-row Data Health through the same authorization,
+repository, and transaction boundaries. Both preserve exact raw cells and
+distinct unknown value states and perform no canonical writes or external
+actions. XLSX, accepted mapping persistence, canonical commit/ID reconciliation,
+controlled retention deletion, and browser/adversarial breadth remain later
+Issue #13 work.
 
 Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 
@@ -51,4 +54,4 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - **PR-2 is complete**: schema/security/migrations `001`–`004`, tests, and CI are present, and GitHub Actions run `33304131266` passed the full PostgreSQL 16.15 gate. This completion does not imply production repositories, Auth0 middleware, provisioning, import execution, or JSON cutover. Vendor decisions still gate provisioning and release.
 - **PR-3 and PR-4 are complete and merged through PR #16 at `b0a8e36`**: tenant-aware PostgreSQL repositories and transactional RevenueAction persistence consume the membership-derived auth boundary through a server-only trusted-context bridge. The underlying combined state at `9fe7cea` is verified by [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854), which passed the complete combined gate. Real Auth0 AU/SMTP acceptance remains deployment-gated; PR-5 and later product work remain not started.
 - **The Product Truth audit/fix work unit is complete through PR #17 at `5231838`**, and Issue #7 is closed. Its repository-backed UI corrections and managed Product Truth coverage do not establish external-provider, provisioning, import, or cutover evidence.
-- **PR-5A implements only CSV contract, limits, immutable staging, and preview.** It does not establish mapping, validation, Data Health, canonical import commit, cutover, or production provisioning.
+- **PR-5A implements CSV contract, limits, immutable staging, and bounded preview; PR-5B implements draft mapping, validation, and Data Health analysis only.** Neither establishes accepted mapping persistence, canonical import commit, cutover, or production provisioning.
