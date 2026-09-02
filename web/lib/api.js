@@ -303,7 +303,8 @@ export async function getImportPreview(
 
 export async function analyzeImportPreview(
   batchId,
-  input = {}
+  input = {},
+  expectations = {}
 ) {
   return unwrapImportAnalysisResponse(await request(
     `/api/import-batches/${encodeURIComponent(batchId)}/analysis`,
@@ -311,12 +312,13 @@ export async function analyzeImportPreview(
       method: "POST",
       body: JSON.stringify(input)
     }
-  ));
+  ), expectations);
 }
 
 export async function commitImportBatch(
   batchId,
-  input
+  input,
+  expectations = {}
 ) {
   return unwrapImportCommitResponse(await request(
     `/api/import-batches/${encodeURIComponent(batchId)}/commit`,
@@ -324,13 +326,14 @@ export async function commitImportBatch(
       method: "POST",
       body: JSON.stringify(input)
     }
-  ), batchId);
+  ), batchId, expectations);
 }
 
 export async function getImportCommit(
-  batchId
+  batchId,
+  expectations = {}
 ) {
   return unwrapImportCommitResponse(await request(
     `/api/import-batches/${encodeURIComponent(batchId)}/commit`
-  ), batchId);
+  ), batchId, expectations);
 }

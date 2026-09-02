@@ -67,6 +67,12 @@ test("uploads adversarial CSV evidence, changes deterministic mapping, confirms,
   await expect(page.getByRole("heading", { name: "Data Health" })).toBeVisible();
   await expect(page.getByText("2 valid rows")).toBeVisible();
   await expect(page.getByText("4 unknown values preserved")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Source identity evidence" })).toContainText("source-1");
+  await expect(page.getByRole("region", { name: "Source identity evidence" })).toContainText("Inferred typeTEXT");
+  await expect(page.getByRole("region", { name: /^Mapping evidence for / })).toHaveCount(13);
+  await expect(page.getByRole("region", { name: "Mapping evidence for value" })).toContainText("UNKNOWN_VALUE_PRESERVED");
+  await expect(page.getByText("created_at: 0/2 covered · 0 invalid · 2 missing (0%)")).toBeVisible();
+  await expect(page.getByText("updated_at: 0/2 covered · 0 invalid · 2 missing (0%)")).toBeVisible();
 
   await page.getByLabel("Map value").selectOption("quoted value");
   await page.getByRole("button", { name: "Recalculate Data Health" }).click();
@@ -82,6 +88,10 @@ test("uploads adversarial CSV evidence, changes deterministic mapping, confirms,
 
   await page.getByRole("button", { name: "Continue to confirmation" }).click();
   await expect(page.getByRole("heading", { name: "Confirm canonical import" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Source identity evidence" })).toContainText("external_id");
+  await expect(page.getByRole("region", { name: /^Mapping evidence for / })).toHaveCount(13);
+  await expect(page.getByRole("region", { name: "Mapping evidence for value" })).toContainText("quoted value");
+  await expect(page.getByRole("region", { name: "Mapping evidence for value" })).toContainText("1250.50");
   const commit = page.getByRole("button", { name: "Commit 2 rows" });
   await expect(commit).toBeDisabled();
   await page.getByLabel("Source system").fill("pilot-crm");
@@ -97,15 +107,15 @@ test("uploads adversarial CSV evidence, changes deterministic mapping, confirms,
   expect(requests.commit.idempotencyKey).toMatch(/^browser-/);
 });
 
-test("keeps empty, unauthorized, and retryable transport failures distinct", async ({ page }) => {
+test("keeps empty, unauthorized, and definitive request failures distinct", async ({ page }) => {
   let previewAttempts = 0;
   await page.route(`${apiBaseUrl}/api/import-batches/preview`, async route => {
     previewAttempts += 1;
     if (previewAttempts === 1) {
-      return json(route, 503, {
+      return json(route, 400, {
         ok: false,
-        error: "IMPORT_PREVIEW_TEMPORARILY_UNAVAILABLE",
-        message: "Preview is temporarily unavailable."
+        error: "CSV_MALFORMED",
+        message: "Preview input is malformed."
       });
     }
     return json(route, 201, { ok: true, data: previewFixture({ rowCount: 0 }) });
@@ -117,7 +127,7 @@ test("keeps empty, unauthorized, and retryable transport failures distinct", asy
   await page.goto("/#imports");
   await selectCsv(page, "id,business_name");
   await page.getByRole("button", { name: "Create preview" }).click();
-  await expect(page.getByText("Preview is temporarily unavailable.")).toBeVisible();
+  await expect(page.getByText("Preview input is malformed.")).toBeVisible();
   await page.getByRole("button", { name: "Retry preview" }).click();
   await expect(page.getByText("No data rows were found in this CSV.")).toBeVisible();
   await page.getByRole("button", { name: "Review deterministic mapping" }).click();
@@ -139,45 +149,59 @@ test("keeps empty, unauthorized, and retryable transport failures distinct", asy
   await expect(page.getByText("Only an OWNER or ADMIN can run imports.")).toBeVisible();
 });
 
-test("fails closed on invalid successful preview and analysis responses", async ({ page }) => {
+test("fails closed on semantically invalid preview and analysis responses", async ({ page }) => {
+  const operations = [];
   let previewPosts = 0;
   let analysisPosts = 0;
   await page.route(`${apiBaseUrl}/api/import-batches/preview`, route => {
+    operations.push("POST");
     previewPosts += 1;
     if (previewPosts === 1) {
+      const invalid = previewFixture();
+      invalid.records[0].rawPayload.cells[0].valueKind = null;
       return json(route, 200, {
-        ok: false,
-        error: "IMPORT_PREVIEW_REJECTED",
-        message: "The preview was rejected despite the HTTP status."
+        ok: true,
+        data: invalid
       });
     }
-    if (previewPosts === 2) return empty(route, 200);
     return json(route, 201, { ok: true, data: previewFixture() });
+  });
+  await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/preview`, route => {
+    operations.push("GET");
+    return json(route, 404, {
+      ok: false,
+      error: "IMPORT_BATCH_UNAVAILABLE",
+      message: "The requested import batch is unavailable."
+    });
   });
   await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/analysis`, route => {
     analysisPosts += 1;
-    return analysisPosts === 1
-      ? json(route, 200, { ok: true, data: {} })
-      : json(route, 200, { ok: true, data: analysisFixture() });
+    if (analysisPosts === 1) {
+      const invalid = analysisFixture();
+      invalid.dataHealth.validRows = 1;
+      return json(route, 200, { ok: true, data: invalid });
+    }
+    return json(route, 200, { ok: true, data: analysisFixture() });
   });
 
   await page.goto("/#imports");
   await selectCsv(page, adversarialCsv);
   await page.getByRole("button", { name: "Create preview" }).click();
-  await expect(page.getByText("The preview was rejected despite the HTTP status.")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Raw evidence preview" })).toHaveCount(0);
-
-  await page.getByRole("button", { name: "Retry preview" }).click();
+  await expect(page.getByRole("heading", { name: "Preview outcome unknown" })).toBeVisible();
   await expect(page.getByText("The import service returned an invalid successful response.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Raw evidence preview" })).toHaveCount(0);
 
+  await page.getByRole("button", { name: "Reconcile preview" }).click();
+  await expect(page.getByText("No staged preview was found. You may retry the same upload.")).toBeVisible();
   await page.getByRole("button", { name: "Retry preview" }).click();
+  await expect(page.getByRole("heading", { name: "Raw evidence preview" })).toBeVisible();
   await page.getByRole("button", { name: "Review deterministic mapping" }).click();
   await expect(page.getByText("The import service returned an invalid successful response.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Deterministic mapping review" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Review deterministic mapping" }).click();
   await expect(page.getByRole("heading", { name: "Deterministic mapping review" })).toBeVisible();
+  expect(operations).toEqual(["POST", "GET", "POST"]);
 });
 
 test("reconciles an unknown preview outcome before retrying the upload", async ({ page }) => {
@@ -215,6 +239,88 @@ test("reconciles an unknown preview outcome before retrying the upload", async (
   await page.getByRole("button", { name: "Retry preview" }).click();
   await expect(page.getByRole("heading", { name: "Raw evidence preview" })).toBeVisible();
   expect(requests).toEqual(["POST", "GET", "POST"]);
+});
+
+test("reconciles an unsuccessful 2xx preview envelope before another POST", async ({ page }) => {
+  const operations = [];
+  let previewPosts = 0;
+  await page.route(`${apiBaseUrl}/api/import-batches/preview`, route => {
+    operations.push("POST");
+    previewPosts += 1;
+    return previewPosts === 1
+      ? json(route, 200, {
+          ok: false,
+          error: "IMPORT_PREVIEW_UNACKNOWLEDGED",
+          message: "The preview result was not acknowledged.",
+          details: { attemptedId: "browser-batch-1" }
+        })
+      : json(route, 201, { ok: true, data: previewFixture() });
+  });
+  await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/preview`, route => {
+    operations.push("GET");
+    return json(route, 404, {
+      ok: false,
+      error: "IMPORT_BATCH_UNAVAILABLE",
+      message: "The requested import batch is unavailable."
+    });
+  });
+
+  await page.goto("/#imports");
+  await selectCsv(page, adversarialCsv);
+  await page.getByRole("button", { name: "Create preview" }).click();
+  await expect(page.getByRole("heading", { name: "Preview outcome unknown" })).toBeVisible();
+  await expect(page.getByText("The preview result was not acknowledged.")).toBeVisible();
+  await page.getByRole("button", { name: "Reconcile preview" }).click();
+  await page.getByRole("button", { name: "Retry preview" }).click();
+  await expect(page.getByRole("heading", { name: "Raw evidence preview" })).toBeVisible();
+  expect(operations).toEqual(["POST", "GET", "POST"]);
+});
+
+test("blocks preview retry when a network or malformed 2xx outcome has no reconciliation ID", async ({ page }) => {
+  let previewPosts = 0;
+  await page.route(`${apiBaseUrl}/api/import-batches/preview`, route => {
+    previewPosts += 1;
+    return previewPosts === 1
+      ? route.abort("failed")
+      : route.fulfill({ status: 200, body: "" });
+  });
+
+  await page.goto("/#imports");
+  await selectCsv(page, adversarialCsv);
+  await page.getByRole("button", { name: "Create preview" }).click();
+  await expect(page.getByRole("heading", { name: "Preview outcome unknown" })).toBeVisible();
+  await expect(page.getByText("The response omitted a safe batch identifier, so this upload cannot be retried automatically.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reconcile preview" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry preview" })).toHaveCount(0);
+  expect(previewPosts).toBe(1);
+
+  await page.reload();
+  await selectCsv(page, adversarialCsv);
+  await page.getByRole("button", { name: "Create preview" }).click();
+  await expect(page.getByRole("heading", { name: "Preview outcome unknown" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reconcile preview" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry preview" })).toHaveCount(0);
+  expect(previewPosts).toBe(2);
+});
+
+test("rejects an oversized file before issuing a preview request", async ({ page }) => {
+  let previewPosts = 0;
+  await page.route(`${apiBaseUrl}/api/import-batches/preview`, route => {
+    previewPosts += 1;
+    return json(route, 201, { ok: true, data: previewFixture() });
+  });
+
+  await page.goto("/#imports");
+  await page.getByLabel("Source collection").selectOption("opportunities");
+  await page.getByLabel("CSV file").setInputFiles({
+    name: "oversized.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.alloc((256 * 1024) + 1, 65)
+  });
+  await page.getByRole("button", { name: "Create preview" }).click();
+  await expect(page.getByText("The CSV upload exceeds the byte limit.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Preview outcome unknown" })).toHaveCount(0);
+  expect(previewPosts).toBe(0);
 });
 
 test("keeps preview outcome unknown after a non-404 reconciliation failure and coalesces GETs", async ({ page }) => {
@@ -367,31 +473,92 @@ test("keeps commit outcome unknown when a 2xx reconciliation envelope is unsucce
   expect(reconciliationGets).toBe(1);
 });
 
-test("never reports malformed or unsuccessful 2xx commit results as committed", async ({ page }) => {
+test("reconciles a semantically invalid 2xx commit before an identical retry", async ({ page }) => {
+  const operations = [];
+  const commitBodies = [];
   let commitPosts = 0;
   await mockReadyToCommit(page);
   await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/commit`, route => {
+    const method = route.request().method();
+    operations.push(method);
+    if (method === "GET") {
+      return json(route, 404, {
+        ok: false,
+        error: "IMPORT_BATCH_UNAVAILABLE",
+        message: "The requested import batch is unavailable."
+      });
+    }
     commitPosts += 1;
-    if (commitPosts === 1) return empty(route, 200);
-    return json(route, 200, {
-      ok: true,
-      data: {
-        ...validationFailureFixture(),
-        outcome: "FAILED"
-      }
-    });
+    commitBodies.push(route.request().postDataJSON());
+    if (commitPosts === 1) {
+      const invalid = committedFixture();
+      invalid.rows[0].disposition = "EXACT_DUPLICATE";
+      return json(route, 200, { ok: true, data: invalid });
+    }
+    return json(route, 200, { ok: true, data: committedFixture() });
   });
 
   await reachConfirmation(page);
   await page.getByLabel("Source system").fill("pilot-crm");
   await page.getByLabel("I confirm this reviewed mapping and Data Health result.").check();
-  const commit = page.getByRole("button", { name: "Commit 2 rows" });
-  await commit.click();
+  await page.getByRole("button", { name: "Commit 2 rows" }).click();
+  await expect(page.getByRole("heading", { name: "Commit outcome unknown" })).toBeVisible();
   await expect(page.getByText("The import service returned an invalid successful response.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Import committed" })).toHaveCount(0);
 
-  await commit.click();
-  await expect(page.getByText("The import service returned an invalid successful response.")).toBeVisible();
+  await page.getByRole("button", { name: "Reconcile commit" }).click();
+  await page.getByRole("button", { name: "Retry same commit" }).click();
+  await expect(page.getByRole("heading", { name: "Import committed" })).toBeVisible();
+  expect(operations).toEqual(["POST", "GET", "POST"]);
+  expect(commitBodies[1]).toEqual(commitBodies[0]);
+  expect(commitBodies[1].idempotencyKey).toBe(commitBodies[0].idempotencyKey);
+});
+
+test("invalidates late async work on reset and disables editable request state", async ({ page }) => {
+  await page.route(`${apiBaseUrl}/api/import-batches/preview`, route =>
+    json(route, 201, { ok: true, data: previewFixture() })
+  );
+  await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/analysis`, async route => {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    return json(route, 200, { ok: true, data: analysisFixture() });
+  });
+  await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/commit`, async route => {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    return json(route, 200, { ok: true, data: committedFixture() });
+  });
+
+  await page.goto("/#imports");
+  await selectCsv(page, adversarialCsv);
+  await page.getByRole("button", { name: "Create preview" }).click();
+  await page.getByRole("button", { name: "Review deterministic mapping" }).click();
+  await expect(page.getByRole("button", { name: "Start another import" })).toBeEnabled();
+  await page.getByRole("button", { name: "Start another import" }).click();
+  await expect(page.getByRole("heading", { name: "Upload CSV" })).toBeVisible();
+  await page.waitForTimeout(300);
+  await expect(page.getByRole("heading", { name: "Deterministic mapping review" })).toHaveCount(0);
+
+  await selectCsv(page, adversarialCsv);
+  await page.getByRole("button", { name: "Create preview" }).click();
+  await page.getByRole("button", { name: "Review deterministic mapping" }).click();
+  await expect(page.getByRole("heading", { name: "Deterministic mapping review" })).toBeVisible();
+
+  await page.getByLabel("Map value").selectOption("quoted value");
+  await page.getByRole("button", { name: "Recalculate Data Health" }).click();
+  await expect(page.getByRole("button", { name: "Start another import" })).toBeEnabled();
+  await expect(page.getByLabel("Map value")).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Continue to confirmation" })).toBeDisabled();
+  await expect(page.getByText("Mapping and Data Health refreshed.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Continue to confirmation" }).click();
+  await page.getByLabel("Source system").fill("pilot-crm");
+  await page.getByLabel("I confirm this reviewed mapping and Data Health result.").check();
+  await page.getByRole("button", { name: "Commit 2 rows" }).click();
+  await expect(page.getByRole("button", { name: "Start another import" })).toBeEnabled();
+  await expect(page.getByLabel("Source system")).toBeDisabled();
+  await expect(page.getByLabel("I confirm this reviewed mapping and Data Health result.")).toBeDisabled();
+  await page.getByRole("button", { name: "Start another import" }).click();
+  await expect(page.getByRole("heading", { name: "Upload CSV" })).toBeVisible();
+  await page.waitForTimeout(300);
   await expect(page.getByRole("heading", { name: "Import committed" })).toHaveCount(0);
 });
 
@@ -492,8 +659,4 @@ async function json(route, status, body) {
     contentType: "application/json",
     body: JSON.stringify(body)
   });
-}
-
-async function empty(route, status) {
-  await route.fulfill({ status, body: "" });
 }

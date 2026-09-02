@@ -56,7 +56,7 @@ export function previewFixture({ rowCount = 2 } = {}) {
       sourceRowNumber: sourceOrdinal + 2,
       rawPayload: {
         sourceRowNumber: sourceOrdinal + 2,
-        cells: rowCells
+        cells: rowCells.map(evidence => ({ ...evidence }))
       },
       rawPayloadSha256,
       disposition: "PENDING"
@@ -90,7 +90,8 @@ export function previewFixture({ rowCount = 2 } = {}) {
             }
       }
     },
-    records
+    records,
+    previewRowLimit: 100
   };
 }
 
@@ -134,7 +135,16 @@ export function analysisFixture({ valueColumn = "amount", rowCount = 2 } = {}) {
       nonAuthoritative: true,
       accepted: false
     },
-    validationIssues: []
+    validationIssues: targetField === "value" && valueColumn === "amount" && rowCount > 1
+      ? [{
+          code: "UNKNOWN_VALUE_PRESERVED",
+          targetField: "value",
+          sourceColumn: "amount",
+          sourceOrdinal: 1,
+          sourceRowNumber: 3,
+          rawEvidence: cells[1][3]
+        }]
+      : []
   }));
 
   return {

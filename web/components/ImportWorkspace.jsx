@@ -12,9 +12,14 @@ import {
   getImportPreview
 } from "../lib/api";
 import {
+  createImportOperationGuard,
   hasCompleteSourceIdentity,
-  isConfirmedMissingReconciliation
+  isConfirmedMissingReconciliation,
+  requiresImportPostReconciliation
 } from "../lib/importContracts.mjs";
+import {
+  readImportFileAsBase64
+} from "../lib/importFile.mjs";
 
 const SOURCE_COLLECTIONS = [
   ["prospects", "Prospects"],
@@ -42,7 +47,12 @@ export default function ImportWorkspace() {
   const [result, setResult] = useState(null);
   const [conflict, setConflict] = useState(null);
   const [unknownOutcome, setUnknownOutcome] = useState(null);
-  const reconciliationInFlight = useRef(false);
+  const operationGuard = useRef(null);
+  const attemptedPreviewRequest = useRef(null);
+  const attemptedCommit = useRef(null);
+  if (operationGuard.current === null) {
+    operationGuard.current = createImportOperationGuard();
+  }
 
   const headers = preview?.batch?.previewSummary?.headers || [];
   const dataHealth = analysis?.dataHealth;
@@ -72,24 +82,40 @@ export default function ImportWorkspace() {
   }), [idempotencyKey, selections, sourceIdentityColumn, sourceSystem]);
 
   async function createPreview() {
-    if (!file) return;
-    setOperation("preview");
+    return submitPreview(null);
+  }
+
+  async function retryPreview() {
+    return submitPreview(attemptedPreviewRequest.current);
+  }
+
+  async function submitPreview(savedRequest) {
+    if (!file && !savedRequest) return;
+    const token = beginOperation("preview");
+    if (!token) return;
+    let postAttempted = false;
     clearMessages();
     try {
-      const contentBase64 = await fileAsBase64(file);
-      const response = await createImportPreview({
+      const request = savedRequest || {
         sourceCollection,
         upload: {
           filename: file.name,
           mediaType: file.type || "text/csv",
-          contentBase64
+          contentBase64: await readImportFileAsBase64(file)
         }
-      });
+      };
+      if (!operationGuard.current.isCurrent(token)) return;
+      attemptedPreviewRequest.current = request;
+      postAttempted = true;
+      const response = await createImportPreview(request);
+      if (!operationGuard.current.isCurrent(token)) return;
       acceptPreview(response);
     } catch (caught) {
-      handlePreviewError(caught);
+      if (operationGuard.current.isCurrent(token)) {
+        handlePreviewError(caught, postAttempted);
+      }
     } finally {
-      setOperation(null);
+      finishOperation(token);
     }
   }
 
@@ -102,21 +128,23 @@ export default function ImportWorkspace() {
     setPhase("preview");
     setUnknownOutcome(null);
     setError(null);
+    attemptedPreviewRequest.current = null;
   }
 
   async function reconcilePreview() {
     const attemptedId = unknownOutcome?.batchId;
-    if (!attemptedId || reconciliationInFlight.current) return;
-    reconciliationInFlight.current = true;
-    setOperation("reconcile-preview");
+    if (!attemptedId) return;
+    const token = beginOperation("reconcile-preview");
+    if (!token) return;
     setError(null);
     try {
       const response = await getImportPreview(attemptedId);
+      if (!operationGuard.current.isCurrent(token)) return;
       acceptPreview(response);
       setNotice("Preview reconciled after an unconfirmed transaction outcome.");
     } catch (caught) {
+      if (!operationGuard.current.isCurrent(token)) return;
       if (isConfirmedMissingReconciliation(caught)) {
-        setUnknownOutcome(null);
         setError({
           ...apiError(caught),
           message: "No staged preview was found. You may retry the same upload."
@@ -125,22 +153,27 @@ export default function ImportWorkspace() {
         setError(apiError(caught));
       }
     } finally {
-      reconciliationInFlight.current = false;
-      setOperation(null);
+      finishOperation(token);
     }
   }
 
   async function reviewMapping() {
-    setOperation("analysis");
+    const token = beginOperation("analysis");
+    if (!token) return;
     clearMessages();
     try {
-      const response = await analyzeImportPreview(preview.batch.id, {});
+      const response = await analyzeImportPreview(
+        preview.batch.id,
+        {},
+        analysisExpectations(preview)
+      );
+      if (!operationGuard.current.isCurrent(token)) return;
       acceptAnalysis(response);
       setPhase("mapping");
     } catch (caught) {
-      setError(apiError(caught));
+      if (operationGuard.current.isCurrent(token)) setError(apiError(caught));
     } finally {
-      setOperation(null);
+      finishOperation(token);
     }
   }
 
@@ -170,7 +203,8 @@ export default function ImportWorkspace() {
   }
 
   async function recalculateDataHealth() {
-    setOperation("analysis");
+    const token = beginOperation("analysis");
+    if (!token) return;
     clearMessages();
     try {
       const response = await analyzeImportPreview(preview.batch.id, {
@@ -182,60 +216,96 @@ export default function ImportWorkspace() {
         sourceIdentitySelection: {
           sourceColumn: sourceIdentityColumn
         }
-      });
+      }, analysisExpectations(preview));
+      if (!operationGuard.current.isCurrent(token)) return;
       acceptAnalysis(response);
       setNotice("Mapping and Data Health refreshed.");
     } catch (caught) {
-      setError(apiError(caught));
+      if (operationGuard.current.isCurrent(token)) setError(apiError(caught));
     } finally {
-      setOperation(null);
+      finishOperation(token);
     }
   }
 
   function continueToConfirmation() {
-    if (!canContinue) return;
+    if (!canContinue || operationGuard.current.isPending()) return;
     setIdempotencyKey(current => current || createBrowserIdempotencyKey());
     setConfirmed(false);
     setPhase("confirm");
     clearMessages();
   }
 
-  async function commit() {
-    if (!confirmed || !sourceSystem.trim() || !idempotencyKey) return;
-    setOperation("commit");
+  async function commitReviewed() {
+    if (
+      !confirmed
+      || !sourceSystem.trim()
+      || !idempotencyKey
+      || operationGuard.current.isPending()
+    ) return;
+    attemptedCommit.current = {
+      batchId: preview.batch.id,
+      request: structuredClone(reviewedRequest),
+      totalRows: analysis.dataHealth.totalRows
+    };
+    return submitCommit(attemptedCommit.current);
+  }
+
+  async function retryCommit() {
+    return submitCommit(attemptedCommit.current);
+  }
+
+  async function submitCommit(attempt) {
+    if (!attempt) return;
+    const token = beginOperation("commit");
+    if (!token) return;
     clearMessages();
     setConflict(null);
     try {
-      const response = await commitImportBatch(preview.batch.id, reviewedRequest);
+      const response = await commitImportBatch(
+        attempt.batchId,
+        attempt.request,
+        { totalRows: attempt.totalRows, reconciled: false }
+      );
+      if (!operationGuard.current.isCurrent(token)) return;
       acceptResult(response);
     } catch (caught) {
-      if (caught?.code === "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN") {
+      if (!operationGuard.current.isCurrent(token)) return;
+      if (requiresImportPostReconciliation(caught)) {
         setUnknownOutcome({
           kind: "commit",
-          batchId: caught.details?.attemptedId || preview.batch.id
+          batchId: caught.details?.attemptedId || attempt.batchId
         });
+        setError(apiError(caught));
         setPhase("unknown-commit");
       } else if (caught?.status === 409 || caught?.code === "IMPORT_COMMIT_CONFLICT") {
+        attemptedCommit.current = null;
         setConflict(caught.details || null);
         setError(apiError(caught));
         setPhase("conflict");
       } else {
+        attemptedCommit.current = null;
         setError(apiError(caught));
       }
     } finally {
-      setOperation(null);
+      finishOperation(token);
     }
   }
 
   async function reconcileCommit() {
-    if (reconciliationInFlight.current) return;
-    reconciliationInFlight.current = true;
-    setOperation("reconcile-commit");
+    const attempt = attemptedCommit.current;
+    if (!attempt) return;
+    const token = beginOperation("reconcile-commit");
+    if (!token) return;
     setError(null);
     try {
-      const response = await getImportCommit(unknownOutcome?.batchId || preview.batch.id);
+      const response = await getImportCommit(
+        unknownOutcome?.batchId || attempt.batchId,
+        { totalRows: attempt.totalRows, reconciled: true }
+      );
+      if (!operationGuard.current.isCurrent(token)) return;
       acceptResult(response);
     } catch (caught) {
+      if (!operationGuard.current.isCurrent(token)) return;
       setError(isConfirmedMissingReconciliation(caught)
         ? {
             ...apiError(caught),
@@ -243,8 +313,7 @@ export default function ImportWorkspace() {
           }
         : apiError(caught));
     } finally {
-      reconciliationInFlight.current = false;
-      setOperation(null);
+      finishOperation(token);
     }
   }
 
@@ -253,6 +322,7 @@ export default function ImportWorkspace() {
     setUnknownOutcome(null);
     setError(null);
     setPhase("result");
+    attemptedCommit.current = null;
   }
 
   function returnToMapping() {
@@ -260,9 +330,11 @@ export default function ImportWorkspace() {
     setConflict(null);
     setError(null);
     setConfirmed(false);
+    attemptedCommit.current = null;
   }
 
   function reset() {
+    operationGuard.current.invalidate();
     setPhase("upload");
     setFile(null);
     setPreview(null);
@@ -276,6 +348,9 @@ export default function ImportWorkspace() {
     setResult(null);
     setConflict(null);
     setUnknownOutcome(null);
+    setOperation(null);
+    attemptedPreviewRequest.current = null;
+    attemptedCommit.current = null;
     clearMessages();
   }
 
@@ -284,15 +359,27 @@ export default function ImportWorkspace() {
     setNotice(null);
   }
 
-  function handlePreviewError(caught) {
-    if (caught?.code === "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN") {
+  function handlePreviewError(caught, postAttempted) {
+    if (postAttempted && requiresImportPostReconciliation(caught)) {
       setUnknownOutcome({
         kind: "preview",
-        batchId: caught.details?.attemptedId
+        batchId: caught.details?.attemptedId || null
       });
+      setError(apiError(caught));
     } else {
+      attemptedPreviewRequest.current = null;
       setError(apiError(caught));
     }
+  }
+
+  function beginOperation(kind) {
+    const token = operationGuard.current.begin(kind);
+    if (token) setOperation(kind);
+    return token;
+  }
+
+  function finishOperation(token) {
+    if (operationGuard.current.finish(token)) setOperation(null);
   }
 
   return (
@@ -317,7 +404,7 @@ export default function ImportWorkspace() {
           onFile={setFile}
           onPreview={createPreview}
           onReconcile={reconcilePreview}
-          onRetry={createPreview}
+          onRetry={retryPreview}
           sourceCollection={sourceCollection}
           setSourceCollection={setSourceCollection}
           unknownOutcome={unknownOutcome}
@@ -364,7 +451,7 @@ export default function ImportWorkspace() {
           error={error}
           loading={operation === "commit"}
           onBack={returnToMapping}
-          onCommit={commit}
+          onCommit={commitReviewed}
           setConfirmed={setConfirmed}
           setSourceSystem={setSourceSystem}
           sourceSystem={sourceSystem}
@@ -380,7 +467,7 @@ export default function ImportWorkspace() {
           error={error}
           loading={operation === "reconcile-commit" || operation === "commit"}
           onReconcile={reconcileCommit}
-          onRetry={commit}
+          onRetry={retryCommit}
         />
       )}
 
@@ -434,9 +521,16 @@ function UploadStep({
       <div className="import-panel-body">
         {unknownOutcome?.kind === "preview" && (
           <StatusPanel title="Preview outcome unknown" message="Reconcile the attempted batch before retrying this upload.">
-            <button className="primary" disabled={loading} onClick={onReconcile}>
-              {loading ? "Reconciling..." : "Reconcile preview"}
-            </button>
+            {unknownOutcome.batchId ? (
+              <button className="primary" disabled={loading} onClick={onReconcile}>
+                {loading ? "Reconciling..." : "Reconcile preview"}
+              </button>
+            ) : (
+              <p>The response omitted a safe batch identifier, so this upload cannot be retried automatically.</p>
+            )}
+            {error?.status === 404 && (
+              <button className="text-button" disabled={loading} onClick={onRetry}>Retry preview</button>
+            )}
           </StatusPanel>
         )}
         {error && (
@@ -570,37 +664,54 @@ function MappingStep({
             />
           ) : (
             <>
-              <label className="mapping-identity">
-                <span>Source identity</span>
-                <select value={sourceIdentityColumn || ""} onChange={event => onSourceIdentity(event.target.value)}>
-                  <option value="">Unmapped</option>
-                  {headers.map(header => <option key={header} value={header}>{header}</option>)}
-                </select>
-                <small>Separate from the canonical target ID; never uses the synthetic staging locator.</small>
-              </label>
+              <div className="mapping-identity">
+                <MappingEvidence
+                  ariaLabel="Source identity evidence"
+                  mapping={analysis.mapping.sourceIdentity}
+                  title="Source identity"
+                />
+                <label>
+                  <span>Source identity</span>
+                  <select disabled={loading} value={sourceIdentityColumn || ""} onChange={event => onSourceIdentity(event.target.value)}>
+                    <option value="">Unmapped</option>
+                    {headers.map(header => <option key={header} value={header}>{header}</option>)}
+                  </select>
+                  <small>Separate from the canonical target ID; never uses the synthetic staging locator.</small>
+                </label>
+              </div>
               <div className="mapping-list">
-                {selections.map(selection => (
-                  <label className="mapping-row" key={selection.targetField}>
-                    <span>
-                      <strong>{selection.targetField}</strong>
-                      <small>{selection.required ? "Required" : "Optional"} · {selection.selectedType} · {selection.suggestion?.state || "USER_EDITED"}</small>
-                    </span>
-                    <select
-                      aria-label={`Map ${selection.targetField}`}
-                      value={selection.sourceColumn || ""}
-                      onChange={event => onSelection(selection.targetField, event.target.value)}
-                    >
-                      <option value="">Unmapped</option>
-                      {headers.map(header => (
-                        <option
-                          disabled={usedColumns.has(header) && usedColumns.get(header) !== selection.targetField}
-                          key={header}
-                          value={header}
-                        >{header}</option>
-                      ))}
-                    </select>
-                  </label>
-                ))}
+                {selections.map(selection => {
+                  const evidence = analysis.mapping.fields.find(field => (
+                    field.targetField === selection.targetField
+                  ));
+                  return (
+                    <div className="mapping-row" key={selection.targetField}>
+                      <MappingEvidence
+                        ariaLabel={`Mapping evidence for ${selection.targetField}`}
+                        mapping={evidence}
+                        title={selection.targetField}
+                      />
+                      <label>
+                        <span>Source column</span>
+                        <select
+                          aria-label={`Map ${selection.targetField}`}
+                          disabled={loading}
+                          value={selection.sourceColumn || ""}
+                          onChange={event => onSelection(selection.targetField, event.target.value)}
+                        >
+                          <option value="">Unmapped</option>
+                          {headers.map(header => (
+                            <option
+                              disabled={usedColumns.has(header) && usedColumns.get(header) !== selection.targetField}
+                              key={header}
+                              value={header}
+                            >{header}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  );
+                })}
               </div>
               <button className="primary" disabled={loading || !sourceIdentityColumn} onClick={onRecalculate}>
                 {loading ? "Recalculating..." : "Recalculate Data Health"}
@@ -624,7 +735,7 @@ function MappingStep({
                 ? "Source identity must cover every staged row before confirmation."
               : "Resolve blocking mapping or row errors before confirmation."}</span>
         )}
-        <button className="primary" disabled={!canContinue} onClick={onContinue}>Continue to confirmation</button>
+        <button className="primary" disabled={loading || !canContinue} onClick={onContinue}>Continue to confirmation</button>
       </div>
     </>
   );
@@ -658,6 +769,18 @@ function DataHealth({ health, rows = [], stale }) {
         <p><strong>Unmapped source columns:</strong> {listOrNone(health.unknownUnmappedStatuses?.unmappedSourceColumns)}</p>
         <p><strong>Unmapped target fields:</strong> {listOrNone(health.unknownUnmappedStatuses?.unmappedTargetFields)}</p>
         <p><strong>Commercially important missing values:</strong> {formatCounts(health.missingValueCounts)}</p>
+        <div>
+          <strong>Timestamp coverage:</strong>
+          {Object.entries(health.timestampCoverage || {}).length === 0 ? (
+            <span> None</span>
+          ) : (
+            <ul className="timestamp-coverage">
+              {Object.entries(health.timestampCoverage).map(([field, coverage]) => (
+                <li key={field}>{field}: {coverage.coveredRows}/{coverage.totalRows} covered · {coverage.invalidRows} invalid · {coverage.missingRows} missing ({coverage.percentage}%)</li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
       {sampledIssues.length > 0 && (
         <div className="data-health-issues">
@@ -707,12 +830,13 @@ function ConfirmationStep({
           <CommitValidationEvidence details={error.details} />
         )}
         <DataHealth health={analysis.dataHealth} rows={analysis.rows} stale={false} />
+        <MappingConfirmation mapping={analysis.mapping} />
         <label>
           <span>Source system</span>
-          <input value={sourceSystem} maxLength={128} onChange={event => setSourceSystem(event.target.value)} placeholder="pilot-crm" />
+          <input disabled={loading} value={sourceSystem} maxLength={128} onChange={event => setSourceSystem(event.target.value)} placeholder="pilot-crm" />
         </label>
         <label className="confirmation-check">
-          <input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />
+          <input type="checkbox" checked={confirmed} disabled={loading} onChange={event => setConfirmed(event.target.checked)} />
           <span>I confirm this reviewed mapping and Data Health result.</span>
         </label>
         <div className="import-footer-actions">
@@ -768,7 +892,7 @@ function UnknownCommitStep({ error, loading, onReconcile, onRetry }) {
   return (
     <section className="card import-panel import-terminal warning">
       <h3>Commit outcome unknown</h3>
-      <p>PostgreSQL did not confirm the transaction outcome. Reconcile this batch before another commit attempt.</p>
+      <p>The commit acknowledgement is ambiguous. Reconcile this batch before another commit attempt.</p>
       {error && <StatusPanel message={error.message} tone="error" />}
       <div className="import-footer-actions">
         <button className="primary" disabled={loading} onClick={onReconcile}>{loading ? "Reconciling..." : "Reconcile commit"}</button>
@@ -815,6 +939,16 @@ function apiError(error) {
   };
 }
 
+function analysisExpectations(preview) {
+  const summary = preview?.batch?.previewSummary;
+  return {
+    batchId: preview?.batch?.id,
+    headers: summary?.headers,
+    sourceCollection: summary?.sourceCollection,
+    totalRows: summary?.rowCount
+  };
+}
+
 function evidenceLabel(evidence) {
   if (!evidence?.present || evidence.valueKind === "MISSING") return "Not supplied";
   if (evidence.valueKind === "BLANK") return "Empty string";
@@ -843,14 +977,4 @@ function createBrowserIdempotencyKey() {
   const random = globalThis.crypto?.randomUUID?.()
     || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `browser-${random}`;
-}
-
-async function fileAsBase64(file) {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const chunkSize = 0x8000;
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
-  }
-  return btoa(binary);
 }
