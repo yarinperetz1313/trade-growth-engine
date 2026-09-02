@@ -741,6 +741,76 @@ function MappingStep({
   );
 }
 
+function MappingConfirmation({ mapping }) {
+  if (!mapping || mapping.status === "UNSUPPORTED_TARGET") return null;
+  return (
+    <section className="reviewed-mapping">
+      <h4>Reviewed mapping evidence</h4>
+      <MappingEvidence
+        ariaLabel="Source identity evidence"
+        mapping={mapping.sourceIdentity}
+        title="Source identity"
+      />
+      <div className="mapping-list">
+        {mapping.fields.map(field => (
+          <MappingEvidence
+            ariaLabel={`Mapping evidence for ${field.targetField}`}
+            key={field.targetField}
+            mapping={field}
+            title={field.targetField}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function MappingEvidence({ ariaLabel, mapping, title }) {
+  const samples = Array.isArray(mapping?.sampleValues) ? mapping.sampleValues : [];
+  const issues = Array.isArray(mapping?.validationIssues) ? mapping.validationIssues : [];
+  return (
+    <section aria-label={ariaLabel} className="mapping-evidence">
+      <h4>{title}</h4>
+      <dl>
+        <div><dt>Source column</dt><dd>{mapping?.sourceColumn || "Unmapped"}</dd></div>
+        <div><dt>Target field</dt><dd>{mapping?.targetField || mapping?.sourceField || "Source identity"}</dd></div>
+        <div><dt>Inferred type</dt><dd>{mapping?.inferredType || "UNKNOWN"}</dd></div>
+        <div><dt>Selected type</dt><dd>{mapping?.selectedType || mapping?.identityType || "TEXT"}</dd></div>
+        <div><dt>Requirement</dt><dd>{mapping?.required ? "Required" : "Optional"}</dd></div>
+      </dl>
+      <div className="mapping-evidence-detail">
+        <strong>Sample values</strong>
+        {samples.length === 0 ? (
+          <span>None</span>
+        ) : (
+          <ul>
+            {samples.map(sample => (
+              <li key={`${sample.sourceOrdinal}:${sample.sourceRowNumber}`}>
+                row {sample.sourceRowNumber}: {evidenceLabel(sample)} · {sample.valueKind}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="mapping-evidence-detail">
+        <strong>Validation issues</strong>
+        {issues.length === 0 ? (
+          <span>None</span>
+        ) : (
+          <ul>
+            {issues.map((issue, index) => (
+              <li key={`${issue.code}:${issue.sourceOrdinal ?? "mapping"}:${index}`}>
+                {issue.code}
+                {Number.isInteger(issue.sourceRowNumber) ? ` · row ${issue.sourceRowNumber}` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function DataHealth({ health, rows = [], stale }) {
   if (!health) return null;
   const sampledIssues = rows.flatMap(row => [
