@@ -237,6 +237,9 @@ function buildRevenueLeakCaseDetection(input, {
     "source.observed_version",
     { max: 255 }
   );
+  if (Date.parse(source_observed_at) > Date.parse(detected_at)) {
+    invalid("source.observed_at cannot be after detection.", "source.observed_at");
+  }
 
   const detector = requiredObject(body.detector, "detector");
   assertExactKeys(detector, ["id", "version"], "detector");
@@ -335,6 +338,7 @@ function buildRevenueLeakCaseDetection(input, {
     superseded_at: null,
     supersession_reason: null,
     detected_at,
+    created_at: detected_at,
     updated_at: detected_at,
     audit: [{
       transition: "OPEN",

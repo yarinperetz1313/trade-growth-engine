@@ -64,6 +64,7 @@ function bindTenantRepositories(repositories, context) {
     "tasks",
     "activities",
     "revenueActions",
+    "revenueLeakCases",
     "imports"
   ]) {
     bound[name] = Object.fromEntries(

@@ -203,6 +203,19 @@ test("only the initial stalled-opportunity contract is accepted", () => {
     })),
     error => error.code === "REVENUE_LEAK_CASE_INPUT_INVALID"
   );
+  assert.throws(
+    () => buildRevenueLeakCaseDetection(detection({
+      source: {
+        ...detection().source,
+        observed_at: "2026-09-03T00:00:00.000Z"
+      }
+    }), {
+      id: "future-observation",
+      detectedAt: DETECTED_AT,
+      subjectId: "auth0|member-a"
+    }),
+    error => error.code === "REVENUE_LEAK_CASE_INPUT_INVALID"
+  );
 });
 
 test("JSON reconciliation is idempotent and supersedes changed active evidence", async () => {

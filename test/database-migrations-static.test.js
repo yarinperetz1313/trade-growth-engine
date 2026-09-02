@@ -29,7 +29,8 @@ test("migration 001 remains byte-for-byte unchanged and migrations are append-on
     "008_revenue_action_outcome_integrity.sql",
     "009_revenue_action_cancellation_integrity.sql",
     "010_auth_membership_and_invitations.sql",
-    "011_canonical_import_commit.sql"
+    "011_canonical_import_commit.sql",
+    "012_revenue_leak_case_foundation.sql"
   ]);
   assert.equal(Buffer.byteLength(initialMigration), 2752);
   assert.equal(
@@ -524,6 +525,77 @@ test("migration 011 adds globally deterministic import identity and narrow commi
     security,
     /grant[^;]*update[^;]*tge\.import_(?:batches|staging_records|id_map)/i
   );
+});
+
+test("migration 012 establishes immutable tenant-safe RevenueLeakCase history", () => {
+  const foundation = read(
+    "database/migrations/012_revenue_leak_case_foundation.sql"
+  );
+
+  assert.match(foundation, /^set local role tge_owner;/);
+  assert.match(foundation, /create table tge\.revenue_leak_cases/);
+  assert.match(foundation, /leak_type = 'STALLED_OPPORTUNITY'/);
+  assert.match(
+    foundation,
+    /state in \('OPEN', 'SNOOZED', 'DISMISSED', 'SUPERSEDED'\)/
+  );
+  assert.match(
+    foundation,
+    /commercial_value_classification in \('KNOWN', 'UNKNOWN', 'NOT_APPLICABLE'\)/
+  );
+  assert.match(foundation, /revenue_at_risk numeric\(20,6\)/);
+  assert.match(
+    foundation,
+    /commercial_value_classification = 'KNOWN'[\s\S]*?revenue_at_risk >= 0[\s\S]*?currency ~ '\^\[A-Z\]\{3\}\$'/
+  );
+  assert.match(
+    foundation,
+    /commercial_value_classification in \('UNKNOWN', 'NOT_APPLICABLE'\)[\s\S]*?revenue_at_risk is null[\s\S]*?currency is null/
+  );
+  for (const key of [
+    "evidence_fingerprint",
+    "series_key",
+    "semantic_key",
+    "revenue_action_fingerprint"
+  ]) {
+    assert.match(foundation, new RegExp(`${key}[^\\n]*\\^\\[0-9a-f\\]\\{64\\}\\$`));
+  }
+  assert.match(
+    foundation,
+    /create unique index revenue_leak_cases_active_series_uidx[\s\S]*?tenant_id, series_key[\s\S]*?where state in \('OPEN', 'SNOOZED'\)/
+  );
+  assert.match(
+    foundation,
+    /foreign key \(tenant_id, opportunity_id\)[\s\S]*?references tge\.opportunities\(tenant_id, id\)/
+  );
+  assert.match(
+    foundation,
+    /foreign key \(tenant_id, revenue_action_id, opportunity_id\)[\s\S]*?references tge\.revenue_actions\(tenant_id, id, opportunity_id\)/
+  );
+  assert.match(foundation, /deferrable initially deferred/);
+  assert.match(foundation, /enable row level security/);
+  assert.match(foundation, /force row level security/);
+  assert.match(
+    foundation,
+    /using \(tenant_id = tge\.current_tenant_id\(\)\)[\s\S]*?with check \(tenant_id = tge\.current_tenant_id\(\)\)/
+  );
+  assert.match(foundation, /create trigger revenue_leak_cases_runtime_history_integrity/);
+  assert.match(foundation, /RevenueLeakCase detection evidence is immutable/);
+  assert.match(foundation, /RevenueLeakCase audit history is append-only/);
+  assert.match(foundation, /RevenueLeakCase rows cannot be deleted by runtime/);
+  assert.match(foundation, /new\.revenue_action_fingerprint/);
+  assert.match(foundation, /old\.revenue_action_id is null/);
+  assert.match(foundation, /new\.superseded_by_case_id/);
+  assert.match(
+    foundation,
+    /grant select, insert, update on tge\.revenue_leak_cases to tge_runtime/
+  );
+  assert.doesNotMatch(
+    foundation,
+    /grant[^;]*delete[^;]*tge\.revenue_leak_cases/i
+  );
+  assert.doesNotMatch(foundation, /security\s+definer/i);
+  assert.match(foundation, /revoke execute on all functions in schema tge from public/);
 });
 
 test("runner, package scripts, Compose, and CI use the real pinned PostgreSQL gate", () => {

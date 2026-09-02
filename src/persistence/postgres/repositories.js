@@ -39,6 +39,9 @@ const {
 const {
   areDecimalLiteralsEquivalent
 } = require("../../imports/numericEvidence");
+const {
+  createPostgresRevenueLeakCaseRepository
+} = require("../../revenueLeakCases/postgresRevenueLeakCaseRepository");
 
 const ACTIVE_ACTION_STATUSES = [
   "RECOMMENDED",
@@ -228,6 +231,28 @@ function createPostgresRepositories({
     findCommit: (context, batchId) => run(
       context,
       scoped => scoped.imports.findCommit(batchId)
+    )
+  };
+  publicRepositories.revenueLeakCases = {
+    list: (context, filters) => run(
+      context,
+      scoped => scoped.revenueLeakCases.list(filters)
+    ),
+    findById: (context, id) => run(
+      context,
+      scoped => scoped.revenueLeakCases.findById(id)
+    ),
+    reconcile: (context, detection) => run(
+      context,
+      scoped => scoped.revenueLeakCases.reconcile(detection)
+    ),
+    transition: (context, id, transition) => run(
+      context,
+      scoped => scoped.revenueLeakCases.transition(id, transition)
+    ),
+    linkRevenueAction: (context, id, linkage) => run(
+      context,
+      scoped => scoped.revenueLeakCases.linkRevenueAction(id, linkage)
     )
   };
 
@@ -656,6 +681,11 @@ function createPostgresRepositories({
       transaction.client,
       transaction.tenantId,
       (name, details) => checkpoint(name, transaction, details)
+    );
+    scoped.revenueLeakCases = createPostgresRevenueLeakCaseRepository(
+      transaction.client,
+      transaction.tenantId,
+      transaction.subjectId
     );
     return scoped;
   }

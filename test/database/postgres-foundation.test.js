@@ -128,7 +128,8 @@ if (!testDatabaseUrl) {
         ["008", "008_revenue_action_outcome_integrity.sql"],
         ["009", "009_revenue_action_cancellation_integrity.sql"],
         ["010", "010_auth_membership_and_invitations.sql"],
-        ["011", "011_canonical_import_commit.sql"]
+        ["011", "011_canonical_import_commit.sql"],
+        ["012", "012_revenue_leak_case_foundation.sql"]
       ]
     );
     assert.equal(
@@ -140,7 +141,7 @@ if (!testDatabaseUrl) {
       sha256(fs.readFileSync(
         path.join(
           repositoryRoot,
-          "database/migrations/011_canonical_import_commit.sql"
+          "database/migrations/012_revenue_leak_case_foundation.sql"
         )
       ))
     );
@@ -220,12 +221,12 @@ if (!testDatabaseUrl) {
           migrationsDirectory: retroactiveDirectory,
           logger: silentLogger
         }),
-        /retroactive; append-only migrations must follow 011/
+        /retroactive; append-only migrations must follow 012/
       );
 
       copyMigrations(brokenDirectory);
       fs.writeFileSync(
-        path.join(brokenDirectory, "012_broken_transaction.sql"),
+        path.join(brokenDirectory, "013_broken_transaction.sql"),
         "create table tge.must_rollback (id integer);\nselect 1 / 0;\n"
       );
       await assert.rejects(
@@ -237,13 +238,13 @@ if (!testDatabaseUrl) {
         error => {
           assert.match(
             error.message,
-            /Migration 012_broken_transaction\.sql failed \[22012\]: division by zero/
+            /Migration 013_broken_transaction\.sql failed \[22012\]: division by zero/
           );
           assert.equal(error.code, "22012");
           assert.equal(error.migrationLine, undefined);
           assert.deepEqual(error.migration, {
-            id: "012",
-            fileName: "012_broken_transaction.sql"
+            id: "013",
+            fileName: "013_broken_transaction.sql"
           });
           assert.equal(error.cause?.message, "division by zero");
           for (const unsafeField of [
@@ -275,7 +276,7 @@ if (!testDatabaseUrl) {
             to_regclass('tge.must_rollback') as relation,
             exists (
               select 1 from tge_migration.schema_migrations
-              where migration_id = '012'
+              where migration_id = '013'
             ) as ledger_row
         `
       );
@@ -286,7 +287,7 @@ if (!testDatabaseUrl) {
 
       copyMigrations(ownerDirectory);
       fs.writeFileSync(
-        path.join(ownerDirectory, "012_owner_default_probe.sql"),
+        path.join(ownerDirectory, "013_owner_default_probe.sql"),
         `
           create function tge.owner_default_probe()
           returns integer
@@ -299,7 +300,7 @@ if (!testDatabaseUrl) {
         migrationsDirectory: ownerDirectory,
         logger: silentLogger
       });
-      assert.deepEqual(ownerProbe.applied, ["012"]);
+      assert.deepEqual(ownerProbe.applied, ["013"]);
       const ownerProbeSecurity = await adminClient.query(
         `
           select
@@ -1851,7 +1852,8 @@ if (!testDatabaseUrl) {
            'tge.opportunities'::regclass,
            'tge.tasks'::regclass,
            'tge.activities'::regclass,
-           'tge.revenue_actions'::regclass
+           'tge.revenue_actions'::regclass,
+           'tge.revenue_leak_cases'::regclass
          ])
        ) c
        where n.nspname = 'tge'
@@ -1861,7 +1863,8 @@ if (!testDatabaseUrl) {
            'guard_runtime_revenue_action',
            'guard_runtime_revenue_action_effect',
            'guard_runtime_revenue_action_lifecycle',
-           'guard_runtime_revenue_action_cancellation'
+           'guard_runtime_revenue_action_cancellation',
+           'guard_runtime_revenue_leak_case_history'
          )`,
       [runtimeRole]
     );
@@ -2292,6 +2295,8 @@ if (!testDatabaseUrl) {
     const indexNames = new Set(indexes.rows.map(row => row.indexname));
     for (const indexName of [
       "revenue_actions_active_identity_uidx",
+      "revenue_leak_cases_active_series_uidx",
+      "revenue_leak_cases_active_semantic_uidx",
       "activities_opportunity_order_idx",
       "tasks_opportunity_order_idx",
       "import_batches_raw_expiry_idx",
@@ -2308,7 +2313,7 @@ if (!testDatabaseUrl) {
         where n.nspname = 'tge' and c.relkind = 'r'
       `
     );
-    assert.ok(rls.rows.length >= 11);
+    assert.ok(rls.rows.length >= 13);
     for (const table of rls.rows) {
       assert.equal(table.relrowsecurity, true, table.relname);
       assert.equal(table.relforcerowsecurity, true, table.relname);
@@ -2327,6 +2332,7 @@ if (!testDatabaseUrl) {
           has_table_privilege($1, 'tge.import_staging_records', 'delete') as can_delete_staging,
           has_table_privilege($1, 'tge.import_id_map', 'update') as can_update_id_map,
           has_table_privilege($1, 'tge.import_id_map', 'delete') as can_delete_id_map,
+          has_table_privilege($1, 'tge.revenue_leak_cases', 'delete') as can_delete_leak_case,
           has_table_privilege($1, 'public.prospects', 'select') as can_select_legacy
       `,
       [runtimeRole]
@@ -2342,6 +2348,7 @@ if (!testDatabaseUrl) {
       can_delete_staging: false,
       can_update_id_map: false,
       can_delete_id_map: false,
+      can_delete_leak_case: false,
       can_select_legacy: false
     });
 
