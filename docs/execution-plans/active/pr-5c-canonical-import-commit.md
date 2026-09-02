@@ -60,12 +60,16 @@
     `MODULE_NOT_FOUND`; follow-on service, repository, static migration, and API
     regressions failed for the absent commit boundary before implementation.
   - Focused GREEN: `node --test test/import-commit.test.js
-    test/import-repository.test.js test/database-migrations-static.test.js
-    test/engineering-harness.test.js` passed **34/34** after an identical rerun
-    with loopback/temporary-Git-fixture permission. The sandbox-only first run
-    had `EPERM` for those environmental operations, not product assertions.
+    test/import-repository.test.js test/import-mapping.test.js
+    test/database-migrations-static.test.js test/engineering-harness.test.js`
+    passed **47/47**. A post-checkpoint regression first proved that invalid row
+    101 could bypass the PR-5B 100-row response sample (`READY` instead of
+    `FAILED`); commit planning now validates every staged row and that test is
+    green. An earlier sandbox-only run had `EPERM` for loopback/temporary-Git
+    operations, not product assertions, and its identical permitted rerun
+    passed.
   - Fast gate: `npm run verify:fast` passed the engineering harness and
-    integration **173/173**.
+    integration **174/174**.
   - Database: `TGE_TEST_DATABASE_URL=postgresql://127.0.0.1:55433/postgres npm
     run test:db` passed **47/47** against a disposable PostgreSQL **16.15**
     cluster. The server was stopped and its test-only directory removed.

@@ -31,7 +31,8 @@ reviewed source-identity column, and reviewed canonical selections:
 
 Tenant, subject, role, canonical records, outcome counts, fingerprints, and
 timestamps are never accepted as caller authority. The service rebuilds the
-mapping and row validation from locked immutable staging records. Omitted
+mapping and row validation from every locked immutable staging record; the
+PR-5B response sample limit is not a commit-validation limit. Omitted
 fields are explicitly unmapped; draft automatic suggestions are not silently
 accepted. Cross-tenant and nonexistent batches remain the same generic `404`.
 

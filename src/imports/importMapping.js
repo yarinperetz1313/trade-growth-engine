@@ -92,6 +92,14 @@ function field(targetField, declaredType, required, aliases) {
 }
 
 function buildImportAnalysis(staged, options = {}) {
+  return buildImportAnalysisInternal(staged, options, false);
+}
+
+function buildCompleteImportAnalysis(staged, options = {}) {
+  return buildImportAnalysisInternal(staged, options, true);
+}
+
+function buildImportAnalysisInternal(staged, options, includeAllRows) {
   validateEvidence(staged);
   if (
     !options
@@ -174,7 +182,7 @@ function buildImportAnalysis(staged, options = {}) {
       fields,
       unmappedSourceColumns: unmappedSourceColumns(headers, fields, sourceIdentity)
     },
-    rows: allRows.slice(0, ROW_SAMPLE_LIMIT),
+    rows: includeAllRows ? allRows : allRows.slice(0, ROW_SAMPLE_LIMIT),
     rowSampleLimit: ROW_SAMPLE_LIMIT,
     dataHealth: buildDataHealth(allRows, fields, target, headers, sourceIdentity)
   };
@@ -743,5 +751,6 @@ module.exports = {
   ImportMappingError,
   ROW_SAMPLE_LIMIT,
   TARGETS,
+  buildCompleteImportAnalysis,
   buildImportAnalysis
 };

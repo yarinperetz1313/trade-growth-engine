@@ -143,6 +143,20 @@ test("canonical commit rejects malformed and duplicate reviewed selections", () 
   }
 });
 
+test("canonical commit validates every staged row beyond the preview sample", () => {
+  const rows = Array.from({ length: 101 }, (_, index) => (
+    `${index},opp-${index},${index === 100 ? "" : `Trade ${index}`},QUALIFIED,0,0`
+  ));
+  const plan = buildCanonicalCommitPlan(stagedEvidence(
+    "source_id,id,business_name,stage,value,probability\n" + rows.join("\n")
+  ), commitInput());
+
+  assert.equal(plan.outcome, "FAILED");
+  assert.equal(plan.summary.total, 101);
+  assert.equal(plan.summary.failed, 101);
+  assert.equal(plan.failures[0].sourceOrdinal, 100);
+});
+
 test("the first exact source-ordered row wins and exact repeats are explicit skips", () => {
   const evidence = stagedEvidence(
     "source_id,id,business_name,stage,value,probability\n" +

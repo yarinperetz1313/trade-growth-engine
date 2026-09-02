@@ -1,6 +1,6 @@
 const {
   TARGETS,
-  buildImportAnalysis
+  buildCompleteImportAnalysis
 } = require("./importMapping");
 const { hashImportEvidence } = require("./csvParser");
 
@@ -50,7 +50,7 @@ function buildCanonicalCommitPlan(evidence, input) {
       selectedType: definition.declaredType
     }
   ));
-  const analysis = buildImportAnalysis(evidence, {
+  const analysis = buildCompleteImportAnalysis(evidence, {
     selections: reviewedSelections,
     sourceIdentitySelection: input.sourceIdentitySelection
   });
