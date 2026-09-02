@@ -29,11 +29,18 @@ async function request(
   }
 
   if (!response.ok) {
-    throw new Error(
+    const error = new Error(
       body?.message ||
       body?.error ||
       `Request failed: ${response.status}`
     );
+
+    error.name = "ApiError";
+    error.status = response.status;
+    error.code = body?.error || null;
+    error.details = body?.details;
+
+    throw error;
   }
 
   return body;
@@ -265,5 +272,59 @@ export function transitionRevenueAction(
       method: "POST",
       body: JSON.stringify(body)
     }
+  );
+}
+
+export function createImportPreview(
+  input
+) {
+  return request(
+    "/api/import-batches/preview",
+    {
+      method: "POST",
+      body: JSON.stringify(input)
+    }
+  );
+}
+
+export function getImportPreview(
+  batchId
+) {
+  return request(
+    `/api/import-batches/${encodeURIComponent(batchId)}/preview`
+  );
+}
+
+export function analyzeImportPreview(
+  batchId,
+  input = {}
+) {
+  return request(
+    `/api/import-batches/${encodeURIComponent(batchId)}/analysis`,
+    {
+      method: "POST",
+      body: JSON.stringify(input)
+    }
+  );
+}
+
+export function commitImportBatch(
+  batchId,
+  input
+) {
+  return request(
+    `/api/import-batches/${encodeURIComponent(batchId)}/commit`,
+    {
+      method: "POST",
+      body: JSON.stringify(input)
+    }
+  );
+}
+
+export function getImportCommit(
+  batchId
+) {
+  return request(
+    `/api/import-batches/${encodeURIComponent(batchId)}/commit`
   );
 }

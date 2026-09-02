@@ -4,9 +4,10 @@ PR-5A implements the CSV contract, parser limits, immutable staging, and
 bounded preview boundary from Issue #13. PR-5B now analyzes that evidence under
 the separate [deterministic mapping and Data Health](IMPORT_MAPPING_DATA_HEALTH.md)
 contract. PR-5C now consumes explicitly reviewed selections through the
-[controlled canonical import commit](CANONICAL_IMPORT_COMMIT.md). Staging and
-analysis themselves still write no canonical records. Retention deletion,
-browser flow, and XLSX remain deferred.
+[controlled canonical import commit](CANONICAL_IMPORT_COMMIT.md). PR-5D uses
+these contracts through the [browser CSV import workflow](BROWSER_IMPORT_WORKFLOW.md).
+Staging and analysis themselves still write no canonical records. Retention
+deletion and XLSX remain deferred.
 
 ## HTTP contract
 
@@ -115,5 +116,6 @@ grant or lifecycle function.
 
 The preview transaction never accesses prospects, opportunities, tasks,
 activities, or RevenueActions and records `external_action_performed: false`.
-PR-5C provides the separate explicit canonical commit transaction; controlled
-retention deletion remains a later Issue #13 slice.
+PR-5C provides the separate explicit canonical commit transaction. Raw-evidence
+retention/deletion acceptance and implementation are **DEFERRED to a separate
+reviewed follow-up**; PR-5D does not claim them complete.

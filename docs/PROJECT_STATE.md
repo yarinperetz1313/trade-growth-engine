@@ -26,8 +26,18 @@ transitions only `PREVIEWED` to `COMMITTED`. Migration `011` adds global source
 identity and typed-target uniqueness plus narrow lifecycle functions without
 broad import mutation grants. All three slices preserve exact raw cells and
 distinct unknown value states and perform no external actions. XLSX, controlled
-retention deletion, browser/adversarial breadth, and JSON cutover remain later
-Issue #13 work.
+retention deletion, and JSON cutover remain later Issue #13 work.
+
+PR-5D adds the hash-routed browser CSV import workspace over those existing
+contracts: upload, bounded raw-evidence preview, deterministic mapping review
+and change, all-row Data Health, explicit confirmation, canonical commit, and
+result. Contract-mocked managed Playwright fixtures cover loading, empty,
+general error, unauthorized, conflict, outcome-unknown reconciliation/retry,
+success, and adversarial unknown/blank/zero/nonnumeric evidence. Existing
+PostgreSQL suites remain authoritative for server persistence, auth, tenant
+isolation, commit, retry, reconciliation, and audit behavior. Raw-evidence
+retention/deletion acceptance and implementation are **DEFERRED to a separate
+reviewed follow-up**; PR-5D does not claim them complete.
 
 PR-5C fresh-review remediation additionally makes parser-unknown identities
 non-authoritative, keeps unsafe and underflowing decimal staging evidence lossless,
@@ -94,4 +104,4 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - **PR-2 is complete**: schema/security/migrations `001`–`004`, tests, and CI are present, and GitHub Actions run `33304131266` passed the full PostgreSQL 16.15 gate. This completion does not imply production repositories, Auth0 middleware, provisioning, import execution, or JSON cutover. Vendor decisions still gate provisioning and release.
 - **PR-3 and PR-4 are complete and merged through PR #16 at `b0a8e36`**: tenant-aware PostgreSQL repositories and transactional RevenueAction persistence consume the membership-derived auth boundary through a server-only trusted-context bridge. The underlying combined state at `9fe7cea` is verified by [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854), which passed the complete combined gate. Real Auth0 AU/SMTP acceptance remains deployment-gated; PR-5 and later product work remain not started.
 - **The Product Truth audit/fix work unit is complete through PR #17 at `5231838`**, and Issue #7 is closed. Its repository-backed UI corrections and managed Product Truth coverage do not establish external-provider, provisioning, import, or cutover evidence.
-- **PR-5A implements CSV contract, limits, immutable staging, and bounded preview; PR-5B implements draft mapping, validation, and Data Health analysis; PR-5C implements controlled atomic canonical commit and ID-map reconciliation.** PR-5D browser flow, retention deletion, cutover, and production provisioning remain unimplemented.
+- **PR-5A implements CSV contract, limits, immutable staging, and bounded preview; PR-5B implements draft mapping, validation, and Data Health analysis; PR-5C implements controlled atomic canonical commit and ID-map reconciliation; PR-5D implements the contract-mocked browser workflow and adversarial state coverage.** Raw-evidence retention/deletion acceptance is explicitly deferred to a separate reviewed follow-up; cutover and production provisioning remain unimplemented.

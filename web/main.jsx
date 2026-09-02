@@ -1,5 +1,6 @@
 import OpportunityCommandCenter from "./components/OpportunityCommandCenter.jsx";
 import RevenueCommandCenter from "./components/RevenueCommandCenter.jsx";
+import ImportWorkspace from "./components/ImportWorkspace.jsx";
 import React, {
   useEffect,
   useMemo,
@@ -30,7 +31,8 @@ const nav = [
   ["dashboard", "Dashboard"],
   ["prospects", "Prospects"],
   ["opportunities", "Opportunities"],
-  ["pipeline", "Pipeline"]
+  ["pipeline", "Pipeline"],
+  ["imports", "Imports"]
 ];
 
 const money = formatCommercialValue;
@@ -213,6 +215,10 @@ function App() {
 
         {page === "opportunities" && (
           <Opportunities />
+        )}
+
+        {page === "imports" && (
+          <ImportWorkspace />
         )}
 
       </main>
