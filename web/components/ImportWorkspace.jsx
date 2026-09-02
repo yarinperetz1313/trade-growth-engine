@@ -1,5 +1,6 @@
 import React, {
   useMemo,
+  useRef,
   useState
 } from "react";
 
@@ -10,6 +11,10 @@ import {
   getImportCommit,
   getImportPreview
 } from "../lib/api";
+import {
+  hasCompleteSourceIdentity,
+  isConfirmedMissingReconciliation
+} from "../lib/importContracts.mjs";
 
 const SOURCE_COLLECTIONS = [
   ["prospects", "Prospects"],
@@ -37,14 +42,17 @@ export default function ImportWorkspace() {
   const [result, setResult] = useState(null);
   const [conflict, setConflict] = useState(null);
   const [unknownOutcome, setUnknownOutcome] = useState(null);
+  const reconciliationInFlight = useRef(false);
 
   const headers = preview?.batch?.previewSummary?.headers || [];
   const dataHealth = analysis?.dataHealth;
+  const sourceIdentityComplete = hasCompleteSourceIdentity(dataHealth);
   const canContinue = Boolean(
     analysis
     && !dataHealthStale
     && dataHealth?.totalRows > 0
     && dataHealth?.rowsWithBlockingErrors === 0
+    && sourceIdentityComplete
     && sourceIdentityColumn
     && selections
       .filter(item => item.required)
@@ -77,7 +85,7 @@ export default function ImportWorkspace() {
           contentBase64
         }
       });
-      acceptPreview(response?.data || response);
+      acceptPreview(response);
     } catch (caught) {
       handlePreviewError(caught);
     } finally {
@@ -98,15 +106,16 @@ export default function ImportWorkspace() {
 
   async function reconcilePreview() {
     const attemptedId = unknownOutcome?.batchId;
-    if (!attemptedId) return;
+    if (!attemptedId || reconciliationInFlight.current) return;
+    reconciliationInFlight.current = true;
     setOperation("reconcile-preview");
     setError(null);
     try {
       const response = await getImportPreview(attemptedId);
-      acceptPreview(response?.data || response);
+      acceptPreview(response);
       setNotice("Preview reconciled after an unconfirmed transaction outcome.");
     } catch (caught) {
-      if (caught?.code === "IMPORT_BATCH_UNAVAILABLE" || caught?.status === 404) {
+      if (isConfirmedMissingReconciliation(caught)) {
         setUnknownOutcome(null);
         setError({
           ...apiError(caught),
@@ -116,6 +125,7 @@ export default function ImportWorkspace() {
         setError(apiError(caught));
       }
     } finally {
+      reconciliationInFlight.current = false;
       setOperation(null);
     }
   }
@@ -125,7 +135,7 @@ export default function ImportWorkspace() {
     clearMessages();
     try {
       const response = await analyzeImportPreview(preview.batch.id, {});
-      acceptAnalysis(response?.data || response);
+      acceptAnalysis(response);
       setPhase("mapping");
     } catch (caught) {
       setError(apiError(caught));
@@ -173,7 +183,7 @@ export default function ImportWorkspace() {
           sourceColumn: sourceIdentityColumn
         }
       });
-      acceptAnalysis(response?.data || response);
+      acceptAnalysis(response);
       setNotice("Mapping and Data Health refreshed.");
     } catch (caught) {
       setError(apiError(caught));
@@ -197,7 +207,7 @@ export default function ImportWorkspace() {
     setConflict(null);
     try {
       const response = await commitImportBatch(preview.batch.id, reviewedRequest);
-      acceptResult(response?.data || response);
+      acceptResult(response);
     } catch (caught) {
       if (caught?.code === "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN") {
         setUnknownOutcome({
@@ -218,19 +228,22 @@ export default function ImportWorkspace() {
   }
 
   async function reconcileCommit() {
+    if (reconciliationInFlight.current) return;
+    reconciliationInFlight.current = true;
     setOperation("reconcile-commit");
     setError(null);
     try {
       const response = await getImportCommit(unknownOutcome?.batchId || preview.batch.id);
-      acceptResult(response?.data || response);
+      acceptResult(response);
     } catch (caught) {
-      setError(caught?.status === 404
+      setError(isConfirmedMissingReconciliation(caught)
         ? {
             ...apiError(caught),
             message: "No committed result was found. You may retry the same confirmed request."
           }
         : apiError(caught));
     } finally {
+      reconciliationInFlight.current = false;
       setOperation(null);
     }
   }
@@ -300,7 +313,7 @@ export default function ImportWorkspace() {
         <UploadStep
           error={error}
           file={file}
-          loading={operation === "preview"}
+          loading={Boolean(operation)}
           onFile={setFile}
           onPreview={createPreview}
           onReconcile={reconcilePreview}
@@ -339,6 +352,7 @@ export default function ImportWorkspace() {
           }}
           selections={selections}
           sourceIdentityColumn={sourceIdentityColumn}
+          sourceIdentityComplete={sourceIdentityComplete}
           canContinue={canContinue}
         />
       )}
@@ -427,7 +441,7 @@ function UploadStep({
         )}
         {error && (
           <StatusPanel title={unauthorized ? null : "Preview unavailable"} message={error.message} tone="error">
-            {!unauthorized && (
+            {!unauthorized && !unknownOutcome && (
               <button className="text-button" disabled={loading} onClick={onRetry}>
                 Retry preview
               </button>
@@ -532,7 +546,8 @@ function MappingStep({
   onSelection,
   onSourceIdentity,
   selections,
-  sourceIdentityColumn
+  sourceIdentityColumn,
+  sourceIdentityComplete
 }) {
   const usedColumns = new Map(selections.filter(item => item.sourceColumn).map(item => [item.sourceColumn, item.targetField]));
   const unsupported = analysis?.mapping?.status === "UNSUPPORTED_TARGET";
@@ -605,6 +620,8 @@ function MappingStep({
               ? "This staged collection is preview-only."
             : analysis?.dataHealth?.totalRows === 0
               ? "An empty CSV cannot be committed."
+              : !sourceIdentityComplete
+                ? "Source identity must cover every staged row before confirmation."
               : "Resolve blocking mapping or row errors before confirmation."}</span>
         )}
         <button className="primary" disabled={!canContinue} onClick={onContinue}>Continue to confirmation</button>
@@ -686,6 +703,9 @@ function ConfirmationStep({
       </div>
       <div className="import-panel-body confirmation-body">
         {error && <StatusPanel title="Commit unavailable" message={error.message} tone="error" />}
+        {error?.code === "IMPORT_COMMIT_VALIDATION_FAILED" && (
+          <CommitValidationEvidence details={error.details} />
+        )}
         <DataHealth health={analysis.dataHealth} rows={analysis.rows} stale={false} />
         <label>
           <span>Source system</span>
@@ -703,6 +723,27 @@ function ConfirmationStep({
         </div>
       </div>
     </section>
+  );
+}
+
+function CommitValidationEvidence({ details }) {
+  const failures = Array.isArray(details?.failures)
+    ? details.failures.slice(0, 100)
+    : [];
+  if (failures.length === 0) return null;
+  return (
+    <div className="data-health-issues">
+      <h4>Commit validation evidence</h4>
+      <p>{details?.summary?.failed ?? failures.length} failed validation</p>
+      {failures.map((failure, index) => (
+        <div key={`${failure?.sourceOrdinal}:${failure?.code}:${index}`}>
+          <strong>Source ordinal {failure?.sourceOrdinal ?? "unknown"} · {failure?.code || "VALIDATION_FAILED"}</strong>
+          {(Array.isArray(failure?.validationErrors) ? failure.validationErrors : []).map((issue, issueIndex) => (
+            <code key={`${issue?.code}:${issueIndex}`}>{issue?.code || "VALIDATION_FAILED"}</code>
+          ))}
+        </div>
+      ))}
+    </div>
   );
 }
 

@@ -258,6 +258,29 @@ export function conflictFixture() {
   };
 }
 
+export function validationFailureFixture() {
+  return {
+    outcome: "FAILED",
+    batch: { id: "browser-batch-1", status: "PREVIEWED" },
+    rows: [
+      { sourceOrdinal: 0, disposition: "FAILED" },
+      { sourceOrdinal: 1, disposition: "FAILED" }
+    ],
+    summary: { total: 2, committed: 0, skipped: 0, conflicted: 0, failed: 2 },
+    conflicts: [],
+    failures: [{
+      code: "CANONICAL_ROW_VALIDATION_FAILED",
+      sourceOrdinal: 1,
+      validationErrors: [{
+        code: "SOURCE_IDENTITY_UNKNOWN",
+        identityRole: "SOURCE_IDENTITY",
+        sourceOrdinal: 1
+      }]
+    }],
+    reconciled: false
+  };
+}
+
 function cell(raw, valueKind) {
   return { present: true, raw, valueKind };
 }

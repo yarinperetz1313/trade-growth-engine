@@ -5,7 +5,8 @@ import {
   analysisFixture,
   committedFixture,
   conflictFixture,
-  previewFixture
+  previewFixture,
+  validationFailureFixture
 } from "./fixtures/import-contracts.mjs";
 
 const apiBaseUrl = process.env.VITE_API_URL || "http://127.0.0.1:3100";
@@ -138,6 +139,47 @@ test("keeps empty, unauthorized, and retryable transport failures distinct", asy
   await expect(page.getByText("Only an OWNER or ADMIN can run imports.")).toBeVisible();
 });
 
+test("fails closed on invalid successful preview and analysis responses", async ({ page }) => {
+  let previewPosts = 0;
+  let analysisPosts = 0;
+  await page.route(`${apiBaseUrl}/api/import-batches/preview`, route => {
+    previewPosts += 1;
+    if (previewPosts === 1) {
+      return json(route, 200, {
+        ok: false,
+        error: "IMPORT_PREVIEW_REJECTED",
+        message: "The preview was rejected despite the HTTP status."
+      });
+    }
+    if (previewPosts === 2) return empty(route, 200);
+    return json(route, 201, { ok: true, data: previewFixture() });
+  });
+  await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/analysis`, route => {
+    analysisPosts += 1;
+    return analysisPosts === 1
+      ? json(route, 200, { ok: true, data: {} })
+      : json(route, 200, { ok: true, data: analysisFixture() });
+  });
+
+  await page.goto("/#imports");
+  await selectCsv(page, adversarialCsv);
+  await page.getByRole("button", { name: "Create preview" }).click();
+  await expect(page.getByText("The preview was rejected despite the HTTP status.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Raw evidence preview" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Retry preview" }).click();
+  await expect(page.getByText("The import service returned an invalid successful response.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Raw evidence preview" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Retry preview" }).click();
+  await page.getByRole("button", { name: "Review deterministic mapping" }).click();
+  await expect(page.getByText("The import service returned an invalid successful response.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Deterministic mapping review" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Review deterministic mapping" }).click();
+  await expect(page.getByRole("heading", { name: "Deterministic mapping review" })).toBeVisible();
+});
+
 test("reconciles an unknown preview outcome before retrying the upload", async ({ page }) => {
   const requests = [];
   let previewPosts = 0;
@@ -173,6 +215,68 @@ test("reconciles an unknown preview outcome before retrying the upload", async (
   await page.getByRole("button", { name: "Retry preview" }).click();
   await expect(page.getByRole("heading", { name: "Raw evidence preview" })).toBeVisible();
   expect(requests).toEqual(["POST", "GET", "POST"]);
+});
+
+test("keeps preview outcome unknown after a non-404 reconciliation failure and coalesces GETs", async ({ page }) => {
+  let previewPosts = 0;
+  let reconciliationGets = 0;
+  await page.route(`${apiBaseUrl}/api/import-batches/preview`, route => {
+    previewPosts += 1;
+    return json(route, 500, {
+      ok: false,
+      error: "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN",
+      message: "PostgreSQL did not confirm the transaction outcome; reconcile the attempted result before retrying.",
+      details: { attemptedId: "browser-batch-1" }
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/preview`, async route => {
+    reconciliationGets += 1;
+    await new Promise(resolve => setTimeout(resolve, 150));
+    return json(route, 200, {
+      ok: false,
+      error: "IMPORT_BATCH_UNAVAILABLE",
+      message: "Preview reconciliation is temporarily unavailable."
+    });
+  });
+
+  await page.goto("/#imports");
+  await selectCsv(page, adversarialCsv);
+  await page.getByRole("button", { name: "Create preview" }).click();
+  const reconcile = page.getByRole("button", { name: "Reconcile preview" });
+  await reconcile.evaluate(button => {
+    button.click();
+    button.click();
+  });
+
+  await expect(page.getByText("Preview reconciliation is temporarily unavailable.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Preview outcome unknown" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry preview" })).toHaveCount(0);
+  expect(reconciliationGets).toBe(1);
+  expect(previewPosts).toBe(1);
+});
+
+test("blocks confirmation when source identity does not cover every staged row", async ({ page }) => {
+  const incomplete = analysisFixture();
+  incomplete.dataHealth.sourceIdCoverage = {
+    coveredRows: 1,
+    totalRows: 2,
+    percentage: 50
+  };
+  await page.route(`${apiBaseUrl}/api/import-batches/preview`, route =>
+    json(route, 201, { ok: true, data: previewFixture() })
+  );
+  await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/analysis`, route =>
+    json(route, 200, { ok: true, data: incomplete })
+  );
+
+  await page.goto("/#imports");
+  await selectCsv(page, adversarialCsv);
+  await page.getByRole("button", { name: "Create preview" }).click();
+  await page.getByRole("button", { name: "Review deterministic mapping" }).click();
+
+  await expect(page.getByText("50% coverage")).toBeVisible();
+  await expect(page.getByText("Source identity must cover every staged row before confirmation.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue to confirmation" })).toBeDisabled();
 });
 
 test("shows canonical conflicts without reporting success", async ({ page }) => {
@@ -225,6 +329,137 @@ test("reconciles an unknown commit outcome before offering another POST", async 
   expect(commitPosts).toBe(1);
 });
 
+test("keeps commit outcome unknown when a 2xx reconciliation envelope is unsuccessful", async ({ page }) => {
+  let reconciliationGets = 0;
+  await mockReadyToCommit(page);
+  await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/commit`, async route => {
+    if (route.request().method() === "GET") {
+      reconciliationGets += 1;
+      await new Promise(resolve => setTimeout(resolve, 150));
+      return json(route, 200, {
+        ok: false,
+        error: "IMPORT_RECONCILIATION_UNAVAILABLE",
+        message: "Commit reconciliation did not return a successful result."
+      });
+    }
+    return json(route, 500, {
+      ok: false,
+      error: "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN",
+      message: "PostgreSQL did not confirm the transaction outcome; reconcile the attempted result before retrying.",
+      details: { attemptedId: "browser-batch-1" }
+    });
+  });
+
+  await reachConfirmation(page);
+  await page.getByLabel("Source system").fill("pilot-crm");
+  await page.getByLabel("I confirm this reviewed mapping and Data Health result.").check();
+  await page.getByRole("button", { name: "Commit 2 rows" }).click();
+  const reconcile = page.getByRole("button", { name: "Reconcile commit" });
+  await reconcile.evaluate(button => {
+    button.click();
+    button.click();
+  });
+
+  await expect(page.getByText("Commit reconciliation did not return a successful result.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Commit outcome unknown" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry same commit" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Import committed" })).toHaveCount(0);
+  expect(reconciliationGets).toBe(1);
+});
+
+test("never reports malformed or unsuccessful 2xx commit results as committed", async ({ page }) => {
+  let commitPosts = 0;
+  await mockReadyToCommit(page);
+  await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/commit`, route => {
+    commitPosts += 1;
+    if (commitPosts === 1) return empty(route, 200);
+    return json(route, 200, {
+      ok: true,
+      data: {
+        ...validationFailureFixture(),
+        outcome: "FAILED"
+      }
+    });
+  });
+
+  await reachConfirmation(page);
+  await page.getByLabel("Source system").fill("pilot-crm");
+  await page.getByLabel("I confirm this reviewed mapping and Data Health result.").check();
+  const commit = page.getByRole("button", { name: "Commit 2 rows" });
+  await commit.click();
+  await expect(page.getByText("The import service returned an invalid successful response.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Import committed" })).toHaveCount(0);
+
+  await commit.click();
+  await expect(page.getByText("The import service returned an invalid successful response.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Import committed" })).toHaveCount(0);
+});
+
+test("preserves row-level validation evidence returned by a 422 commit", async ({ page }) => {
+  await mockReadyToCommit(page);
+  await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/commit`, route =>
+    json(route, 422, {
+      ok: false,
+      error: "IMPORT_COMMIT_VALIDATION_FAILED",
+      message: "The canonical import commit failed reviewed mapping validation.",
+      details: validationFailureFixture()
+    })
+  );
+
+  await reachConfirmation(page);
+  await page.getByLabel("Source system").fill("pilot-crm");
+  await page.getByLabel("I confirm this reviewed mapping and Data Health result.").check();
+  await page.getByRole("button", { name: "Commit 2 rows" }).click();
+
+  await expect(page.getByText("The canonical import commit failed reviewed mapping validation.")).toBeVisible();
+  await expect(page.getByText("2 failed validation")).toBeVisible();
+  await expect(page.getByText("Source ordinal 1 · CANONICAL_ROW_VALIDATION_FAILED")).toBeVisible();
+  await expect(page.getByText("SOURCE_IDENTITY_UNKNOWN")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Import committed" })).toHaveCount(0);
+});
+
+test("retries a commit only after GET 404 with the identical confirmed request", async ({ page }) => {
+  const operations = [];
+  const commitBodies = [];
+  let commitPosts = 0;
+  await mockReadyToCommit(page);
+  await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/commit`, route => {
+    const method = route.request().method();
+    operations.push(method);
+    if (method === "GET") {
+      return json(route, 404, {
+        ok: false,
+        error: "IMPORT_BATCH_UNAVAILABLE",
+        message: "The requested import batch is unavailable."
+      });
+    }
+    commitPosts += 1;
+    commitBodies.push(route.request().postDataJSON());
+    return commitPosts === 1
+      ? json(route, 500, {
+          ok: false,
+          error: "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN",
+          message: "PostgreSQL did not confirm the transaction outcome; reconcile the attempted result before retrying.",
+          details: { attemptedId: "browser-batch-1" }
+        })
+      : json(route, 200, { ok: true, data: committedFixture() });
+  });
+
+  await reachConfirmation(page);
+  await page.getByLabel("Source system").fill("pilot-crm");
+  await page.getByLabel("I confirm this reviewed mapping and Data Health result.").check();
+  await page.getByRole("button", { name: "Commit 2 rows" }).click();
+  await page.getByRole("button", { name: "Reconcile commit" }).click();
+  await expect(page.getByText("No committed result was found. You may retry the same confirmed request.")).toBeVisible();
+  await page.getByRole("button", { name: "Retry same commit" }).click();
+  await expect(page.getByRole("heading", { name: "Import committed" })).toBeVisible();
+
+  expect(operations).toEqual(["POST", "GET", "POST"]);
+  expect(commitBodies).toHaveLength(2);
+  expect(commitBodies[1]).toEqual(commitBodies[0]);
+  expect(commitBodies[1].idempotencyKey).toBe(commitBodies[0].idempotencyKey);
+});
+
 async function mockReadyToCommit(page) {
   await page.route(`${apiBaseUrl}/api/import-batches/preview`, route =>
     json(route, 201, { ok: true, data: previewFixture() })
@@ -257,4 +492,8 @@ async function json(route, status, body) {
     contentType: "application/json",
     body: JSON.stringify(body)
   });
+}
+
+async function empty(route, status) {
+  await route.fulfill({ status, body: "" });
 }

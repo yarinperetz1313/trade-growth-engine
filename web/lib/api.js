@@ -1,3 +1,9 @@
+import {
+  unwrapImportAnalysisResponse,
+  unwrapImportCommitResponse,
+  unwrapImportPreviewResponse
+} from "./importContracts.mjs";
+
 const API_BASE =
   import.meta.env.VITE_API_URL ||
   "http://localhost:3000";
@@ -28,7 +34,7 @@ async function request(
     body = null;
   }
 
-  if (!response.ok) {
+  if (!response.ok || body?.ok === false) {
     const error = new Error(
       body?.message ||
       body?.error ||
@@ -275,56 +281,56 @@ export function transitionRevenueAction(
   );
 }
 
-export function createImportPreview(
+export async function createImportPreview(
   input
 ) {
-  return request(
+  return unwrapImportPreviewResponse(await request(
     "/api/import-batches/preview",
     {
       method: "POST",
       body: JSON.stringify(input)
     }
-  );
+  ));
 }
 
-export function getImportPreview(
+export async function getImportPreview(
   batchId
 ) {
-  return request(
+  return unwrapImportPreviewResponse(await request(
     `/api/import-batches/${encodeURIComponent(batchId)}/preview`
-  );
+  ), batchId);
 }
 
-export function analyzeImportPreview(
+export async function analyzeImportPreview(
   batchId,
   input = {}
 ) {
-  return request(
+  return unwrapImportAnalysisResponse(await request(
     `/api/import-batches/${encodeURIComponent(batchId)}/analysis`,
     {
       method: "POST",
       body: JSON.stringify(input)
     }
-  );
+  ));
 }
 
-export function commitImportBatch(
+export async function commitImportBatch(
   batchId,
   input
 ) {
-  return request(
+  return unwrapImportCommitResponse(await request(
     `/api/import-batches/${encodeURIComponent(batchId)}/commit`,
     {
       method: "POST",
       body: JSON.stringify(input)
     }
-  );
+  ), batchId);
 }
 
-export function getImportCommit(
+export async function getImportCommit(
   batchId
 ) {
-  return request(
+  return unwrapImportCommitResponse(await request(
     `/api/import-batches/${encodeURIComponent(batchId)}/commit`
-  );
+  ), batchId);
 }
