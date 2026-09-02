@@ -178,6 +178,153 @@ test("zero-row evidence retains its declared target and malformed selections fai
   );
 });
 
+test("analysis fails closed when preview row count does not match fetched staging evidence", () => {
+  const staged = evidence("id,business_name\np-1,Acme");
+  staged.batch.previewSummary.rowCount = 2;
+
+  assert.throws(
+    () => buildImportAnalysis(staged),
+    error => error instanceof ImportMappingError
+      && error.code === "IMPORT_MAPPING_EVIDENCE_INVALID"
+  );
+});
+
+test("inferred types describe source samples independently from declared target types", () => {
+  const analysis = buildImportAnalysis(evidence([
+    "id,business_name,qualification_score,qualification_status",
+    "101,2026-08-01T10:00:00Z,high,QUALIFIED"
+  ].join("\n")));
+
+  assert.deepEqual(
+    ["id", "business_name", "qualification_score", "qualification_status"].map(targetField => ({
+      targetField,
+      inferredType: field(analysis, targetField).inferredType,
+      declaredType: field(analysis, targetField).declaredType
+    })),
+    [
+      { targetField: "id", inferredType: "NUMBER", declaredType: "TEXT" },
+      { targetField: "business_name", inferredType: "TIMESTAMP", declaredType: "TEXT" },
+      { targetField: "qualification_score", inferredType: "TEXT", declaredType: "NUMBER" },
+      { targetField: "qualification_status", inferredType: "TEXT", declaredType: "STATUS" }
+    ]
+  );
+});
+
+test("source identity is mapped separately from canonical target id for coverage and duplicates", () => {
+  const analysis = buildImportAnalysis(evidence([
+    "id,external id,business_name",
+    "canonical-1,source-1,Acme",
+    "canonical-2,source-1,Beta",
+    "canonical-3,,Gamma",
+    "canonical-4,   ,Delta"
+  ].join("\n")));
+
+  assert.equal(field(analysis, "id").sourceColumn, "id");
+  assert.deepEqual(
+    {
+      role: analysis.mapping.sourceIdentity.role,
+      sourceColumn: analysis.mapping.sourceIdentity.sourceColumn,
+      inferredType: analysis.mapping.sourceIdentity.inferredType,
+      suggestion: analysis.mapping.sourceIdentity.suggestion
+    },
+    {
+      role: "SOURCE_IDENTITY",
+      sourceColumn: "external id",
+      inferredType: "TEXT",
+      suggestion: {
+        state: "SUGGESTED_ALIAS",
+        strategy: "ORDERED_ALIAS",
+        nonAuthoritative: true,
+        accepted: false
+      }
+    }
+  );
+  assert.deepEqual(analysis.dataHealth.sourceIdCoverage, {
+    coveredRows: 2,
+    totalRows: 4,
+    percentage: 50
+  });
+  assert.ok(!analysis.mapping.unmappedSourceColumns.includes("external id"));
+  assert.ok(!analysis.dataHealth.unknownUnmappedStatuses.unmappedSourceColumns.includes("external id"));
+  assert.ok(analysis.rows[1].errors.some(issue =>
+    issue.code === "DUPLICATE_SOURCE_ID"
+    && issue.sourceColumn === "external id"
+    && issue.rawEvidence.raw === "source-1"
+  ));
+  assert.ok(!analysis.rows[1].errors.some(issue =>
+    issue.code === "DUPLICATE_SOURCE_ID"
+    && issue.rawEvidence.raw === "canonical-2"
+  ));
+});
+
+test("row validation enforces canonical probability, task state, and calendar timestamp constraints", () => {
+  const opportunities = buildImportAnalysis(evidence([
+    "id,business_name,stage,value,probability,created_at",
+    "o-1,Acme,NEW,0,0,2024-02-29T10:00:00Z",
+    "o-2,Beta,NEW,100,1,2026-08-01T10:00:00+10:00",
+    "o-3,Gamma,NEW,50,-0.01,2026-02-29T10:00:00Z",
+    "o-4,Delta,NEW,50,1.01,2026-04-31",
+    "o-5,   ,NEW,-1,0.5,2026-08-01"
+  ].join("\n"), "opportunities"));
+
+  assert.equal(opportunities.rows[0].valid, true);
+  assert.equal(opportunities.rows[1].valid, true);
+  assert.ok(opportunities.rows[2].errors.some(issue =>
+    issue.code === "PROBABILITY_OUT_OF_RANGE"
+    && issue.rawEvidence.raw === "-0.01"
+  ));
+  assert.ok(opportunities.rows[2].errors.some(issue =>
+    issue.code === "TIMESTAMP_INVALID"
+    && issue.rawEvidence.raw === "2026-02-29T10:00:00Z"
+  ));
+  assert.ok(opportunities.rows[3].errors.some(issue =>
+    issue.code === "PROBABILITY_OUT_OF_RANGE"
+    && issue.rawEvidence.raw === "1.01"
+  ));
+  assert.ok(opportunities.rows[3].errors.some(issue =>
+    issue.code === "TIMESTAMP_INVALID"
+    && issue.rawEvidence.raw === "2026-04-31"
+  ));
+  assert.ok(opportunities.rows[4].errors.some(issue =>
+    issue.code === "REQUIRED_VALUE_MISSING"
+    && issue.targetField === "business_name"
+    && issue.rawEvidence.raw === "   "
+  ));
+  assert.ok(opportunities.rows[4].errors.some(issue =>
+    issue.code === "COMMERCIAL_VALUE_OUT_OF_RANGE"
+    && issue.rawEvidence.raw === "-1"
+  ));
+
+  const tasks = buildImportAnalysis(evidence([
+    "id,opportunity_id,title,status,completed_at",
+    "t-1,o-1,Call,OPEN,",
+    "t-2,o-1,Follow up,IN_PROGRESS,",
+    "t-3,o-1,Close,DONE,",
+    "t-4,o-1,Won,COMPLETED,",
+    "t-5,o-1,Reopened,OPEN,2026-08-01T10:00:00Z",
+    "t-6,o-1,Finished,COMPLETED,2026-08-01T10:00:00Z",
+    "t-7,o-1,Bad date,COMPLETED,2026-02-29T10:00:00Z"
+  ].join("\n"), "tasks"), {
+    selections: [{
+      targetField: "completed_at",
+      sourceColumn: "completed_at",
+      selectedType: "TEXT"
+    }]
+  });
+
+  assert.equal(tasks.rows[0].valid, true);
+  assert.equal(tasks.rows[1].valid, true);
+  assert.ok(tasks.rows[2].errors.some(issue => issue.code === "TASK_STATUS_INVALID"));
+  assert.ok(tasks.rows[3].errors.some(issue =>
+    issue.code === "TASK_COMPLETION_TIMESTAMP_REQUIRED"
+  ));
+  assert.ok(tasks.rows[4].errors.some(issue =>
+    issue.code === "TASK_COMPLETION_TIMESTAMP_INCONSISTENT"
+  ));
+  assert.equal(tasks.rows[5].valid, true);
+  assert.ok(tasks.rows[6].errors.some(issue => issue.code === "TIMESTAMP_INVALID"));
+});
+
 test("unmapped required targets make every affected row explicitly blocking", () => {
   const analysis = buildImportAnalysis(evidence("mystery\nvalue"));
   assert.equal(analysis.dataHealth.validRows, 0);

@@ -56,10 +56,17 @@
   a stale Pilot plan status, capped-detail wording, unsupported-target wording,
   and synthesized raw evidence for unmapped targets. Regression coverage now
   keeps required mapping state blocking and separate from immutable cell
-  evidence. The final review reported no other findings.
-- Final-review evidence: focused mapping 8/8; affected imports 25/25; harness
-  plus integration 155/155; production build passed; `git diff --check`
-  passed before the final checkpoint.
+  evidence.
+- Follow-up fresh-review remediation: canonical constraints now cover nonblank
+  required text, non-negative commercial value, probability `0..1`, strict
+  calendar timestamps, and task status/completion consistency. Source identity
+  is a separate reviewable draft mapping role and drives coverage/duplicate
+  evidence without using canonical target `id` or the synthetic staging locator.
+  Source inference is independent from declared target type, and analysis fails
+  closed when preview `rowCount` does not equal fetched staging evidence.
+- Follow-up verification: focused mapping 12/12; affected import/persistence
+  suite 29/29; `npm run verify:fast` passed the harness and all 159 integration
+  tests; `git diff --check` passed before the remediation checkpoint.
 - Debt/follow-up: PR-5C owns accepted mapping persistence, controlled commit,
   ID-map/canonical conflict reconciliation, and lifecycle transitions; PR-5D
   owns browser mapping UI and E2E.

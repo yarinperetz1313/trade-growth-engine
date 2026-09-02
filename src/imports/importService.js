@@ -160,8 +160,10 @@ function createImportService({
       !input
       || typeof input !== "object"
       || Array.isArray(input)
-      || !Object.keys(input).every(key => key === "selections")
-      || Object.keys(input).length > 1
+      || !Object.keys(input).every(key => [
+        "selections", "sourceIdentitySelection"
+      ].includes(key))
+      || Object.keys(input).length > 2
     ) invalidRequest();
     const evidence = await persistence
       .forTenant(trustedPersistence)

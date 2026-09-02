@@ -249,6 +249,7 @@ test("analysis returns a reviewable draft over all staged rows without canonical
     persistenceContext,
     batchId: "batch-analysis",
     input: {
+      sourceIdentitySelection: { sourceColumn: "External Key" },
       selections: [
         { targetField: "id", sourceColumn: "External Key", selectedType: "TEXT" },
         { targetField: "business_name", sourceColumn: "Trading Name", selectedType: "TEXT" }
@@ -259,6 +260,8 @@ test("analysis returns a reviewable draft over all staged rows without canonical
   assert.equal(analysis.mapping.status, "DRAFT");
   assert.equal(analysis.mapping.accepted, false);
   assert.equal(analysis.mapping.selectionState, "USER_EDITED_DRAFT");
+  assert.equal(analysis.mapping.sourceIdentity.sourceColumn, "External Key");
+  assert.equal(analysis.mapping.sourceIdentity.suggestion.state, "USER_SELECTED");
   assert.equal(analysis.dataHealth.totalRows, 1);
   assert.deepEqual(
     persistence.calls.slice(-2).map(([name]) => name),

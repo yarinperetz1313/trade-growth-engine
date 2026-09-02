@@ -1,5 +1,6 @@
 const ROW_SAMPLE_LIMIT = 100;
 const FIELD_SAMPLE_LIMIT = 5;
+const TASK_STATUSES = new Set(["OPEN", "IN_PROGRESS", "COMPLETED", "CANCELLED"]);
 
 class ImportMappingError extends Error {
   constructor(code, message, status = 400) {
@@ -14,6 +15,13 @@ const commonTimestamps = [
   field("created_at", "TIMESTAMP", false, ["created on", "created", "created date"]),
   field("updated_at", "TIMESTAMP", false, ["updated on", "modified at", "last modified"])
 ];
+
+const SOURCE_IDENTITY = field(
+  "source_id",
+  "TEXT",
+  true,
+  ["source id", "external id", "external key", "record id", "id"]
+);
 
 const TARGETS = Object.freeze({
   prospects: Object.freeze({
@@ -89,8 +97,10 @@ function buildImportAnalysis(staged, options = {}) {
     !options
     || typeof options !== "object"
     || Array.isArray(options)
-    || !Object.keys(options).every(key => key === "selections")
-    || Object.keys(options).length > 1
+    || !Object.keys(options).every(key => [
+      "selections", "sourceIdentitySelection"
+    ].includes(key))
+    || Object.keys(options).length > 2
   ) selectionInvalid();
   const targetCollection = staged.records[0]?.sourceCollection
     || staged.batch?.previewSummary?.sourceCollection
@@ -99,9 +109,13 @@ function buildImportAnalysis(staged, options = {}) {
   const target = TARGETS[targetCollection];
   const hasSelections = Object.hasOwn(options, "selections");
   const selectionInput = options.selections;
+  const hasSourceIdentitySelection = Object.hasOwn(options, "sourceIdentitySelection");
   if (hasSelections && !Array.isArray(selectionInput)) selectionInvalid();
   if (!target) {
-    if (hasSelections && selectionInput.length > 0) selectionInvalid();
+    if (
+      (hasSelections && selectionInput.length > 0)
+      || hasSourceIdentitySelection
+    ) selectionInvalid();
     return unsupportedAnalysis(staged, targetCollection);
   }
 
@@ -115,8 +129,21 @@ function buildImportAnalysis(staged, options = {}) {
     selections
   ));
   markAutomaticSourceReuse(fields);
+  const sourceIdentity = mapSourceIdentity(
+    headers,
+    staged.records,
+    hasSourceIdentitySelection
+      ? validateSourceIdentitySelection(options.sourceIdentitySelection, headers)
+      : undefined
+  );
 
-  const allRows = validateRows(staged.records, headers, fields);
+  const allRows = validateRows(
+    staged.records,
+    headers,
+    fields,
+    targetCollection,
+    sourceIdentity
+  );
   for (const mappedField of fields) {
     mappedField.validationIssues.push(...allRows.slice(0, ROW_SAMPLE_LIMIT).flatMap(row => [
       ...row.errors,
@@ -129,31 +156,56 @@ function buildImportAnalysis(staged, options = {}) {
       )
     )));
   }
+  sourceIdentity.validationIssues.push(...allRows.slice(0, ROW_SAMPLE_LIMIT).flatMap(row => [
+    ...row.errors,
+    ...row.warnings
+  ]).filter(issue => issue.identityRole === "SOURCE_IDENTITY"));
 
   return {
     mapping: {
       status: "DRAFT",
       authoritative: false,
       accepted: false,
-      selectionState: selections.size > 0 ? "USER_EDITED_DRAFT" : "SUGGESTED_DRAFT",
+      selectionState: selections.size > 0 || hasSourceIdentitySelection
+        ? "USER_EDITED_DRAFT"
+        : "SUGGESTED_DRAFT",
       targetCollection,
+      sourceIdentity,
       fields,
-      unmappedSourceColumns: headers.filter(header => !fields.some(item => item.sourceColumn === header))
+      unmappedSourceColumns: unmappedSourceColumns(headers, fields, sourceIdentity)
     },
     rows: allRows.slice(0, ROW_SAMPLE_LIMIT),
     rowSampleLimit: ROW_SAMPLE_LIMIT,
-    dataHealth: buildDataHealth(allRows, fields, target, headers)
+    dataHealth: buildDataHealth(allRows, fields, target, headers, sourceIdentity)
   };
 }
 
 function validateEvidence(staged) {
   const headers = staged?.batch?.previewSummary?.headers;
-  if (!Array.isArray(headers) || !Array.isArray(staged?.records)) {
+  const rowCount = staged?.batch?.previewSummary?.rowCount;
+  if (
+    !Array.isArray(headers)
+    || !Array.isArray(staged?.records)
+    || !Number.isSafeInteger(rowCount)
+    || rowCount < 0
+    || rowCount !== staged.records.length
+  ) {
     throw new ImportMappingError(
       "IMPORT_MAPPING_EVIDENCE_INVALID",
       "Immutable import staging evidence is required."
     );
   }
+}
+
+function validateSourceIdentitySelection(input, headers) {
+  if (
+    !input
+    || typeof input !== "object"
+    || Array.isArray(input)
+    || !exactKeys(input, ["sourceColumn"])
+    || !(input.sourceColumn === null || headers.includes(input.sourceColumn))
+  ) selectionInvalid();
+  return input;
 }
 
 function validateSelections(input, target, headers) {
@@ -235,13 +287,37 @@ function mapField(definition, headers, records, selections) {
     sourceColumnOrdinal: sourceIndex < 0 ? null : sourceIndex,
     targetField: definition.targetField,
     sampleValues: samples,
-    inferredType: inferType(samples, declaredType),
+    inferredType: inferType(samples),
     declaredType,
     selectedType: selected?.selectedType || declaredType,
     required: definition.required,
     optional: !definition.required,
     suggestion,
     validationIssues
+  };
+}
+
+function mapSourceIdentity(headers, records, selection) {
+  const selections = new Map();
+  if (selection) {
+    selections.set(SOURCE_IDENTITY.targetField, {
+      targetField: SOURCE_IDENTITY.targetField,
+      sourceColumn: selection.sourceColumn,
+      selectedType: SOURCE_IDENTITY.declaredType
+    });
+  }
+  const mapped = mapField(SOURCE_IDENTITY, headers, records, selections);
+  return {
+    role: "SOURCE_IDENTITY",
+    sourceField: SOURCE_IDENTITY.targetField,
+    sourceColumn: mapped.sourceColumn,
+    sourceColumnOrdinal: mapped.sourceColumnOrdinal,
+    sampleValues: mapped.sampleValues,
+    inferredType: mapped.inferredType,
+    identityType: mapped.declaredType,
+    required: true,
+    suggestion: mapped.suggestion,
+    validationIssues: mapped.validationIssues
   };
 }
 
@@ -275,7 +351,7 @@ function markAutomaticSourceReuse(fields) {
   }
 }
 
-function validateRows(records, headers, fields) {
+function validateRows(records, headers, fields, targetCollection, sourceIdentity) {
   const sourceIds = new Map();
   const payloadHashes = new Map();
   return records.map(record => {
@@ -317,27 +393,64 @@ function validateRows(records, headers, fields) {
         continue;
       }
       if (isAbsent(evidence)) continue;
-      if (mappedField.selectedType === "NUMBER" && !["NUMERIC", "KNOWN_ZERO"].includes(evidence.valueKind)) {
+      if (
+        mappedField.required
+        && typeof evidence.raw === "string"
+        && evidence.raw.trim() === ""
+      ) {
+        errors.push({ code: "REQUIRED_VALUE_MISSING", ...issueBase });
+        continue;
+      }
+      if (mappedField.declaredType === "NUMBER" && !["NUMERIC", "KNOWN_ZERO"].includes(evidence.valueKind)) {
         warnings.push({ code: "NONNUMERIC_VALUE_PRESERVED", ...issueBase });
       }
-      if (mappedField.selectedType === "TIMESTAMP" && !validTimestamp(evidence.raw)) {
+      if (mappedField.declaredType === "TIMESTAMP" && !validTimestamp(evidence.raw)) {
         errors.push({ code: "TIMESTAMP_INVALID", ...issueBase });
+      }
+      if (
+        targetCollection === "opportunities"
+        && mappedField.targetField === "probability"
+        && ["NUMERIC", "KNOWN_ZERO"].includes(evidence.valueKind)
+        && (Number(evidence.raw) < 0 || Number(evidence.raw) > 1)
+      ) {
+        errors.push({ code: "PROBABILITY_OUT_OF_RANGE", ...issueBase });
+      }
+      if (
+        targetCollection === "opportunities"
+        && mappedField.targetField === "value"
+        && ["NUMERIC", "KNOWN_ZERO"].includes(evidence.valueKind)
+        && Number(evidence.raw) < 0
+      ) {
+        errors.push({ code: "COMMERCIAL_VALUE_OUT_OF_RANGE", ...issueBase });
+      }
+      if (
+        targetCollection === "tasks"
+        && mappedField.targetField === "status"
+        && !TASK_STATUSES.has(evidence.raw)
+      ) {
+        errors.push({ code: "TASK_STATUS_INVALID", ...issueBase });
       }
     }
 
-    const idField = fields.find(item => item.targetField === "id" && item.sourceColumn !== null);
-    const idEvidence = idField ? rawEvidence(record, headers.indexOf(idField.sourceColumn)) : null;
-    if (idEvidence && !isAbsent(idEvidence)) {
-      const key = String(idEvidence.raw);
+    if (targetCollection === "tasks") {
+      validateTaskCompletionConsistency(record, headers, fields, errors);
+    }
+
+    const identityEvidence = sourceIdentity?.sourceColumn
+      ? rawEvidence(record, headers.indexOf(sourceIdentity.sourceColumn))
+      : null;
+    if (identityEvidence && !isMissingSourceIdentity(identityEvidence)) {
+      const key = String(identityEvidence.raw);
       if (sourceIds.has(key)) {
         errors.push({
           code: "DUPLICATE_SOURCE_ID",
-          targetField: "id",
-          sourceColumn: idField.sourceColumn,
+          identityRole: "SOURCE_IDENTITY",
+          sourceField: sourceIdentity.sourceField,
+          sourceColumn: sourceIdentity.sourceColumn,
           sourceOrdinal: record.sourceOrdinal,
           sourceRowNumber: record.sourceRowNumber ?? record.rawPayload?.sourceRowNumber,
           firstSourceOrdinal: sourceIds.get(key),
-          rawEvidence: idEvidence
+          rawEvidence: identityEvidence
         });
       } else sourceIds.set(key, record.sourceOrdinal);
     }
@@ -367,7 +480,33 @@ function validateRows(records, headers, fields) {
   });
 }
 
-function buildDataHealth(rows, fields, target, headers) {
+function validateTaskCompletionConsistency(record, headers, fields, errors) {
+  const statusField = fields.find(item => item.targetField === "status");
+  const completedField = fields.find(item => item.targetField === "completed_at");
+  const statusEvidence = statusField?.sourceColumn
+    ? rawEvidence(record, headers.indexOf(statusField.sourceColumn))
+    : null;
+  const completedEvidence = completedField?.sourceColumn
+    ? rawEvidence(record, headers.indexOf(completedField.sourceColumn))
+    : null;
+  if (!statusEvidence || isAbsent(statusEvidence) || !TASK_STATUSES.has(statusEvidence.raw)) {
+    return;
+  }
+  const issue = {
+    targetField: "completed_at",
+    sourceColumn: completedField?.sourceColumn ?? null,
+    sourceOrdinal: record.sourceOrdinal,
+    sourceRowNumber: record.sourceRowNumber ?? record.rawPayload?.sourceRowNumber,
+    rawEvidence: completedEvidence
+  };
+  if (statusEvidence.raw === "COMPLETED" && isAbsent(completedEvidence)) {
+    errors.push({ code: "TASK_COMPLETION_TIMESTAMP_REQUIRED", ...issue });
+  } else if (statusEvidence.raw !== "COMPLETED" && !isAbsent(completedEvidence)) {
+    errors.push({ code: "TASK_COMPLETION_TIMESTAMP_INCONSISTENT", ...issue });
+  }
+}
+
+function buildDataHealth(rows, fields, target, headers, sourceIdentity) {
   const totalRows = rows.length;
   const mapped = new Map(fields.map(item => [item.targetField, item]));
   const missingValueCounts = {};
@@ -388,7 +527,7 @@ function buildDataHealth(rows, fields, target, headers) {
     unknownUnmappedStatuses: {
       unknownValueCount: rows.reduce((count, row) => count + row.rawPayload.cells.filter(cell => ["UNKNOWN", "NULL"].includes(cell.valueKind)).length, 0),
       unmappedTargetFields: fields.filter(item => item.sourceColumn === null).map(item => item.targetField),
-      unmappedSourceColumns: headers.filter(header => !fields.some(item => item.sourceColumn === header))
+      unmappedSourceColumns: unmappedSourceColumns(headers, fields, sourceIdentity)
     },
     timestampCoverage: Object.fromEntries(
       fields.filter(item => item.declaredType === "TIMESTAMP").map(item => [
@@ -396,7 +535,7 @@ function buildDataHealth(rows, fields, target, headers) {
         coverage(rows, item, "TIMESTAMP")
       ])
     ),
-    sourceIdCoverage: coverage(rows, mapped.get("id"), "PRESENT")
+    sourceIdCoverage: coverage(rows, sourceIdentity, "PRESENT")
   };
   if (target.contactability) {
     const contactFields = target.contactability.map(name => mapped.get(name));
@@ -417,7 +556,11 @@ function coverage(rows, item, kind) {
   let missingRows = 0;
   for (const row of rows) {
     const evidence = item?.sourceColumn ? cellForRow(row, item) : null;
-    if (!evidence || isAbsent(evidence)) {
+    if (
+      !evidence
+      || isAbsent(evidence)
+      || (item?.role === "SOURCE_IDENTITY" && isMissingSourceIdentity(evidence))
+    ) {
       missingRows += 1;
     } else if (kind === "TIMESTAMP" && !validTimestamp(evidence.raw)) {
       invalidRows += 1;
@@ -428,8 +571,18 @@ function coverage(rows, item, kind) {
   return result;
 }
 
+function unmappedSourceColumns(headers, fields, sourceIdentity) {
+  const mappedColumns = new Set(fields.map(item => item.sourceColumn).filter(Boolean));
+  if (sourceIdentity?.sourceColumn) mappedColumns.add(sourceIdentity.sourceColumn);
+  return headers.filter(header => !mappedColumns.has(header));
+}
+
 function cellForRow(row, item) {
-  const issue = [...row.errors, ...row.warnings].find(candidate => candidate.targetField === item.targetField);
+  const issue = [...row.errors, ...row.warnings].find(candidate => (
+    item.role === "SOURCE_IDENTITY"
+      ? candidate.identityRole === item.role
+      : candidate.targetField === item.targetField
+  ));
   if (issue?.rawEvidence && Object.hasOwn(issue.rawEvidence, "columnOrdinal")) return issue.rawEvidence;
   const columnOrdinal = item.sourceColumnOrdinal;
   if (!Number.isInteger(columnOrdinal) || columnOrdinal < 0) return null;
@@ -492,28 +645,64 @@ function rawEvidence(record, columnOrdinal) {
   } : { columnOrdinal, present: false, raw: null, valueKind: "MISSING" };
 }
 
-function inferType(samples, declaredType) {
+function inferType(samples) {
   const usable = samples.filter(sample => !isAbsent(sample));
   if (usable.length === 0) return "UNKNOWN";
-  const matches = usable.map(sample => valueMatchesType(sample, declaredType));
-  if (matches.every(Boolean)) return declaredType;
-  if (matches.some(Boolean)) return "MIXED";
-  return "TEXT";
-}
-
-function valueMatchesType(sample, type) {
-  if (["TEXT", "STATUS"].includes(type)) return true;
-  if (type === "NUMBER") return ["NUMERIC", "KNOWN_ZERO"].includes(sample.valueKind);
-  if (type === "TIMESTAMP") return validTimestamp(sample.raw);
-  return false;
+  const types = new Set(usable.map(sample => {
+    if (["NUMERIC", "KNOWN_ZERO"].includes(sample.valueKind)) return "NUMBER";
+    if (validTimestamp(sample.raw)) return "TIMESTAMP";
+    return "TEXT";
+  }));
+  return types.size === 1 ? [...types][0] : "MIXED";
 }
 
 function validTimestamp(raw) {
-  return typeof raw === "string" && raw.trim() !== "" && !Number.isNaN(Date.parse(raw));
+  if (typeof raw !== "string") return false;
+  const match = raw.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(?:Z|([+-])(\d{2}):(\d{2}))?)?$/
+  );
+  if (!match) return false;
+  const [
+    , yearText, monthText, dayText, hourText, minuteText, secondText,
+    , offsetSign, offsetHourText, offsetMinuteText
+  ] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  if (
+    year < 1
+    || month < 1
+    || month > 12
+    || day < 1
+    || day > daysInMonth(year, month)
+  ) return false;
+  if (hourText !== undefined && (
+    Number(hourText) > 23
+    || Number(minuteText) > 59
+    || (secondText !== undefined && Number(secondText) > 59)
+  )) return false;
+  if (offsetSign && (
+    Number(offsetHourText) > 14
+    || Number(offsetMinuteText) > 59
+    || (Number(offsetHourText) === 14 && Number(offsetMinuteText) !== 0)
+  )) return false;
+  return true;
+}
+
+function daysInMonth(year, month) {
+  if (month === 2) {
+    return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28;
+  }
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
 }
 
 function isAbsent(evidence) {
   return !evidence || ["MISSING", "BLANK", "NULL", "UNKNOWN"].includes(evidence.valueKind);
+}
+
+function isMissingSourceIdentity(evidence) {
+  return isAbsent(evidence)
+    || (typeof evidence?.raw === "string" && evidence.raw.trim() === "");
 }
 
 function isMissingForCount(evidence) {
