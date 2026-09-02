@@ -9,7 +9,8 @@ const { requireTenantContext } = require("../persistence/tenantContext");
 const { CSV_LIMITS, parseCsvUpload } = require("./csvParser");
 const {
   buildCanonicalCommitPlan,
-  validateCanonicalCommitInput
+  validateCanonicalCommitInput,
+  validateReviewedColumnSelections
 } = require("./importCommit");
 const { buildImportAnalysis } = require("./importMapping");
 
@@ -197,6 +198,10 @@ function createImportService({
         committedAt: normalizeClock(clock()),
         subjectId: authorized.subject,
         input: reviewedInput,
+        validate: evidence => validateReviewedColumnSelections(
+          evidence,
+          reviewedInput
+        ),
         prepare: evidence => buildCanonicalCommitPlan(evidence, reviewedInput)
       });
     if (!result) unavailable();

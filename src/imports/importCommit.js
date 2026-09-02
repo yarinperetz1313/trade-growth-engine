@@ -21,7 +21,7 @@ class ImportCommitError extends Error {
 }
 
 function buildCanonicalCommitPlan(evidence, input) {
-  validateCanonicalCommitInput(input);
+  validateReviewedColumnSelections(evidence, input);
   const sourceCollection = evidence?.records?.[0]?.sourceCollection
     || evidence?.batch?.previewSummary?.sourceCollection;
   const target = TARGETS[sourceCollection];
@@ -337,6 +337,25 @@ function validateCanonicalCommitInput(input) {
   ) invalidRequest();
 }
 
+function validateReviewedColumnSelections(evidence, input) {
+  validateCanonicalCommitInput(input);
+  const headers = evidence?.batch?.previewSummary?.headers;
+  if (!Array.isArray(headers)) return;
+
+  const usedSourceColumns = new Set();
+  for (const selection of input.selections) {
+    if (selection.sourceColumn === null) continue;
+    if (
+      !headers.includes(selection.sourceColumn)
+      || usedSourceColumns.has(selection.sourceColumn)
+    ) invalidRequest();
+    usedSourceColumns.add(selection.sourceColumn);
+  }
+  if (!headers.includes(input.sourceIdentitySelection.sourceColumn)) {
+    invalidRequest();
+  }
+}
+
 function exactKeys(value, keys) {
   return Object.keys(value).length === keys.length
     && keys.every(key => Object.hasOwn(value, key));
@@ -355,5 +374,6 @@ module.exports = {
   SOURCE_RECORD_ID_MAX_BYTES,
   SOURCE_SYSTEM_PATTERN,
   buildCanonicalCommitPlan,
-  validateCanonicalCommitInput
+  validateCanonicalCommitInput,
+  validateReviewedColumnSelections
 };

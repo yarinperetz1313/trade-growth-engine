@@ -4,6 +4,9 @@ const test = require("node:test");
 const {
   hashImportEvidence
 } = require("../src/imports/csvParser");
+const {
+  validateReviewedColumnSelections
+} = require("../src/imports/importCommit");
 const { TARGETS } = require("../src/imports/importMapping");
 
 const {
@@ -62,6 +65,57 @@ function draft() {
       payload: { row_count: 1, external_action_performed: false },
       occurredAt: "2026-09-01T00:00:00.000Z",
       retainUntil: "2027-09-01T00:00:00.000Z"
+    }
+  };
+}
+
+function reviewedProspectInput(overrides = {}) {
+  return {
+    sourceSystem: "pilot-crm",
+    idempotencyKey: "commit-attempt-1",
+    sourceIdentitySelection: { sourceColumn: "source_id" },
+    selections: [
+      { targetField: "id", sourceColumn: "id", selectedType: "TEXT" },
+      {
+        targetField: "business_name",
+        sourceColumn: "business_name",
+        selectedType: "TEXT"
+      }
+    ],
+    ...overrides
+  };
+}
+
+function malformedCommitRequest(batchId, input) {
+  return {
+    batchId,
+    committedAt: "2026-09-03T00:00:00.000Z",
+    subjectId: context.subjectId,
+    input,
+    validate(evidence) {
+      validateReviewedColumnSelections(evidence, input);
+    },
+    prepare() {
+      assert.fail("malformed reviewed selections must fail before preparation");
+    }
+  };
+}
+
+function shortCircuitClient(batch, { reusedIdempotency = false } = {}) {
+  const calls = [];
+  return {
+    calls,
+    client: {
+      async query(sql) {
+        calls.push(sql);
+        if (/lock_import_commit_batch/i.test(sql)) return { rows: [batch] };
+        if (/lock_import_commit_records/i.test(sql)) return { rows: [] };
+        if (/select id from tge\.import_batches/i.test(sql)) {
+          return { rows: reusedIdempotency ? [{ id: "other-batch" }] : [] };
+        }
+        return { rows: [] };
+      },
+      release() {}
     }
   };
 }
@@ -205,6 +259,121 @@ test("import analysis evidence reads every staged row in source order and remain
   assert.equal(calls.some(([sql]) => /tge\.(prospects|opportunities|tasks|activities|revenue_actions)/i.test(sql)), false);
 });
 
+test("malformed reviewed columns fail before the committed-batch short circuit without conflict audit evidence", async () => {
+  const batch = {
+    tenant_id: context.tenantId,
+    id: "batch-committed-invalid",
+    status: "COMMITTED",
+    source_filename: "source.csv",
+    source_sha256: "a".repeat(64),
+    preview_summary: {
+      sourceCollection: "prospects",
+      headers: ["source_id", "id", "business_name"],
+      rowCount: 1
+    },
+    commit_idempotency_key: "different-attempt",
+    commit_metadata: {},
+    committed_at: "2026-09-02T00:00:00.000Z"
+  };
+  const input = reviewedProspectInput({
+    selections: [
+      { targetField: "id", sourceColumn: "absent-id", selectedType: "TEXT" },
+      {
+        targetField: "business_name",
+        sourceColumn: "business_name",
+        selectedType: "TEXT"
+      }
+    ]
+  });
+  const { client, calls } = shortCircuitClient(batch);
+  const repositories = createPostgresRepositories({
+    pool: { connect: async () => client }
+  });
+
+  await assert.rejects(
+    repositories.imports.commitCanonical(
+      context,
+      malformedCommitRequest(batch.id, input)
+    ),
+    error => error.code === "IMPORT_COMMIT_REQUEST_INVALID" && error.status === 400
+  );
+  assert.equal(calls.some(sql => /insert into tge\.audit_events/i.test(sql)), false);
+  assert.equal(calls.some(sql => /record_import_commit_lifecycle_conflict/i.test(sql)), false);
+});
+
+test("reused reviewed columns fail before the non-PREVIEWED lifecycle short circuit without conflict audit evidence", async () => {
+  const batch = {
+    tenant_id: context.tenantId,
+    id: "batch-staged-invalid",
+    status: "STAGED",
+    source_filename: "source.csv",
+    source_sha256: "a".repeat(64),
+    preview_summary: {
+      sourceCollection: "prospects",
+      headers: ["source_id", "id", "business_name"],
+      rowCount: 1
+    }
+  };
+  const input = reviewedProspectInput({
+    selections: [
+      { targetField: "id", sourceColumn: "id", selectedType: "TEXT" },
+      {
+        targetField: "business_name",
+        sourceColumn: "id",
+        selectedType: "TEXT"
+      }
+    ]
+  });
+  const { client, calls } = shortCircuitClient(batch);
+  const repositories = createPostgresRepositories({
+    pool: { connect: async () => client }
+  });
+
+  await assert.rejects(
+    repositories.imports.commitCanonical(
+      context,
+      malformedCommitRequest(batch.id, input)
+    ),
+    error => error.code === "IMPORT_COMMIT_REQUEST_INVALID" && error.status === 400
+  );
+  assert.equal(calls.some(sql => /insert into tge\.audit_events/i.test(sql)), false);
+  assert.equal(calls.some(sql => /record_import_commit_lifecycle_conflict/i.test(sql)), false);
+});
+
+test("malformed source identity fails before the reused-idempotency short circuit without conflict audit evidence", async () => {
+  const batch = {
+    tenant_id: context.tenantId,
+    id: "batch-idempotency-invalid",
+    status: "PREVIEWED",
+    source_filename: "source.csv",
+    source_sha256: "a".repeat(64),
+    preview_summary: {
+      sourceCollection: "prospects",
+      headers: ["source_id", "id", "business_name"],
+      rowCount: 1
+    }
+  };
+  const input = reviewedProspectInput({
+    sourceIdentitySelection: { sourceColumn: "absent-source-id" }
+  });
+  const { client, calls } = shortCircuitClient(batch, {
+    reusedIdempotency: true
+  });
+  const repositories = createPostgresRepositories({
+    pool: { connect: async () => client }
+  });
+
+  await assert.rejects(
+    repositories.imports.commitCanonical(
+      context,
+      malformedCommitRequest(batch.id, input)
+    ),
+    error => error.code === "IMPORT_COMMIT_REQUEST_INVALID" && error.status === 400
+  );
+  assert.equal(calls.some(sql => /insert into tge\.audit_events/i.test(sql)), false);
+  assert.equal(calls.some(sql => /record_import_commit_attempt/i.test(sql)), false);
+});
+
 test("canonical import locks, reconciles, materializes, maps, audits, and finalizes in one tenant transaction", async () => {
   const calls = [];
   const staged = draft().records[0];
@@ -270,6 +439,7 @@ test("canonical import locks, reconciles, materializes, maps, audits, and finali
       sourceSystem: "pilot-crm",
       idempotencyKey: "commit-attempt-1"
     },
+    validate() {},
     prepare(evidence) {
       preparedEvidence = evidence;
       return {
@@ -375,6 +545,7 @@ test("same committed request reconciles without rebuilding, inserting, mapping, 
       idempotencyKey: "commit-attempt-1",
       selections: []
     },
+    validate() {},
     prepare() {
       assert.fail("a committed retry must not rebuild the canonical plan");
     }
@@ -457,6 +628,7 @@ test("committed replay fingerprints unknown supplied targets instead of silently
         selectedType: "TEXT"
       }]
     },
+    validate() {},
     prepare() {
       assert.fail("a committed retry must not rebuild the canonical plan");
     }
@@ -503,6 +675,7 @@ test("illegal lifecycle commit attempts append bounded conflict evidence without
       sourceIdentitySelection: { sourceColumn: "source_id" },
       selections: []
     },
+    validate() {},
     prepare() {
       assert.fail("an illegal lifecycle attempt must not prepare canonical rows");
     }
@@ -577,6 +750,7 @@ test("canonical uniqueness violations roll back to a savepoint and become bounde
       sourceIdentitySelection: { sourceColumn: "source_id" },
       selections: []
     },
+    validate() {},
     prepare() {
       return {
         outcome: "READY",
@@ -678,6 +852,7 @@ test("canonical relationship violations roll back to a savepoint and never leak 
       sourceIdentitySelection: { sourceColumn: "source_id" },
       selections: []
     },
+    validate() {},
     prepare() {
       return {
         outcome: "READY",

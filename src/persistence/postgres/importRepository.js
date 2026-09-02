@@ -174,6 +174,7 @@ function createImportRepository(client, tenantId, checkpoint = async () => {}) {
       );
       if (!batchResult.rows[0]) return null;
       const lockedBatch = mapBatch(batchResult.rows[0]);
+      request.validate({ batch: lockedBatch });
       const inputFingerprint = commitInputFingerprint(
         request.batchId,
         request.input,
@@ -1000,6 +1001,7 @@ function validateRepositoryCommitRequest(request) {
     || !request.subjectId
     || !request.input
     || typeof request.input.idempotencyKey !== "string"
+    || typeof request.validate !== "function"
     || typeof request.prepare !== "function"
   ) {
     throw new TypeError("A complete canonical import repository request is required.");

@@ -21,7 +21,8 @@ const {
   parseCsvUpload
 } = require("../../src/imports/csvParser");
 const {
-  buildCanonicalCommitPlan
+  buildCanonicalCommitPlan,
+  validateReviewedColumnSelections
 } = require("../../src/imports/importCommit");
 const {
   activityToRow,
@@ -3702,6 +3703,9 @@ function registerPostgresRepositoryContractTests({
         [tenant.tenantId, batchId, status]
       );
       const input = canonicalProspectInput(`lifecycle-${status}-${randomUUID()}`);
+      input.selections = input.selections.filter(
+        selection => selection.targetField !== "dedupe_key"
+      );
       const result = await commitCsvBatch(
         repositories,
         tenant.context,
@@ -3725,6 +3729,114 @@ function registerPostgresRepositoryContractTests({
       assert.equal(evidence.rows[0].conflict_summary.lifecycleStatus, status);
       assert.equal(JSON.stringify(evidence.rows[0]).includes(privateRaw), false);
     }
+  });
+
+  test("malformed reviewed selections precede committed, lifecycle, and idempotency conflicts without conflict audits", async () => {
+    const pool = createPool();
+    const repositories = createPostgresRepositories({ pool });
+    const tenant = await createTenant("canonical-import-request-ordering");
+    const csv =
+      "source_id,id,business_name,dedupe_key\n" +
+      "source-ordering,prospect-ordering,Ordering Trade,ordering-key";
+
+    async function malformedAttempt(batchId, input) {
+      return repositories.imports.commitCanonical(tenant.context, {
+        batchId,
+        committedAt: "2026-09-03T00:00:00.000Z",
+        subjectId: tenant.context.subjectId,
+        input,
+        validate(evidence) {
+          validateReviewedColumnSelections(evidence, input);
+        },
+        prepare(lockedEvidence) {
+          return buildCanonicalCommitPlan(lockedEvidence, input);
+        }
+      });
+    }
+
+    const committedBatch = `canonical-ordering-committed-${randomUUID()}`;
+    await stageCsvBatch(
+      repositories,
+      tenant.context,
+      committedBatch,
+      csv,
+      "prospects"
+    );
+    await commitCsvBatch(
+      repositories,
+      tenant.context,
+      committedBatch,
+      canonicalProspectInput("ordering-reused-key")
+    );
+    const absentReviewedColumn = canonicalProspectInput("ordering-new-key");
+    absentReviewedColumn.selections = absentReviewedColumn.selections.map(selection => (
+      selection.targetField === "business_name"
+        ? { ...selection, sourceColumn: "absent-business-name" }
+        : selection
+    ));
+    await assert.rejects(
+      malformedAttempt(
+        committedBatch,
+        absentReviewedColumn
+      ),
+      error => error.code === "IMPORT_COMMIT_REQUEST_INVALID" && error.status === 400
+    );
+
+    const lifecycleBatch = `canonical-ordering-lifecycle-${randomUUID()}`;
+    await stageCsvBatch(
+      repositories,
+      tenant.context,
+      lifecycleBatch,
+      csv.replaceAll("ordering", "lifecycle"),
+      "prospects"
+    );
+    await getAdminClient().query(
+      "update tge.import_batches set status = 'STAGED' where tenant_id = $1 and id = $2",
+      [tenant.tenantId, lifecycleBatch]
+    );
+    const reusedReviewedColumn = canonicalProspectInput("ordering-lifecycle-key");
+    reusedReviewedColumn.selections = reusedReviewedColumn.selections.map(selection => (
+      selection.targetField === "business_name"
+        ? { ...selection, sourceColumn: "id" }
+        : selection
+    ));
+    await assert.rejects(
+      malformedAttempt(
+        lifecycleBatch,
+        reusedReviewedColumn
+      ),
+      error => error.code === "IMPORT_COMMIT_REQUEST_INVALID" && error.status === 400
+    );
+
+    const idempotencyBatch = `canonical-ordering-idempotency-${randomUUID()}`;
+    await stageCsvBatch(
+      repositories,
+      tenant.context,
+      idempotencyBatch,
+      csv.replaceAll("ordering", "idempotency"),
+      "prospects"
+    );
+    const absentIdentity = canonicalProspectInput("ordering-reused-key");
+    absentIdentity.sourceIdentitySelection = {
+      sourceColumn: "absent-source-id"
+    };
+    await assert.rejects(
+      malformedAttempt(
+        idempotencyBatch,
+        absentIdentity
+      ),
+      error => error.code === "IMPORT_COMMIT_REQUEST_INVALID" && error.status === 400
+    );
+
+    const audit = await getAdminClient().query(
+      `select count(*)::int as count
+       from tge.audit_events
+       where tenant_id = $1
+         and entity_id = any($2::text[])
+         and event_type = 'IMPORT_COMMIT_CONFLICTED'`,
+      [tenant.tenantId, [committedBatch, lifecycleBatch, idempotencyBatch]]
+    );
+    assert.equal(audit.rows[0].count, 0);
   });
 
   test("prospect dedupe races become atomic bounded import conflicts", async () => {
@@ -4054,6 +4166,7 @@ function registerPostgresRepositoryContractTests({
       committedAt,
       subjectId: context.subjectId,
       input,
+      validate: evidence => validateReviewedColumnSelections(evidence, input),
       prepare: evidence => buildCanonicalCommitPlan(evidence, input)
     });
   }
