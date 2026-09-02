@@ -85,14 +85,29 @@ function field(targetField, declaredType, required, aliases) {
 
 function buildImportAnalysis(staged, options = {}) {
   validateEvidence(staged);
+  if (
+    !options
+    || typeof options !== "object"
+    || Array.isArray(options)
+    || !Object.keys(options).every(key => key === "selections")
+    || Object.keys(options).length > 1
+  ) selectionInvalid();
   const targetCollection = staged.records[0]?.sourceCollection
     || staged.batch?.previewSummary?.sourceCollection
     || null;
   const headers = staged.batch.previewSummary.headers;
   const target = TARGETS[targetCollection];
-  if (!target) return unsupportedAnalysis(staged, targetCollection);
+  const hasSelections = Object.hasOwn(options, "selections");
+  const selectionInput = options.selections;
+  if (hasSelections && !Array.isArray(selectionInput)) selectionInvalid();
+  if (!target) {
+    if (hasSelections && selectionInput.length > 0) selectionInvalid();
+    return unsupportedAnalysis(staged, targetCollection);
+  }
 
-  const selections = validateSelections(options.selections, target, headers);
+  const selections = hasSelections
+    ? validateSelections(selectionInput, target, headers)
+    : new Map();
   const fields = target.fields.map(definition => mapField(
     definition,
     headers,
@@ -103,10 +118,16 @@ function buildImportAnalysis(staged, options = {}) {
 
   const allRows = validateRows(staged.records, headers, fields);
   for (const mappedField of fields) {
-    mappedField.validationIssues.push(...allRows.flatMap(row => [
+    mappedField.validationIssues.push(...allRows.slice(0, ROW_SAMPLE_LIMIT).flatMap(row => [
       ...row.errors,
       ...row.warnings
-    ]).filter(issue => issue.targetField === mappedField.targetField));
+    ]).filter(issue => (
+      issue.targetField === mappedField.targetField
+      && !(
+        issue.code === "REQUIRED_MAPPING_MISSING"
+        && mappedField.suggestion.state === "CONFLICT"
+      )
+    )));
   }
 
   return {
@@ -121,7 +142,7 @@ function buildImportAnalysis(staged, options = {}) {
     },
     rows: allRows.slice(0, ROW_SAMPLE_LIMIT),
     rowSampleLimit: ROW_SAMPLE_LIMIT,
-    dataHealth: buildDataHealth(allRows, fields, target)
+    dataHealth: buildDataHealth(allRows, fields, target, headers)
   };
 }
 
@@ -136,7 +157,6 @@ function validateEvidence(staged) {
 }
 
 function validateSelections(input, target, headers) {
-  if (input === undefined) return new Map();
   if (!Array.isArray(input)) selectionInvalid();
   const definitions = new Map(target.fields.map(item => [item.targetField, item]));
   const selections = new Map();
@@ -146,6 +166,7 @@ function validateSelections(input, target, headers) {
       !selection
       || typeof selection !== "object"
       || Array.isArray(selection)
+      || !exactKeys(selection, ["targetField", "sourceColumn", "selectedType"])
       || !definitions.has(selection.targetField)
       || selections.has(selection.targetField)
       || !(selection.sourceColumn === null || headers.includes(selection.sourceColumn))
@@ -261,7 +282,20 @@ function validateRows(records, headers, fields) {
     const errors = [];
     const warnings = [];
     for (const mappedField of fields) {
-      if (mappedField.sourceColumn === null) continue;
+      if (mappedField.sourceColumn === null) {
+        if (mappedField.required) {
+          errors.push({
+            code: "REQUIRED_MAPPING_MISSING",
+            targetField: mappedField.targetField,
+            sourceColumn: null,
+            sourceOrdinal: record.sourceOrdinal,
+            sourceRowNumber: record.sourceRowNumber ?? record.rawPayload?.sourceRowNumber,
+            mappingState: "UNMAPPED_REQUIRED_TARGET",
+            rawEvidence: null
+          });
+        }
+        continue;
+      }
       const columnOrdinal = headers.indexOf(mappedField.sourceColumn);
       const evidence = rawEvidence(record, columnOrdinal);
       const issueBase = {
@@ -333,7 +367,7 @@ function validateRows(records, headers, fields) {
   });
 }
 
-function buildDataHealth(rows, fields, target) {
+function buildDataHealth(rows, fields, target, headers) {
   const totalRows = rows.length;
   const mapped = new Map(fields.map(item => [item.targetField, item]));
   const missingValueCounts = {};
@@ -354,7 +388,7 @@ function buildDataHealth(rows, fields, target) {
     unknownUnmappedStatuses: {
       unknownValueCount: rows.reduce((count, row) => count + row.rawPayload.cells.filter(cell => ["UNKNOWN", "NULL"].includes(cell.valueKind)).length, 0),
       unmappedTargetFields: fields.filter(item => item.sourceColumn === null).map(item => item.targetField),
-      unmappedSourceColumns: fields.length === 0 ? [] : undefined
+      unmappedSourceColumns: headers.filter(header => !fields.some(item => item.sourceColumn === header))
     },
     timestampCoverage: Object.fromEntries(
       fields.filter(item => item.declaredType === "TIMESTAMP").map(item => [
@@ -364,7 +398,6 @@ function buildDataHealth(rows, fields, target) {
     ),
     sourceIdCoverage: coverage(rows, mapped.get("id"), "PRESENT")
   };
-  delete dataHealth.unknownUnmappedStatuses.unmappedSourceColumns;
   if (target.contactability) {
     const contactFields = target.contactability.map(name => mapped.get(name));
     const coveredRows = rows.filter(row => contactFields.some(item => item?.sourceColumn && !isAbsent(cellForRow(row, item, fields)))).length;
@@ -505,6 +538,11 @@ function normalizeExact(value) {
 
 function normalizeAlias(value) {
   return normalizeExact(value).replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function exactKeys(value, keys) {
+  return Object.keys(value).length === keys.length
+    && keys.every(key => Object.hasOwn(value, key));
 }
 
 function percentage(covered, total) {

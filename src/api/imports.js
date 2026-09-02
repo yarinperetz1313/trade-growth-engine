@@ -17,6 +17,7 @@ function createImportsRouter({
     !service
     || typeof service.createPreview !== "function"
     || typeof service.readPreview !== "function"
+    || typeof service.analyzePreview !== "function"
   ) {
     throw new TypeError("An import staging service is required.");
   }

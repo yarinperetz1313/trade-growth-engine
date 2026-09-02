@@ -2898,6 +2898,7 @@ function registerPostgresRepositoryContractTests({
         authorizationVerifiedAt: at,
         previewSummary: {
           format: "CSV",
+          sourceCollection: "prospects",
           rowCount: 1,
           headers: ["id"],
           valueKindCounts: { KNOWN_ZERO: 1 }

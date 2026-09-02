@@ -81,6 +81,7 @@ function createImportService({
     });
     const previewSummary = {
       format: "CSV",
+      sourceCollection: input.sourceCollection,
       byteCount: parsed.byteCount,
       rowCount: records.length,
       columnCount: parsed.headers.length,
@@ -166,7 +167,7 @@ function createImportService({
       .forTenant(trustedPersistence)
       .imports.findAnalysisEvidence(batchId);
     if (!evidence) unavailable();
-    return buildImportAnalysis(evidence, { selections: input.selections });
+    return buildImportAnalysis(evidence, input);
   }
 
   return Object.freeze({ analyzePreview, createPreview, readPreview });

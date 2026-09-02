@@ -1,9 +1,11 @@
 # CSV import staging and preview
 
-PR-5A implements only the CSV contract, parser limits, immutable staging, and
-preview boundary from Issue #13. It does not map or validate destination fields,
-produce Data Health, write canonical CRM records, reconcile IDs, commit an
-import, delete retained evidence, or provide a browser flow. XLSX is deferred.
+PR-5A implements the CSV contract, parser limits, immutable staging, and
+bounded preview boundary from Issue #13. PR-5B now analyzes that evidence under
+the separate [deterministic mapping and Data Health](IMPORT_MAPPING_DATA_HEALTH.md)
+contract. Neither slice writes canonical CRM records, reconciles IDs, commits
+an import, deletes retained evidence, or provides a browser flow. XLSX is
+deferred.
 
 ## HTTP contract
 
@@ -92,6 +94,8 @@ existing runtime `SELECT`/`INSERT` grants; it adds no import `UPDATE`/`DELETE`
 grant or lifecycle function.
 
 - Batch `source_sha256` hashes the exact decoded upload bytes.
+- Batch preview summary retains the declared source collection so a valid
+  zero-row CSV remains analyzable without inventing a target from absent rows.
 - The batch keeps ordered headers once. Each row keeps zero-based
   `source_ordinal`, source row number, column ordinals, exact decoded cell
   strings, and a SHA-256 over recursively key-sorted canonical JSON so the hash

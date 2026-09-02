@@ -2,7 +2,7 @@
 
 ## Outcome
 - Problem and intended observable result: enrich the existing tenant-authorized
-  CSV staging preview with deterministic, alias-first, non-authoritative column
+  CSV staging preview with deterministic, exact-name-first, non-authoritative column
   proposals; explicit review selections; row-level validation; and reconciled
   Data Health metrics over all immutable staged rows.
 - Explicit non-goals: canonical CRM reads or writes, ID-map reconciliation,
@@ -16,7 +16,7 @@
 | Mapping authority | Alias precedence is exact canonical name, then ordered aliases. Ambiguous target/source matches remain conflicts. Every proposal is `DRAFT`, non-authoritative, and unaccepted; explicit selections may be previewed but are not persisted or accepted. | Focused deterministic mapping tests and HTTP contract tests |
 | Canonical compatibility | Required fields and types mirror PR-3 mapper inputs and migration `002`; supported targets are prospects, opportunities, tasks, and activities. `revenue_actions` remains outside PR-5B. | `src/persistence/postgres/mappers.js`; migration `002_tenant_domain_schema.sql` |
 | Evidence semantics | Validation references source ordinal/row and exact raw cells; it never rewrites evidence or collapses missing/null/blank/unknown/zero/nonnumeric. | Focused validation fixtures and immutable-evidence assertions |
-| Reconciliation | Data Health scans every staged row. Only response sample rows and per-field sample values are capped. | 101+ row regression test and PostgreSQL contract test |
+| Reconciliation | Data Health scans every staged row. Response rows, per-field sample values, and per-field issue detail are capped. | 101+ row regression test and PostgreSQL contract test |
 | Rollback / recovery | No migration or stored evidence mutation is introduced. Revert local PR-5B commits to restore PR-5A behavior. | Git history |
 
 ## Slices
@@ -25,7 +25,7 @@
   reconciled metrics.
 - [x] Integration slice: wire analysis through the existing service/API and
   tenant-scoped staging repository without canonical access.
-- [ ] Documentation/review slice: update canonical import/status truth, run
+- [x] Documentation/review slice: update canonical import/status truth, run
   gates, review the diff, and record exact evidence.
 
 ## Verification
@@ -44,9 +44,22 @@
   implementation was added. Integration then passed
   `node --test test/import-mapping.test.js test/import-staging.test.js
   test/import-repository.test.js test/import-csv.test.js` (23/23), including
-  tenant-safe full-evidence reads and unchanged bounded PR-5A previews.
-- Fresh reviewer findings/resolution: pending.
-- Final-review evidence: pending.
+  tenant-safe full-evidence reads and unchanged bounded PR-5A previews. The
+  final affected suite passed 25/25 after zero-row target evidence and
+  fail-closed selection coverage were added. `npm run verify:fast` passed the
+  harness and all 155 integration tests. `npm run build` passed with 22 modules
+  transformed. The real database gate was not runnable: the documented Docker
+  path is unavailable (`docker: command not found`) and
+  `TGE_TEST_DATABASE_URL` is not configured.
+- Fresh reviewer findings/resolution: resolved required-unmapped rows being
+  counted valid, non-exact/null/unsupported-target selections being accepted,
+  a stale Pilot plan status, capped-detail wording, unsupported-target wording,
+  and synthesized raw evidence for unmapped targets. Regression coverage now
+  keeps required mapping state blocking and separate from immutable cell
+  evidence. The final review reported no other findings.
+- Final-review evidence: focused mapping 8/8; affected imports 25/25; harness
+  plus integration 155/155; production build passed; `git diff --check`
+  passed before the final checkpoint.
 - Debt/follow-up: PR-5C owns accepted mapping persistence, controlled commit,
   ID-map/canonical conflict reconciliation, and lifecycle transitions; PR-5D
   owns browser mapping UI and E2E.

@@ -121,6 +121,7 @@ test("OWNER and ADMIN atomically stage a CSV preview with immutable evidence onl
     assert.equal(preview.batch.authorizedBySubjectId, `auth0|${role}`);
     assert.deepEqual(preview.batch.previewSummary, {
       format: "CSV",
+      sourceCollection: "prospects",
       byteCount: 44,
       rowCount: 2,
       columnCount: 3,
@@ -320,6 +321,9 @@ test("import router normalizes unavailable previews without an existence oracle"
         "The requested import batch is unavailable.",
         404
       );
+    },
+    async analyzePreview() {
+      assert.fail("analyzePreview is not expected");
     }
   };
   const router = createImportsRouter({

@@ -16,7 +16,8 @@ function evidence(csv, sourceCollection = "prospects") {
       id: "batch-mapping",
       previewSummary: {
         headers: parsed.headers,
-        rowCount: parsed.rows.length
+        rowCount: parsed.rows.length,
+        sourceCollection
       }
     },
     records: parsed.rows.map(row => ({
@@ -148,6 +149,47 @@ test("explicit user selections are representable but remain draft and unaccepted
   assert.equal(analysis.mapping.accepted, false);
 });
 
+test("zero-row evidence retains its declared target and malformed selections fail closed", () => {
+  const analysis = buildImportAnalysis(evidence("id,business_name"));
+  assert.equal(analysis.mapping.targetCollection, "prospects");
+  assert.equal(analysis.mapping.status, "DRAFT");
+  assert.equal(analysis.dataHealth.totalRows, 0);
+  assert.throws(
+    () => buildImportAnalysis(evidence("id\np-1"), { selections: undefined }),
+    error => error instanceof ImportMappingError
+      && error.code === "IMPORT_MAPPING_SELECTION_INVALID"
+  );
+  assert.throws(
+    () => buildImportAnalysis(evidence("id\np-1"), { selections: null }),
+    error => error instanceof ImportMappingError
+      && error.code === "IMPORT_MAPPING_SELECTION_INVALID"
+  );
+  assert.throws(
+    () => buildImportAnalysis(evidence("id\np-1"), {
+      selections: [{
+        targetField: "id",
+        sourceColumn: "id",
+        selectedType: "TEXT",
+        accepted: true
+      }]
+    }),
+    error => error instanceof ImportMappingError
+      && error.code === "IMPORT_MAPPING_SELECTION_INVALID"
+  );
+});
+
+test("unmapped required targets make every affected row explicitly blocking", () => {
+  const analysis = buildImportAnalysis(evidence("mystery\nvalue"));
+  assert.equal(analysis.dataHealth.validRows, 0);
+  assert.equal(analysis.dataHealth.rowsWithBlockingErrors, 1);
+  assert.deepEqual(
+    analysis.rows[0].errors.map(issue => issue.code),
+    ["REQUIRED_MAPPING_MISSING", "REQUIRED_MAPPING_MISSING"]
+  );
+  assert.equal(analysis.rows[0].errors[0].mappingState, "UNMAPPED_REQUIRED_TARGET");
+  assert.equal(analysis.rows[0].errors[0].rawEvidence, null);
+});
+
 test("row validation preserves raw distinctions and Data Health reconciles all staged rows", () => {
   const rows = [
     "o-1,Acme,PROPOSAL,0,2026-08-01T10:00:00Z,Ada",
@@ -271,6 +313,14 @@ test("unsupported staged collections are explicit and never treated as accepted 
   assert.equal(analysis.dataHealth.totalRows, 1);
   assert.equal(analysis.dataHealth.rowsWithBlockingErrors, 1);
   assert.equal(analysis.rows[0].errors[0].code, "IMPORT_TARGET_UNSUPPORTED");
+  assert.throws(
+    () => buildImportAnalysis(evidence(
+      "id,status\naction-1,RECOMMENDED",
+      "revenue_actions"
+    ), { selections: "bad" }),
+    error => error instanceof ImportMappingError
+      && error.code === "IMPORT_MAPPING_SELECTION_INVALID"
+  );
 });
 
 function fieldNames(analysis) {
