@@ -1,6 +1,11 @@
 const ROW_SAMPLE_LIMIT = 100;
 const FIELD_SAMPLE_LIMIT = 5;
 const TASK_STATUSES = new Set(["OPEN", "IN_PROGRESS", "COMPLETED", "CANCELLED"]);
+const {
+  isCanonicalNumericLiteralRepresentable,
+  isGreaterThanOneLiteral,
+  isNegativeNumberLiteral
+} = require("./numericEvidence");
 
 class ImportMappingError extends Error {
   constructor(code, message, status = 400) {
@@ -92,6 +97,14 @@ function field(targetField, declaredType, required, aliases) {
 }
 
 function buildImportAnalysis(staged, options = {}) {
+  return buildImportAnalysisInternal(staged, options, false);
+}
+
+function buildCompleteImportAnalysis(staged, options = {}) {
+  return buildImportAnalysisInternal(staged, options, true);
+}
+
+function buildImportAnalysisInternal(staged, options, includeAllRows) {
   validateEvidence(staged);
   if (
     !options
@@ -174,7 +187,7 @@ function buildImportAnalysis(staged, options = {}) {
       fields,
       unmappedSourceColumns: unmappedSourceColumns(headers, fields, sourceIdentity)
     },
-    rows: allRows.slice(0, ROW_SAMPLE_LIMIT),
+    rows: includeAllRows ? allRows : allRows.slice(0, ROW_SAMPLE_LIMIT),
     rowSampleLimit: ROW_SAMPLE_LIMIT,
     dataHealth: buildDataHealth(allRows, fields, target, headers, sourceIdentity)
   };
@@ -404,6 +417,13 @@ function validateRows(records, headers, fields, targetCollection, sourceIdentity
       if (mappedField.declaredType === "NUMBER" && !["NUMERIC", "KNOWN_ZERO"].includes(evidence.valueKind)) {
         warnings.push({ code: "NONNUMERIC_VALUE_PRESERVED", ...issueBase });
       }
+      if (
+        mappedField.declaredType === "NUMBER"
+        && ["NUMERIC", "KNOWN_ZERO"].includes(evidence.valueKind)
+        && !isCanonicalNumericLiteralRepresentable(evidence.raw)
+      ) {
+        errors.push({ code: "POSTGRES_NUMERIC_UNREPRESENTABLE", ...issueBase });
+      }
       if (mappedField.declaredType === "TIMESTAMP" && !validTimestamp(evidence.raw)) {
         errors.push({ code: "TIMESTAMP_INVALID", ...issueBase });
       }
@@ -411,7 +431,10 @@ function validateRows(records, headers, fields, targetCollection, sourceIdentity
         targetCollection === "opportunities"
         && mappedField.targetField === "probability"
         && ["NUMERIC", "KNOWN_ZERO"].includes(evidence.valueKind)
-        && (Number(evidence.raw) < 0 || Number(evidence.raw) > 1)
+        && (
+          isNegativeNumberLiteral(evidence.raw)
+          || isGreaterThanOneLiteral(evidence.raw)
+        )
       ) {
         errors.push({ code: "PROBABILITY_OUT_OF_RANGE", ...issueBase });
       }
@@ -419,7 +442,7 @@ function validateRows(records, headers, fields, targetCollection, sourceIdentity
         targetCollection === "opportunities"
         && mappedField.targetField === "value"
         && ["NUMERIC", "KNOWN_ZERO"].includes(evidence.valueKind)
-        && Number(evidence.raw) < 0
+        && isNegativeNumberLiteral(evidence.raw)
       ) {
         errors.push({ code: "COMMERCIAL_VALUE_OUT_OF_RANGE", ...issueBase });
       }
@@ -743,5 +766,6 @@ module.exports = {
   ImportMappingError,
   ROW_SAMPLE_LIMIT,
   TARGETS,
+  buildCompleteImportAnalysis,
   buildImportAnalysis
 };

@@ -11,18 +11,58 @@ Commit `8f1b373` fixed PostgreSQL role-creation parameter typing with explicit t
 
 PR-3 and PR-4 are complete and merged through [PR #16](https://github.com/yarinperetz1313/trade-growth-engine/pull/16) at `b0a8e36`, which closed [Issue #2](https://github.com/yarinperetz1313/trade-growth-engine/issues/2) and [Issue #5](https://github.com/yarinperetz1313/trade-growth-engine/issues/5). PR-3 supplies tenant-aware PostgreSQL repositories, transaction-scoped persistence, and transactional RevenueAction execution while preserving JSON as the default local/test adapter and preserving unknown JSON-compatible values. Its migrations remain append-only and unchanged at `005`–`009`. PR-4 adds exact Auth0 validation, active-membership authorization, immutable auth `TenantContext`, centralized role policy, assisted invitations, browser PKCE boundaries, and the renumbered append-only migration `010_auth_membership_and_invitations.sql`.
 
-The server validates the independently branded PR-4 auth context, mints a separate trusted PR-3 persistence context from only its tenant ID and subject, and injects it into the PostgreSQL routers and transactions. Auth-enabled business APIs still return `503 TENANT_PERSISTENCE_UNAVAILABLE` when the PostgreSQL adapter/bridge is absent. Production provisioning, controlled import transitions/deletion, import execution, and JSON cutover do not exist yet. A provisioned Auth0 AU tenant, SMTP/domain evidence, and real external-email OTP E2E remain release gates.
+The server validates the independently branded PR-4 auth context, mints a separate trusted PR-3 persistence context from only its tenant ID and subject, and injects it into the PostgreSQL routers and transactions. Auth-enabled business APIs still return `503 TENANT_PERSISTENCE_UNAVAILABLE` when the PostgreSQL adapter/bridge is absent. Production provisioning, import retention deletion, and JSON cutover do not exist yet. A provisioned Auth0 AU tenant, SMTP/domain evidence, and real external-email OTP E2E remain release gates.
 
 Pilot Readiness PR-5A supplies the bounded CSV-only import contract, parser,
 OWNER/ADMIN staging service, tenant-scoped PostgreSQL batch/staging/audit
 repository, and a read-only 100-row preview. PR-5B adds deterministic exact-name
 then ordered-alias draft mapping, preview-only user selections, row-level
 validation, and all-staged-row Data Health through the same authorization,
-repository, and transaction boundaries. Both preserve exact raw cells and
-distinct unknown value states and perform no canonical writes or external
-actions. XLSX, accepted mapping persistence, canonical commit/ID reconciliation,
-controlled retention deletion, and browser/adversarial breadth remain later
+repository, and transaction boundaries. PR-5C adds an explicit OWNER/ADMIN
+canonical commit and reconciliation API for reviewed selections. One tenant
+transaction locks immutable evidence, deterministically commits or skips every
+row, reconciles the existing ID map, appends bounded audit evidence, and
+transitions only `PREVIEWED` to `COMMITTED`. Migration `011` adds global source
+identity and typed-target uniqueness plus narrow lifecycle functions without
+broad import mutation grants. All three slices preserve exact raw cells and
+distinct unknown value states and perform no external actions. XLSX, controlled
+retention deletion, browser/adversarial breadth, and JSON cutover remain later
 Issue #13 work.
+
+PR-5C fresh-review remediation additionally makes parser-unknown identities
+non-authoritative, keeps unsafe and underflowing decimal staging evidence lossless,
+hashes the complete reviewed-selection vector, fails closed on PostgreSQL
+`NULL`, normalizes canonical/dedupe uniqueness races into atomic conflicts, and
+audits illegal lifecycle attempts without allowing new transitions or raw-cell
+leaks.
+
+PR-5C bounded final-review remediation additionally preserves exact imported
+commercial and mapped numeric evidence across ordinary PostgreSQL opportunity
+updates, returns malformed commit requests as the stable
+`IMPORT_COMMIT_REQUEST_INVALID` API contract, and rejects PostgreSQL numeric
+overflow or lossy-underflow literals as bounded row-level validation before any
+canonical insert. The final remediation below supersedes that earlier generic
+numeric envelope.
+
+PR-5C bounded final-review remediation now aligns the canonical commercial
+schema and application boundary on `NUMERIC(20,6)`: the exact maximum
+`99999999999999.999999` succeeds, while adjacent overflow and excess effective
+fractional scale fail before canonical SQL without rewriting staged cells.
+Migration `011` alone applies the new typmods and fails closed rather than
+rounding incompatible existing canonical values. Blank optional relationship
+cells materialize as absent/SQL `NULL`, and defensive savepoint handling turns
+any remaining canonical FK `23503` into bounded relationship conflict evidence.
+Committed replay fingerprints retain unknown supplied target fields, so only a
+materially identical valid request reconciles; changed or invalid vectors
+conflict deterministically.
+
+PR-5C final two-finding remediation gives every representable decimal spelling
+one exact, non-`Number` canonical interpretation for materialization, payload
+fingerprints, and cross-batch reconciliation while retaining the original raw
+cell and numeric evidence. Commit-time absent or reused reviewed columns,
+including source identity, now return the existing
+`IMPORT_COMMIT_REQUEST_INVALID` public API contract instead of the draft-mapping
+selection error.
 
 Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 
@@ -54,4 +94,4 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - **PR-2 is complete**: schema/security/migrations `001`–`004`, tests, and CI are present, and GitHub Actions run `33304131266` passed the full PostgreSQL 16.15 gate. This completion does not imply production repositories, Auth0 middleware, provisioning, import execution, or JSON cutover. Vendor decisions still gate provisioning and release.
 - **PR-3 and PR-4 are complete and merged through PR #16 at `b0a8e36`**: tenant-aware PostgreSQL repositories and transactional RevenueAction persistence consume the membership-derived auth boundary through a server-only trusted-context bridge. The underlying combined state at `9fe7cea` is verified by [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854), which passed the complete combined gate. Real Auth0 AU/SMTP acceptance remains deployment-gated; PR-5 and later product work remain not started.
 - **The Product Truth audit/fix work unit is complete through PR #17 at `5231838`**, and Issue #7 is closed. Its repository-backed UI corrections and managed Product Truth coverage do not establish external-provider, provisioning, import, or cutover evidence.
-- **PR-5A implements CSV contract, limits, immutable staging, and bounded preview; PR-5B implements draft mapping, validation, and Data Health analysis only.** Neither establishes accepted mapping persistence, canonical import commit, cutover, or production provisioning.
+- **PR-5A implements CSV contract, limits, immutable staging, and bounded preview; PR-5B implements draft mapping, validation, and Data Health analysis; PR-5C implements controlled atomic canonical commit and ID-map reconciliation.** PR-5D browser flow, retention deletion, cutover, and production provisioning remain unimplemented.

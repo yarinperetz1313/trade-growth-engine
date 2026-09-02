@@ -7,6 +7,11 @@ const {
 } = require("../auth/authorization");
 const { requireTenantContext } = require("../persistence/tenantContext");
 const { CSV_LIMITS, parseCsvUpload } = require("./csvParser");
+const {
+  buildCanonicalCommitPlan,
+  validateCanonicalCommitInput,
+  validateReviewedColumnSelections
+} = require("./importCommit");
 const { buildImportAnalysis } = require("./importMapping");
 
 const SOURCE_COLLECTIONS = new Set([
@@ -14,11 +19,12 @@ const SOURCE_COLLECTIONS = new Set([
 ]);
 
 class ImportContractError extends Error {
-  constructor(code, message, status = 400) {
+  constructor(code, message, status = 400, details) {
     super(message);
     this.name = "ImportContractError";
     this.code = code;
     this.status = status;
+    if (details !== undefined) this.details = details;
   }
 }
 
@@ -172,7 +178,76 @@ function createImportService({
     return buildImportAnalysis(evidence, input);
   }
 
-  return Object.freeze({ analyzePreview, createPreview, readPreview });
+  async function commitBatch({
+    authorizationContext,
+    persistenceContext,
+    batchId,
+    input
+  }) {
+    const { authorized, trustedPersistence } = authorize(
+      authorizationContext,
+      persistenceContext
+    );
+    validateBatchId(batchId);
+    validateCanonicalCommitInput(input);
+    const reviewedInput = structuredClone(input);
+    const result = await persistence
+      .forTenant(trustedPersistence)
+      .imports.commitCanonical({
+        batchId,
+        committedAt: normalizeClock(clock()),
+        subjectId: authorized.subject,
+        input: reviewedInput,
+        validate: evidence => validateReviewedColumnSelections(
+          evidence,
+          reviewedInput
+        ),
+        prepare: evidence => buildCanonicalCommitPlan(evidence, reviewedInput)
+      });
+    if (!result) unavailable();
+    if (result.outcome === "CONFLICTED") {
+      throw new ImportContractError(
+        "IMPORT_COMMIT_CONFLICT",
+        "The canonical import commit conflicts with existing import or canonical identity.",
+        409,
+        result
+      );
+    }
+    if (result.outcome === "FAILED") {
+      throw new ImportContractError(
+        "IMPORT_COMMIT_VALIDATION_FAILED",
+        "The canonical import commit failed reviewed mapping validation.",
+        422,
+        result
+      );
+    }
+    return result;
+  }
+
+  async function readCommit({
+    authorizationContext,
+    persistenceContext,
+    batchId
+  }) {
+    const { trustedPersistence } = authorize(
+      authorizationContext,
+      persistenceContext
+    );
+    validateBatchId(batchId);
+    const result = await persistence
+      .forTenant(trustedPersistence)
+      .imports.findCommit(batchId);
+    if (!result) unavailable();
+    return result;
+  }
+
+  return Object.freeze({
+    analyzePreview,
+    commitBatch,
+    createPreview,
+    readCommit,
+    readPreview
+  });
 }
 
 function validateCreateInput(input) {

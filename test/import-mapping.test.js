@@ -325,6 +325,36 @@ test("row validation enforces canonical probability, task state, and calendar ti
   assert.ok(tasks.rows[6].errors.some(issue => issue.code === "TIMESTAMP_INVALID"));
 });
 
+test("row validation enforces NUMERIC(20,6) for every mapped canonical numeric", () => {
+  const analysis = buildImportAnalysis(evidence([
+    "id,business_name,stage,value,probability,qualification_score,weighted_value",
+    "o-valid,Valid,QUALIFIED,99999999999999.999999,1,1.25,1000e-2",
+    "o-large,Large,QUALIFIED,100000000000000.000000,0.5,99999999999999.999999,10",
+    "o-small,Small,QUALIFIED,0.0000001,0.0000001,1.0000001,1e-7"
+  ].join("\n"), "opportunities"));
+
+  assert.equal(analysis.rows[0].valid, true);
+  assert.deepEqual(
+    analysis.rows[1].errors
+      .filter(issue => issue.code === "POSTGRES_NUMERIC_UNREPRESENTABLE")
+      .map(issue => issue.targetField),
+    ["value"]
+  );
+  assert.deepEqual(
+    analysis.rows[2].errors
+      .filter(issue => issue.code === "POSTGRES_NUMERIC_UNREPRESENTABLE")
+      .map(issue => issue.targetField),
+    ["qualification_score", "value", "probability", "weighted_value"]
+  );
+  assert.equal(
+    analysis.rows[1].errors.find(issue =>
+      issue.code === "POSTGRES_NUMERIC_UNREPRESENTABLE"
+      && issue.targetField === "value"
+    ).rawEvidence.raw,
+    "100000000000000.000000"
+  );
+});
+
 test("unmapped required targets make every affected row explicitly blocking", () => {
   const analysis = buildImportAnalysis(evidence("mystery\nvalue"));
   assert.equal(analysis.dataHealth.validRows, 0);

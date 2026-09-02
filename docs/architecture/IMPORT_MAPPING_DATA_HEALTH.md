@@ -1,10 +1,12 @@
 # Deterministic import mapping and Data Health
 
 PR-5B adds preview-only mapping, validation, and Data Health analysis over the
-immutable CSV staging evidence established by PR-5A. It does not accept or
-persist mappings, mutate import lifecycle state, reconcile source IDs, or read
-or write canonical CRM records. Those boundaries remain with PR-5C. Browser UI
-remains with PR-5D.
+immutable CSV staging evidence established by PR-5A. It does not itself accept
+or persist mappings, mutate import lifecycle state, reconcile source IDs, or
+read or write canonical CRM records. PR-5C's separate
+[controlled canonical import commit](CANONICAL_IMPORT_COMMIT.md) consumes an
+explicit reviewed selection request and rebuilds this validation from locked
+staging evidence. Browser UI remains with PR-5D.
 
 ## HTTP contract
 
@@ -67,7 +69,10 @@ The analysis preserves `MISSING`, `BLANK`, `NULL`, `UNKNOWN`, `KNOWN_ZERO`,
 timestamp, exact-row, source-ID, and nonnumeric/unknown conditions without
 coercing source evidence. It also enforces nonblank required values,
 non-negative numeric commercial value, the canonical probability range, and
-task status/completion-timestamp consistency. Known zero remains valid numeric
+task status/completion-timestamp consistency. Every parser-recognized mapped
+numeric is also checked losslessly against PostgreSQL `numeric`'s integer-digit
+and fractional-scale limits; literals that PostgreSQL would overflow or round
+are blocking row errors before canonical SQL. Known zero remains valid numeric
 evidence, including probability zero. A draft `selectedType` cannot bypass the
 separately declared canonical target type or its validation constraints.
 

@@ -3,9 +3,10 @@
 PR-5A implements the CSV contract, parser limits, immutable staging, and
 bounded preview boundary from Issue #13. PR-5B now analyzes that evidence under
 the separate [deterministic mapping and Data Health](IMPORT_MAPPING_DATA_HEALTH.md)
-contract. Neither slice writes canonical CRM records, reconciles IDs, commits
-an import, deletes retained evidence, or provides a browser flow. XLSX is
-deferred.
+contract. PR-5C now consumes explicitly reviewed selections through the
+[controlled canonical import commit](CANONICAL_IMPORT_COMMIT.md). Staging and
+analysis themselves still write no canonical records. Retention deletion,
+browser flow, and XLSX remain deferred.
 
 ## HTTP contract
 
@@ -112,7 +113,7 @@ grant or lifecycle function.
   Staging metadata records the existing seven-day raw-evidence horizon and
   twelve-month metadata/audit horizon.
 
-The transaction never accesses prospects, opportunities, tasks, activities, or
-RevenueActions and records `external_action_performed: false`. Canonical commit,
-duplicate/conflict resolution, ID maps, and controlled retention deletion remain
-later Issue #13 slices.
+The preview transaction never accesses prospects, opportunities, tasks,
+activities, or RevenueActions and records `external_action_performed: false`.
+PR-5C provides the separate explicit canonical commit transaction; controlled
+retention deletion remains a later Issue #13 slice.

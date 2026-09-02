@@ -410,6 +410,111 @@ test("commercial value mapping round-trips all seven states without inventing ze
   }
 });
 
+test("ordinary opportunity updates preserve exact imported numeric evidence", async () => {
+  const context = createTenantContext({
+    tenantId: "a0e8a2a0-9c44-4d84-9263-7d417ac00b8e",
+    subjectId: "auth0|member"
+  });
+  const exactValue = "9007199254740.123456";
+  const exactProbability = "0.123456";
+  const exactWeightedValue = "0.000001";
+  const metadata = {
+    import: {
+      numeric_evidence: {
+        value: { valueKind: "NUMERIC", raw: exactValue },
+        probability: { valueKind: "NUMERIC", raw: exactProbability },
+        weighted_value: { valueKind: "NUMERIC", raw: exactWeightedValue }
+      }
+    }
+  };
+  const stored = {
+    tenant_id: context.tenantId,
+    id: "imported-exact-update",
+    business_name: "Exact Import",
+    stage: "QUALIFIED",
+    commercial_value: exactValue,
+    commercial_value_state: "KNOWN",
+    commercial_value_raw: Number(exactValue),
+    probability: exactProbability,
+    weighted_value: exactWeightedValue,
+    next_action: "Initial action",
+    metadata,
+    current_payload: {
+      id: "imported-exact-update",
+      business_name: "Exact Import",
+      stage: "QUALIFIED",
+      value: exactValue,
+      probability: exactProbability,
+      weighted_value: exactWeightedValue,
+      next_action: "Initial action",
+      metadata
+    },
+    legacy_payload: {},
+    created_at: new Date("2026-09-01T00:00:00.000Z"),
+    updated_at: new Date("2026-09-01T00:00:00.000Z")
+  };
+  const assignments = [];
+  const client = {
+    async query(sql, values) {
+      const normalized = String(sql).replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select * from tge.opportunities")) {
+        return { rows: [stored] };
+      }
+      if (normalized.startsWith("update tge.opportunities")) {
+        assignments.push(Object.fromEntries(
+          [...normalized.matchAll(/([a-z_]+) = \$(\d+)/g)].map(match => [
+            match[1],
+            values[Number(match[2]) - 1]
+          ])
+        ));
+        return { rows: [{ ...stored, next_action: "Unrelated update" }] };
+      }
+      return { rows: [] };
+    },
+    release() {}
+  };
+  const repositories = createPostgresRepositories({
+    pool: { connect: async () => client },
+    clock: () => new Date("2026-09-02T00:00:00.000Z")
+  });
+
+  const updated = await repositories.opportunities.update(
+    context,
+    stored.id,
+    {
+      next_action: "Unrelated update",
+      metadata: { operator_note: "Reviewed" }
+    }
+  );
+
+  const assigned = assignments[0];
+  assert.equal(updated.value, exactValue);
+  assert.equal(updated.probability, Number(exactProbability));
+  assert.equal(updated.weighted_value, Number(exactWeightedValue));
+  assert.equal(assigned.commercial_value, exactValue);
+  assert.equal(assigned.commercial_value_state, "KNOWN");
+  assert.equal(assigned.commercial_value_raw, exactValue);
+  assert.equal(assigned.probability, Number(exactProbability));
+  assert.equal(assigned.weighted_value, Number(exactWeightedValue));
+  assert.deepEqual(JSON.parse(assigned.metadata), {
+    operator_note: "Reviewed",
+    import: metadata.import
+  });
+
+  await repositories.opportunities.update(context, stored.id, { value: 2 });
+  const changedValue = assignments[1];
+  assert.equal(changedValue.commercial_value, 2);
+  assert.equal(changedValue.commercial_value_state, "KNOWN");
+  assert.equal(changedValue.commercial_value_raw, "2");
+  assert.equal(
+    Object.hasOwn(
+      JSON.parse(changedValue.metadata).import.numeric_evidence,
+      "value"
+    ),
+    false
+  );
+});
+
 test("persistence selection is explicit and PostgreSQL never falls back to JSON", () => {
   const json = createPersistence({ adapter: "json" });
   assert.equal(json.adapter, "json");

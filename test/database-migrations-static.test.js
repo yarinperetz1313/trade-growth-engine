@@ -28,7 +28,8 @@ test("migration 001 remains byte-for-byte unchanged and migrations are append-on
     "007_revenue_action_lifecycle_integrity.sql",
     "008_revenue_action_outcome_integrity.sql",
     "009_revenue_action_cancellation_integrity.sql",
-    "010_auth_membership_and_invitations.sql"
+    "010_auth_membership_and_invitations.sql",
+    "011_canonical_import_commit.sql"
   ]);
   assert.equal(Buffer.byteLength(initialMigration), 2752);
   assert.equal(
@@ -465,6 +466,64 @@ test("migration 010 binds active membership to issuer and subject with replay-sa
   assert.match(auth, /grant execute on function tge\.consume_assisted_invitation/);
   assert.match(auth, /revoke execute on all functions in schema tge from public/);
   assert.doesNotMatch(auth, /grant[^;]*delete[^;]*assisted_invitations/i);
+});
+
+test("migration 011 adds globally deterministic import identity and narrow commit lifecycle functions", () => {
+  const commit = read("database/migrations/011_canonical_import_commit.sql");
+  const security = read("database/migrations/003_roles_rls_and_grants.sql");
+
+  assert.match(commit, /alter table tge\.import_id_map[\s\S]*add column source_system text/);
+  assert.match(commit, /add column source_record_id text/);
+  assert.match(commit, /add column canonical_payload_sha256 text/);
+  assert.match(commit, /add column commit_idempotency_key text/);
+  for (const [table, column] of [
+    ["prospects", "qualification_score"],
+    ["opportunities", "qualification_score"],
+    ["opportunities", "commercial_value"],
+    ["opportunities", "probability"],
+    ["opportunities", "weighted_value"]
+  ]) {
+    assert.match(
+      commit,
+      new RegExp(`alter table tge\\.${table}[\\s\\S]*?alter column ${column} type numeric\\(20,6\\)`)
+    );
+  }
+  assert.match(commit, /create unique index import_id_map_source_identity_uidx[\s\S]*tenant_id,[\s\S]*source_system,[\s\S]*source_collection,[\s\S]*source_record_id/);
+  for (const target of ["prospect", "opportunity", "task", "activity"]) {
+    assert.match(
+      commit,
+      new RegExp(`create unique index import_id_map_global_target_${target}_uidx`)
+    );
+  }
+  for (const name of [
+    "lock_import_commit_batch",
+    "lock_import_commit_records",
+    "record_import_commit_outcome",
+    "record_import_commit_attempt",
+    "record_import_commit_lifecycle_conflict",
+    "finalize_import_commit"
+  ]) {
+    assert.match(commit, new RegExp(`create function tge\\.${name}\\(`));
+    assert.match(commit, new RegExp(`grant execute on function tge\\.${name}\\(`));
+  }
+  assert.match(commit, /security definer/g);
+  assert.match(commit, /canonical_payload_sha256 is not null/);
+  assert.match(commit, /requested_metadata is null[\s\S]*jsonb_typeof\(requested_metadata\) is distinct from 'object'/);
+  assert.match(commit, /requested_metadata->>'canonical_payload_sha256' is null/);
+  assert.match(commit, /requested_summary is null[\s\S]*jsonb_typeof\(requested_summary\) is distinct from 'object'/);
+  assert.match(commit, /requested_summary->>'outcome' is null/);
+  assert.match(commit, /requested_summary->>'inputFingerprint' is null/);
+  assert.match(commit, /requested_summary->>'requestFingerprint' is null/);
+  assert.match(commit, /requested_commit_metadata->>'requestFingerprint' is null/);
+  assert.match(commit, /requested_commit_metadata->>'inputFingerprint' is null/);
+  assert.match(commit, /requested_commit_metadata#>>'\{result,outcome\}' is null/);
+  assert.match(commit, /old_status = 'PREVIEWED'|status = 'PREVIEWED'/);
+  assert.match(commit, /revoke execute on all functions in schema tge from public/);
+  assert.doesNotMatch(commit, /grant[^;]*(?:update|delete)[^;]*tge\.import_/i);
+  assert.doesNotMatch(
+    security,
+    /grant[^;]*update[^;]*tge\.import_(?:batches|staging_records|id_map)/i
+  );
 });
 
 test("runner, package scripts, Compose, and CI use the real pinned PostgreSQL gate", () => {

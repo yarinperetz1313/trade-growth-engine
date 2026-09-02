@@ -36,6 +36,9 @@ const {
 const {
   createImportRepository
 } = require("./importRepository");
+const {
+  areDecimalLiteralsEquivalent
+} = require("../../imports/numericEvidence");
 
 const ACTIVE_ACTION_STATUSES = [
   "RECOMMENDED",
@@ -217,6 +220,14 @@ function createPostgresRepositories({
     findAnalysisEvidence: (context, batchId) => run(
       context,
       scoped => scoped.imports.findAnalysisEvidence(batchId)
+    ),
+    commitCanonical: (context, request) => run(
+      context,
+      scoped => scoped.imports.commitCanonical(request)
+    ),
+    findCommit: (context, batchId) => run(
+      context,
+      scoped => scoped.imports.findCommit(batchId)
     )
   };
 
@@ -643,7 +654,8 @@ function createPostgresRepositories({
       executeRevenueActionAtomic(null, id, plan, transaction);
     scoped.imports = createImportRepository(
       transaction.client,
-      transaction.tenantId
+      transaction.tenantId,
+      (name, details) => checkpoint(name, transaction, details)
     );
     return scoped;
   }
@@ -747,7 +759,10 @@ function createEntityRepository(client, tenantId, config, now) {
         created_at: createdAt,
         updated_at: updatedAt
       };
-      const mapped = config.toRow(merged);
+      merged.metadata = preserveImportedMetadata(current, changes, merged);
+      const mapped = config.toRow(merged, {
+        exactNumericFields: merged.metadata?.import?.numeric_evidence
+      });
       const immutableColumns = new Set([
         "source_ordinal",
         "source_created_at",
@@ -901,6 +916,34 @@ function validateUpdateChanges(config, changes) {
     error.fields = unsupported;
     throw error;
   }
+}
+
+function preserveImportedMetadata(current, changes, merged) {
+  const currentImport = current.metadata?.import;
+  if (!isPlainRecord(currentImport)) return merged.metadata;
+  const preservedImport = structuredClone(currentImport);
+  const numericEvidence = isPlainRecord(currentImport.numeric_evidence)
+    ? currentImport.numeric_evidence
+    : {};
+  preservedImport.numeric_evidence = Object.fromEntries(
+    Object.entries(numericEvidence).filter(([field]) => (
+      !Object.hasOwn(changes, field)
+      || numericValuesEquivalent(current[field], merged[field])
+    ))
+  );
+  return {
+    ...(isPlainRecord(merged.metadata) ? merged.metadata : {}),
+    import: preservedImport
+  };
+}
+
+function numericValuesEquivalent(left, right) {
+  if (Object.is(left, right)) return true;
+  if (
+    !["number", "string"].includes(typeof left)
+    || !["number", "string"].includes(typeof right)
+  ) return false;
+  return areDecimalLiteralsEquivalent(String(left), String(right));
 }
 
 function rejectCallerAuthoredRevenueActionEvidence(config, record) {
