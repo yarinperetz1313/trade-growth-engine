@@ -340,7 +340,21 @@ function validatePersistedCase(record, tenantId) {
   }
 }
 
-function validateCaseCollection(records, tenantId) {
+function findRevenueActionReference(revenueActions, record) {
+  if (!Array.isArray(revenueActions)) return null;
+  const matches = revenueActions.filter(action =>
+    isPlainObject(action) && action.id === record.revenue_action_id
+  );
+  if (matches.length !== 1) return null;
+  const [action] = matches;
+  return (
+    action.opportunity_id === record.opportunity_id
+    && /^[0-9a-f]{64}$/.test(action.basis_fingerprint || "")
+    && REVENUE_ACTION_STATUSES.has(action.status)
+  ) ? action : null;
+}
+
+function validateCaseCollection(records, tenantId, revenueActions) {
   assertIntegrity(Array.isArray(records));
   const validated = records.map(record => validatePersistedCase(record, tenantId));
   const byId = new Map();
@@ -357,6 +371,14 @@ function validateCaseCollection(records, tenantId) {
     }
   }
   for (const record of validated) {
+    if (record.revenue_action_id !== null) {
+      const action = findRevenueActionReference(revenueActions, record);
+      assertIntegrity(
+        action
+        && action.basis_fingerprint === record.revenue_action_fingerprint
+        && action.status === record.revenue_action_status_at_link
+      );
+    }
     if (record.supersedes_case_id !== null) {
       const predecessor = byId.get(record.supersedes_case_id);
       assertIntegrity(
@@ -415,7 +437,8 @@ function createJsonRevenueLeakCaseRepository({
   const tenantId = localTenantId.trim().toLowerCase();
   const readCases = () => validateCaseCollection(
     store.readCollection("revenue_leak_cases"),
-    tenantId
+    tenantId,
+    store.readCollection("revenue_actions")
   );
   const writeCases = records => {
     if (typeof store.writeCollection !== "function") {
@@ -423,7 +446,11 @@ function createJsonRevenueLeakCaseRepository({
     }
     return store.writeCollection(
       "revenue_leak_cases",
-      validateCaseCollection(records, tenantId)
+      validateCaseCollection(
+        records,
+        tenantId,
+        store.readCollection("revenue_actions")
+      )
     );
   };
   const trusted = context => requireTenantContext(context);
@@ -651,14 +678,14 @@ function createJsonRevenueLeakCaseRepository({
           "A revenue leak case cannot be relinked to a different RevenueAction."
         );
       }
-      const action = store.readCollection("revenue_actions").find(record =>
-        record.id === actionId && record.opportunity_id === current.opportunity_id
+      const action = findRevenueActionReference(
+        store.readCollection("revenue_actions"),
+        {
+          revenue_action_id: actionId,
+          opportunity_id: current.opportunity_id
+        }
       );
-      if (
-        !action
-        || !/^[0-9a-f]{64}$/.test(action.basis_fingerprint || "")
-        || !REVENUE_ACTION_STATUSES.has(action.status)
-      ) {
+      if (!action) {
         fail(
           "REVENUE_ACTION_UNAVAILABLE",
           "The requested RevenueAction is unavailable."

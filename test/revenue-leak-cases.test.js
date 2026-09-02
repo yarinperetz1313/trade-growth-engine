@@ -111,6 +111,16 @@ function repository(seed = {}) {
   };
 }
 
+async function linkedCaseSeed() {
+  const setup = repository();
+  await setup.repository.reconcile(context(), build());
+  await setup.repository.linkRevenueAction(context(), "case-1", {
+    revenue_action_id: "action-1",
+    at: "2026-09-02T03:00:00.000Z"
+  });
+  return structuredClone(setup.store.state);
+}
+
 test("canonical identity is stable across object key order and changes with evidence", () => {
   const first = build();
   const reordered = buildRevenueLeakCaseDetection({
@@ -349,6 +359,119 @@ test("JSON case truth fails closed before list, read, replay, mutation, and link
       }
     });
   }
+});
+
+test("persisted JSON RevenueAction links require exact current referential truth", async t => {
+  const linked = await linkedCaseSeed();
+  const relationships = [
+    ["valid", actions => actions, false],
+    ["nonexistent", actions => actions.filter(action => action.id !== "action-1"), true],
+    ["malformed collection", () => ({ forged: true }), true],
+    ["wrong opportunity", actions => actions.map(action => action.id === "action-1"
+      ? { ...action, opportunity_id: "opp-other" }
+      : action), true],
+    ["wrong fingerprint", actions => actions.map(action => action.id === "action-1"
+      ? { ...action, basis_fingerprint: "f".repeat(64) }
+      : action), true],
+    ["wrong status", actions => actions.map(action => action.id === "action-1"
+      ? { ...action, status: "PREPARED" }
+      : action), true]
+  ];
+  const operations = [
+    ["list", cases => cases.list(context())],
+    ["read", cases => cases.findById(context(), "case-1")],
+    ["duplicate reconciliation", cases => cases.reconcile(context(), build())],
+    ["lifecycle mutation", cases => cases.transition(context(), "case-1", {
+      to: "SNOOZED",
+      reason: "Wait for a reply.",
+      wake_at: "2026-09-05T00:00:00.000Z",
+      at: "2026-09-02T04:00:00.000Z"
+    })],
+    ["same-ID link replay", cases => cases.linkRevenueAction(context(), "case-1", {
+      revenue_action_id: "action-1",
+      at: "2026-09-02T04:00:00.000Z"
+    })]
+  ];
+
+  for (const [relationshipName, alterActions, rejects] of relationships) {
+    await t.test(relationshipName, async () => {
+      for (const [operationName, operation] of operations) {
+        const { repository: cases, store } = repository({
+          revenue_actions: alterActions(structuredClone(linked.revenue_actions)),
+          revenue_leak_cases: structuredClone(linked.revenue_leak_cases)
+        });
+        const before = structuredClone(store.state.revenue_leak_cases);
+        if (!rejects) {
+          await operation(cases);
+          continue;
+        }
+        await assert.rejects(
+          operation(cases),
+          error => (
+            error.code === "REVENUE_LEAK_CASE_INTEGRITY_CONFLICT"
+            && error.message === "Persisted revenue leak case truth is malformed."
+          ),
+          `${operationName} must reject a ${relationshipName} persisted link non-oracularly`
+        );
+        assert.deepEqual(
+          store.state.revenue_leak_cases,
+          before,
+          `${operationName} must not mutate a ${relationshipName} persisted link`
+        );
+      }
+    });
+  }
+});
+
+test("valid persisted RevenueAction links remain accepted in every case lifecycle state", async t => {
+  for (const state of ["OPEN", "SNOOZED", "DISMISSED", "SUPERSEDED"]) {
+    await t.test(state, async () => {
+      const { repository: cases } = repository();
+      const tenant = context();
+      await cases.reconcile(tenant, build());
+      await cases.linkRevenueAction(tenant, "case-1", {
+        revenue_action_id: "action-1",
+        at: "2026-09-02T03:00:00.000Z"
+      });
+      if (state === "SNOOZED") {
+        await cases.transition(tenant, "case-1", {
+          to: "SNOOZED",
+          reason: "Waiting for the customer meeting.",
+          wake_at: "2026-09-05T00:00:00.000Z",
+          at: "2026-09-02T04:00:00.000Z"
+        });
+      } else if (state === "DISMISSED") {
+        await cases.transition(tenant, "case-1", {
+          to: "DISMISSED",
+          reason: "Customer declined further follow-up.",
+          at: "2026-09-02T04:00:00.000Z"
+        });
+      } else if (state === "SUPERSEDED") {
+        await cases.reconcile(tenant, build(detection({
+          evidence: {
+            threshold_days: 21,
+            last_meaningful_activity_at: "2026-08-01T00:00:00.000Z"
+          }
+        }), { id: "case-2", detectedAt: "2026-09-03T00:00:00.000Z" }));
+      }
+
+      const record = await cases.findById(tenant, "case-1");
+      assert.equal(record.state, state);
+      assert.equal(record.revenue_action_id, "action-1");
+      assert.equal((await cases.list(tenant)).some(item => item.id === record.id), true);
+    });
+  }
+});
+
+test("unlinked JSON cases remain independent of unrelated RevenueAction truth", async () => {
+  const { repository: cases } = repository({
+    revenue_actions: { malformed_but_unreferenced: true }
+  });
+  const tenant = context();
+  await cases.reconcile(tenant, build());
+
+  assert.equal((await cases.findById(tenant, "case-1")).state, "OPEN");
+  assert.equal((await cases.list(tenant)).length, 1);
 });
 
 test("only the initial stalled-opportunity contract is accepted", () => {
