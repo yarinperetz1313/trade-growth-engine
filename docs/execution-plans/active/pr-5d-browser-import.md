@@ -37,6 +37,6 @@
 ## Review and handoff
 
 - Implementer self-check: bounded remediation only; no server, persistence, migration, auth, connector, or retention/deletion behavior changed.
-- Fresh reviewer findings/resolution: all four findings have regression coverage and bounded fixes; host-side managed Playwright remains the only unexecuted verification evidence.
+- Fresh reviewer findings/resolution: all four findings have regression coverage and bounded fixes; targeted and full host-side managed Playwright are green.
 - Final-review evidence: pure response/recovery tests, full fast gate, build, diff inspection, targeted browser **12/12**, and full managed browser **26/26** are green. The branch was then rebased cleanly onto `origin/main` at `f7b2666` before push/review.
 - Debt/follow-up: raw-evidence retention/deletion acceptance and implementation remain a separate reviewed follow-up.
