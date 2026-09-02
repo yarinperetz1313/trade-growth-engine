@@ -4,6 +4,7 @@ const test = require("node:test");
 const {
   hashImportEvidence
 } = require("../src/imports/csvParser");
+const { TARGETS } = require("../src/imports/importMapping");
 
 const {
   createPostgresRepositories
@@ -388,6 +389,85 @@ test("same committed request reconciles without rebuilding, inserting, mapping, 
   ]);
 });
 
+test("committed replay fingerprints unknown supplied targets instead of silently reconciling", async () => {
+  const calls = [];
+  const validInput = {
+    sourceSystem: "pilot-crm",
+    idempotencyKey: "commit-attempt-1",
+    sourceIdentitySelection: { sourceColumn: "source_id" },
+    selections: []
+  };
+  const normalizedSelections = TARGETS.prospects.fields.map(definition => ({
+    targetField: definition.targetField,
+    sourceColumn: null,
+    selectedType: definition.declaredType
+  })).sort((left, right) => left.targetField.localeCompare(right.targetField));
+  const storedResult = {
+    outcome: "COMMITTED",
+    batch: { id: "batch-1", status: "COMMITTED" },
+    rows: [{ sourceOrdinal: 0, targetId: "prospect-1", disposition: "COMMITTED" }],
+    summary: { total: 1, committed: 1, skipped: 0, conflicted: 0, failed: 0 },
+    reconciled: false
+  };
+  const client = {
+    async query(sql, params) {
+      calls.push([sql, params]);
+      if (/lock_import_commit_batch/i.test(sql)) {
+        return { rows: [{
+          tenant_id: context.tenantId,
+          id: "batch-1",
+          status: "COMMITTED",
+          source_filename: "source.csv",
+          source_sha256: "a".repeat(64),
+          preview_summary: {
+            sourceCollection: "prospects",
+            headers: ["source_id"],
+            rowCount: 1
+          },
+          commit_idempotency_key: validInput.idempotencyKey,
+          commit_metadata: {
+            inputFingerprint: hashImportEvidence({
+              batchId: "batch-1",
+              input: { ...validInput, selections: normalizedSelections }
+            }),
+            requestFingerprint: "d".repeat(64),
+            result: storedResult
+          },
+          metadata_retain_until: "2027-09-01T00:00:00.000Z",
+          committed_at: "2026-09-02T00:00:00.000Z"
+        }] };
+      }
+      return { rows: [] };
+    },
+    release() {}
+  };
+  const repositories = createPostgresRepositories({
+    pool: { connect: async () => client }
+  });
+
+  const result = await repositories.imports.commitCanonical(context, {
+    batchId: "batch-1",
+    committedAt: "2026-09-03T00:00:00.000Z",
+    subjectId: context.subjectId,
+    input: {
+      ...validInput,
+      selections: [{
+        targetField: "invented_target",
+        sourceColumn: null,
+        selectedType: "TEXT"
+      }]
+    },
+    prepare() {
+      assert.fail("a committed retry must not rebuild the canonical plan");
+    }
+  });
+
+  assert.equal(result.outcome, "CONFLICTED");
+  assert.equal(result.conflicts[0].code, "BATCH_ALREADY_COMMITTED");
+  assert.equal(result.reconciled, false);
+  assert.equal(calls.some(([sql]) => /insert into tge\.audit_events/i.test(sql)), true);
+});
+
 test("illegal lifecycle commit attempts append bounded conflict evidence without transitions", async () => {
   const calls = [];
   const privateRaw = "private-cell-must-not-leak";
@@ -534,6 +614,110 @@ test("canonical uniqueness violations roll back to a savepoint and become bounde
     targetId: "prospect-1"
   }]);
   assert.equal(calls.some(([sql]) => /^SAVEPOINT canonical_import_materialization$/i.test(sql)), true);
+  assert.equal(calls.some(([sql]) => /^ROLLBACK TO SAVEPOINT canonical_import_materialization$/i.test(sql)), true);
+  assert.equal(calls.some(([sql]) => /record_import_commit_attempt/i.test(sql)), true);
+});
+
+test("canonical relationship violations roll back to a savepoint and never leak raw PostgreSQL 23503", async () => {
+  const calls = [];
+  const staged = draft().records[0];
+  const client = {
+    async query(sql, params) {
+      calls.push([sql, params]);
+      if (/lock_import_commit_batch/i.test(sql)) {
+        return { rows: [{
+          tenant_id: context.tenantId,
+          id: "batch-1",
+          status: "PREVIEWED",
+          source_filename: "source.csv",
+          source_sha256: "a".repeat(64),
+          preview_summary: { sourceCollection: "opportunities", rowCount: 1 },
+          metadata_retain_until: "2027-09-01T00:00:00.000Z"
+        }] };
+      }
+      if (/lock_import_commit_records/i.test(sql)) {
+        return { rows: [{
+          import_batch_id: "batch-1",
+          id: staged.id,
+          source_collection: "opportunities",
+          source_id: staged.sourceId,
+          source_ordinal: staged.sourceOrdinal,
+          raw_payload: staged.rawPayload,
+          raw_payload_sha256: staged.rawPayloadSha256,
+          disposition: staged.disposition,
+          metadata: staged.metadata
+        }] };
+      }
+      if (/from tge\.import_id_map|select id from tge\.opportunities/i.test(sql)) {
+        return { rows: [] };
+      }
+      if (/select id from tge\.prospects/i.test(sql)) {
+        return { rows: [{ id: "missing-prospect" }] };
+      }
+      if (/insert into tge\.opportunities/i.test(sql)) {
+        const error = new Error("private PostgreSQL relationship detail");
+        error.code = "23503";
+        error.constraint = "opportunities_tenant_id_prospect_id_fkey";
+        throw error;
+      }
+      return { rows: [] };
+    },
+    release() {}
+  };
+  const repositories = createPostgresRepositories({
+    pool: { connect: async () => client }
+  });
+
+  const result = await repositories.imports.commitCanonical(context, {
+    batchId: "batch-1",
+    committedAt: "2026-09-02T00:00:00.000Z",
+    subjectId: context.subjectId,
+    input: {
+      sourceSystem: "pilot-crm",
+      idempotencyKey: "commit-attempt-1",
+      sourceIdentitySelection: { sourceColumn: "source_id" },
+      selections: []
+    },
+    prepare() {
+      return {
+        outcome: "READY",
+        batchId: "batch-1",
+        sourceCollection: "opportunities",
+        sourceSystem: "pilot-crm",
+        requestFingerprint: "d".repeat(64),
+        rows: [{
+          stagingRecordId: staged.id,
+          stagingSourceId: staged.sourceId,
+          sourceCollection: "opportunities",
+          sourceOrdinal: 0,
+          sourceRowNumber: 2,
+          sourceRecordId: "source-1",
+          rawPayloadSha256: staged.rawPayloadSha256,
+          canonicalTargetId: "opportunity-1",
+          canonicalPayloadSha256: "e".repeat(64),
+          canonicalRecord: {
+            id: "opportunity-1",
+            prospect_id: "missing-prospect",
+            business_name: "Acme",
+            stage: "QUALIFIED",
+            value: 0
+          },
+          disposition: "COMMITTED"
+        }],
+        summary: { total: 1, committed: 1, skipped: 0, conflicted: 0, failed: 0 },
+        conflicts: []
+      };
+    }
+  });
+
+  assert.equal(result.outcome, "CONFLICTED");
+  assert.deepEqual(result.conflicts, [{
+    code: "CANONICAL_REFERENCE_UNAVAILABLE",
+    field: "prospect_id",
+    sourceOrdinal: 0,
+    targetId: "missing-prospect"
+  }]);
+  assert.equal(JSON.stringify(result).includes("private PostgreSQL"), false);
   assert.equal(calls.some(([sql]) => /^ROLLBACK TO SAVEPOINT canonical_import_materialization$/i.test(sql)), true);
   assert.equal(calls.some(([sql]) => /record_import_commit_attempt/i.test(sql)), true);
 });

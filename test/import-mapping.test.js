@@ -325,12 +325,12 @@ test("row validation enforces canonical probability, task state, and calendar ti
   assert.ok(tasks.rows[6].errors.some(issue => issue.code === "TIMESTAMP_INVALID"));
 });
 
-test("row validation rejects PostgreSQL-unrepresentable mapped numerics losslessly", () => {
+test("row validation enforces NUMERIC(20,6) for every mapped canonical numeric", () => {
   const analysis = buildImportAnalysis(evidence([
     "id,business_name,stage,value,probability,qualification_score,weighted_value",
-    "o-valid,Valid,QUALIFIED,1e131071,1e-16383,1.25,1000e-2",
-    "o-large,Large,QUALIFIED,1e131072,0.5,1e999999999999999999999,10",
-    "o-small,Small,QUALIFIED,1e-16384,1e-16384,0e999999999999999999999,1e-999999999999999999999"
+    "o-valid,Valid,QUALIFIED,99999999999999.999999,1,1.25,1000e-2",
+    "o-large,Large,QUALIFIED,100000000000000.000000,0.5,99999999999999.999999,10",
+    "o-small,Small,QUALIFIED,0.0000001,0.0000001,1.0000001,1e-7"
   ].join("\n"), "opportunities"));
 
   assert.equal(analysis.rows[0].valid, true);
@@ -338,7 +338,7 @@ test("row validation rejects PostgreSQL-unrepresentable mapped numerics lossless
     analysis.rows[1].errors
       .filter(issue => issue.code === "POSTGRES_NUMERIC_UNREPRESENTABLE")
       .map(issue => issue.targetField),
-    ["qualification_score", "value"]
+    ["value"]
   );
   assert.deepEqual(
     analysis.rows[2].errors
@@ -349,9 +349,9 @@ test("row validation rejects PostgreSQL-unrepresentable mapped numerics lossless
   assert.equal(
     analysis.rows[1].errors.find(issue =>
       issue.code === "POSTGRES_NUMERIC_UNREPRESENTABLE"
-      && issue.targetField === "qualification_score"
+      && issue.targetField === "value"
     ).rawEvidence.raw,
-    "1e999999999999999999999"
+    "100000000000000.000000"
   );
 });
 

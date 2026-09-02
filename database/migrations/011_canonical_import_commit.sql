@@ -1,5 +1,49 @@
 set local role tge_owner;
 
+do $migration$
+begin
+  if exists (
+    select 1 from tge.prospects
+    where qualification_score is not null
+      and (
+        abs(qualification_score) >= 100000000000000
+        or qualification_score <> round(qualification_score, 6)
+      )
+    union all
+    select 1 from tge.opportunities
+    where (qualification_score is not null and (
+        abs(qualification_score) >= 100000000000000
+        or qualification_score <> round(qualification_score, 6)
+      ))
+      or (commercial_value is not null and (
+        abs(commercial_value) >= 100000000000000
+        or commercial_value <> round(commercial_value, 6)
+      ))
+      or (probability is not null and (
+        abs(probability) >= 100000000000000
+        or probability <> round(probability, 6)
+      ))
+      or (weighted_value is not null and (
+        abs(weighted_value) >= 100000000000000
+        or weighted_value <> round(weighted_value, 6)
+      ))
+  ) then
+    raise exception using
+      errcode = '22003',
+      message = 'Canonical commercial numerics exceed NUMERIC(20,6).';
+  end if;
+end
+$migration$;
+
+alter table tge.prospects
+  alter column qualification_score type numeric(20,6);
+
+alter table tge.opportunities
+  alter column qualification_score type numeric(20,6),
+  alter column commercial_value type numeric(20,6),
+  alter column probability type numeric(20,6),
+  alter column weighted_value type numeric(20,6);
+
 alter table tge.import_id_map
   add column source_system text,
   add column source_record_id text,

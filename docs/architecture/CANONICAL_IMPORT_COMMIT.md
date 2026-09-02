@@ -45,7 +45,10 @@ key, returns a deterministic conflict.
 
 Fingerprints cover the complete server-normalized target vector, so an omitted
 optional selection and the same explicit `sourceColumn: null` selection are the
-same reviewed request.
+same reviewed request. Supplied target fields outside that vector remain in the
+input fingerprint instead of being discarded. They cannot reconcile against a
+committed valid request and return the same bounded already-committed conflict
+as any other materially changed replay.
 
 ## Atomicity and identity
 
@@ -74,7 +77,11 @@ Across batches, an existing source map reconciles only when its payload
 fingerprint and typed target ID match. An unmapped existing canonical ID,
 missing canonical relationship, mismatched map, or one target requested by
 multiple source identities blocks the whole commit. No existing CRM record is
-merged or overwritten.
+merged or overwritten. Blank optional relationship evidence materializes as an
+absent canonical relationship, while its exact blank cell remains in immutable
+staging evidence. Canonical FK violations that still occur during a
+materialization race are savepoint-normalized to bounded relationship conflicts;
+raw PostgreSQL `23503` details never form the import outcome.
 
 ## Lifecycle, evidence, and outcomes
 
@@ -101,13 +108,16 @@ audit events, and lifecycle mutation together.
 
 Exact staged `raw_payload` and its hash are never rewritten. Decimal
 classification and range checks avoid JavaScript `Number` conversion before
-fingerprinting and persistence. Exact numeric strings are retained in canonical
-import metadata and PostgreSQL `numeric`; unsafe integers, high-precision
-decimals, and underflowing values remain lossless on repository readback and
-ordinary unrelated updates. Stored import provenance is preserved during
-metadata patches, while numeric evidence is retired only when its logical field
-value changes. Mapped numeric literals outside PostgreSQL's exact representable
-integer/scale envelope fail as bounded row validation instead of reaching SQL.
+fingerprinting and persistence. Migration `011` constrains the five canonical
+commercial numeric columns to `NUMERIC(20,6)` after a fail-closed preflight that
+refuses lossy existing values. Exact accepted strings, including the maximum
+`99999999999999.999999`, are retained in canonical import metadata and survive
+repository readback and ordinary unrelated updates. Values with more than 14
+integer digits or more than six effective fractional digits fail as bounded row
+validation before canonical SQL; their exact cells remain staged. Stored import
+provenance is preserved during metadata patches, while numeric evidence is
+retired only when its logical field value changes.
+
 Known numeric zero stays numeric zero, every parser-recognized unknown literal
 becomes canonical `unknown`, and missing, blank, null, unknown, and nonnumeric
 states are never invented as zero. Unrepresentable optional unknown values

@@ -8,6 +8,7 @@ const SOURCE_SYSTEM_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const IDEMPOTENCY_KEY_MAX_BYTES = 255;
 const SOURCE_RECORD_ID_MAX_BYTES = 512;
 const COMMIT_OUTCOME_ISSUE_LIMIT = 100;
+const RELATIONSHIP_TARGET_FIELDS = new Set(["opportunity_id", "prospect_id"]);
 
 class ImportCommitError extends Error {
   constructor(code, message, status = 400) {
@@ -203,6 +204,10 @@ function cellValue(record, columnOrdinal, declaredType, targetField) {
   const cell = record.rawPayload?.cells?.[columnOrdinal];
   if (!cell || !cell.present || cell.valueKind === "MISSING") return MISSING;
   if (cell.valueKind === "NULL") return targetField === "value" ? null : MISSING;
+  if (
+    cell.valueKind === "BLANK"
+    && RELATIONSHIP_TARGET_FIELDS.has(targetField)
+  ) return MISSING;
   if (declaredType === "NUMBER") {
     if (cell.valueKind === "KNOWN_ZERO") return 0;
     if (cell.valueKind === "NUMERIC") return cell.raw;

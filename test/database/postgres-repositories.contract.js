@@ -3066,6 +3066,26 @@ function registerPostgresRepositoryContractTests({
       "2026-09-03T00:00:00.500Z"
     );
     assert.equal(normalizedRetry.reconciled, true);
+    const invalidRetry = await commitCsvBatch(
+      repositories,
+      tenantA.context,
+      batchId,
+      {
+        ...input,
+        selections: [
+          ...input.selections,
+          {
+            targetField: "invented_target",
+            sourceColumn: null,
+            selectedType: "TEXT"
+          }
+        ]
+      },
+      "2026-09-03T00:00:00.750Z"
+    );
+    assert.equal(invalidRetry.outcome, "CONFLICTED");
+    assert.equal(invalidRetry.conflicts[0].code, "BATCH_ALREADY_COMMITTED");
+    assert.equal(invalidRetry.reconciled, false);
     const evidenceAfterRetry = await getAdminClient().query(
       `select
          (select count(*)::int from tge.opportunities
@@ -3100,7 +3120,7 @@ function registerPostgresRepositoryContractTests({
          and event_type = 'IMPORT_COMMIT_CONFLICTED'`,
       [tenantA.tenantId, batchId]
     );
-    assert.equal(changedRetryAudit.rows[0].count, 1);
+    assert.equal(changedRetryAudit.rows[0].count, 2);
 
     const reusedKeyBatch = `canonical-reused-key-${randomUUID()}`;
     await stageCsvBatch(
@@ -3281,9 +3301,9 @@ function registerPostgresRepositoryContractTests({
       tenant.context,
       batchId,
       "source_id,id,business_name,stage,value,probability\n" +
-        "source-large,exact-large,Large Trade,QUALIFIED,9007199254740993,1e-4000\n" +
-        "source-decimal,exact-decimal,Decimal Trade,QUALIFIED,1.234567890123456789,0.1234567890123456789\n" +
-        "source-tiny,exact-tiny,Tiny Trade,QUALIFIED,1e-4000,0\n" +
+        "source-large,exact-large,Large Trade,QUALIFIED,99999999999999.999999,0.000001\n" +
+        "source-decimal,exact-decimal,Decimal Trade,QUALIFIED,9007199254740.123456,0.123456\n" +
+        "source-tiny,exact-tiny,Tiny Trade,QUALIFIED,0.000001,0\n" +
         "source-unknown,exact-unknown,Unknown Trade,QUALIFIED,n/a,0\n" +
         "source-zero,exact-zero,Zero Trade,QUALIFIED,0,0"
     );
@@ -3303,11 +3323,11 @@ function registerPostgresRepositoryContractTests({
       repositories.opportunities.findById(tenant.context, "exact-unknown"),
       repositories.opportunities.findById(tenant.context, "exact-zero")
     ]);
-    assert.equal(large.value, "9007199254740993");
-    assert.equal(large.probability, "1e-4000");
-    assert.equal(decimal.value, "1.234567890123456789");
-    assert.equal(decimal.probability, "0.1234567890123456789");
-    assert.equal(tiny.value, "1e-4000");
+    assert.equal(large.value, "99999999999999.999999");
+    assert.equal(large.probability, 0.000001);
+    assert.equal(decimal.value, "9007199254740.123456");
+    assert.equal(decimal.probability, 0.123456);
+    assert.equal(tiny.value, 0.000001);
     assert.equal(unknown.value, "unknown");
     assert.equal(zero.value, 0);
 
@@ -3323,18 +3343,18 @@ function registerPostgresRepositoryContractTests({
       ]]
     );
     const byId = Object.fromEntries(stored.rows.map(row => [row.id, row]));
-    assert.equal(byId["exact-large"].numeric_value, "9007199254740993");
-    assert.equal(byId["exact-large"].raw_value, "9007199254740993");
-    assert.equal(byId["exact-large"].exact_raw, "9007199254740993");
-    assert.equal(byId["exact-decimal"].numeric_value, "1.234567890123456789");
-    assert.equal(byId["exact-decimal"].raw_value, "1.234567890123456789");
-    assert.equal(byId["exact-decimal"].exact_raw, "1.234567890123456789");
-    assert.equal(byId["exact-tiny"].exact_raw, "1e-4000");
+    assert.equal(byId["exact-large"].numeric_value, "99999999999999.999999");
+    assert.equal(byId["exact-large"].raw_value, "99999999999999.999999");
+    assert.equal(byId["exact-large"].exact_raw, "99999999999999.999999");
+    assert.equal(byId["exact-decimal"].numeric_value, "9007199254740.123456");
+    assert.equal(byId["exact-decimal"].raw_value, "9007199254740.123456");
+    assert.equal(byId["exact-decimal"].exact_raw, "9007199254740.123456");
+    assert.equal(byId["exact-tiny"].exact_raw, "0.000001");
     assert.equal(byId["exact-tiny"].commercial_value_state, "KNOWN");
     assert.equal(byId["exact-unknown"].commercial_value_state, "UNKNOWN_LITERAL");
     assert.equal(byId["exact-unknown"].raw_value, '"unknown"');
     assert.equal(byId["exact-zero"].commercial_value_state, "ZERO");
-    assert.equal(byId["exact-zero"].numeric_value, "0");
+    assert.equal(byId["exact-zero"].numeric_value, "0.000000");
 
     const updatedDecimal = await repositories.opportunities.update(
       tenant.context,
@@ -3344,11 +3364,11 @@ function registerPostgresRepositoryContractTests({
     const updatedTiny = await repositories.opportunities.update(
       tenant.context,
       "exact-tiny",
-      { next_action: "Unrelated underflow-evidence update" }
+      { next_action: "Unrelated small-value evidence update" }
     );
-    assert.equal(updatedDecimal.value, "1.234567890123456789");
-    assert.equal(updatedDecimal.probability, "0.1234567890123456789");
-    assert.equal(updatedTiny.value, "1e-4000");
+    assert.equal(updatedDecimal.value, "9007199254740.123456");
+    assert.equal(updatedDecimal.probability, 0.123456);
+    assert.equal(updatedTiny.value, 0.000001);
     const afterUpdates = await getAdminClient().query(
       `select id, commercial_value::text as numeric_value,
          commercial_value_state, commercial_value_raw::text as raw_value,
@@ -3359,13 +3379,13 @@ function registerPostgresRepositoryContractTests({
       [tenant.tenantId, ["exact-decimal", "exact-tiny"]]
     );
     const updatedById = Object.fromEntries(afterUpdates.rows.map(row => [row.id, row]));
-    assert.equal(updatedById["exact-decimal"].numeric_value, "1.234567890123456789");
+    assert.equal(updatedById["exact-decimal"].numeric_value, "9007199254740.123456");
     assert.equal(updatedById["exact-decimal"].commercial_value_state, "KNOWN");
-    assert.equal(updatedById["exact-decimal"].raw_value, "1.234567890123456789");
-    assert.equal(updatedById["exact-decimal"].exact_raw, "1.234567890123456789");
+    assert.equal(updatedById["exact-decimal"].raw_value, "9007199254740.123456");
+    assert.equal(updatedById["exact-decimal"].exact_raw, "9007199254740.123456");
     assert.equal(updatedById["exact-tiny"].numeric_value, byId["exact-tiny"].numeric_value);
     assert.equal(updatedById["exact-tiny"].commercial_value_state, "KNOWN");
-    assert.equal(updatedById["exact-tiny"].exact_raw, "1e-4000");
+    assert.equal(updatedById["exact-tiny"].exact_raw, "0.000001");
 
     const unknownIdentityBatch = `canonical-unknown-identity-${randomUUID()}`;
     await stageCsvBatch(
@@ -3430,6 +3450,124 @@ function registerPostgresRepositoryContractTests({
     );
     assert.equal(batch.rows[0].status, "PREVIEWED");
     assert.deepEqual(canonical.rows, []);
+  });
+
+  test("canonical NUMERIC(20,6) bounds and blank optional relationships hold through PostgreSQL", async () => {
+    const pool = createPool();
+    const repositories = createPostgresRepositories({ pool });
+    const tenant = await createTenant("canonical-import-typed-numeric");
+    const columns = await getAdminClient().query(
+      `select table_name, column_name, numeric_precision, numeric_scale
+       from information_schema.columns
+       where table_schema = 'tge'
+         and (table_name, column_name) in (
+           ('prospects', 'qualification_score'),
+           ('opportunities', 'qualification_score'),
+           ('opportunities', 'commercial_value'),
+           ('opportunities', 'probability'),
+           ('opportunities', 'weighted_value')
+         )
+       order by table_name, column_name`
+    );
+    assert.equal(columns.rows.length, 5);
+    assert.equal(columns.rows.every(row =>
+      row.numeric_precision === 20 && row.numeric_scale === 6
+    ), true);
+
+    const acceptedBatch = `canonical-typed-max-${randomUUID()}`;
+    await stageCsvBatch(
+      repositories,
+      tenant.context,
+      acceptedBatch,
+      "source_id,id,prospect_id,business_name,stage,value,probability\n" +
+        "source-max,typed-max,,Maximum Trade,QUALIFIED,99999999999999.999999,1"
+    );
+    const acceptedInput = canonicalOpportunityInput(`typed-max-${randomUUID()}`);
+    acceptedInput.selections.push({
+      targetField: "prospect_id",
+      sourceColumn: "prospect_id",
+      selectedType: "TEXT"
+    });
+    const accepted = await commitCsvBatch(
+      repositories,
+      tenant.context,
+      acceptedBatch,
+      acceptedInput
+    );
+    assert.equal(accepted.outcome, "COMMITTED");
+    const acceptedEvidence = await getAdminClient().query(
+      `select opportunity.prospect_id,
+         opportunity.commercial_value::text as commercial_value,
+         staged.raw_payload->'cells'->2->>'raw' as raw_relationship,
+         staged.raw_payload->'cells'->2->>'valueKind' as relationship_kind,
+         staged.raw_payload,
+         staged.raw_payload_sha256
+       from tge.opportunities opportunity
+       join tge.import_staging_records staged
+         on staged.tenant_id = opportunity.tenant_id
+        and staged.import_batch_id = $2
+       where opportunity.tenant_id = $1 and opportunity.id = 'typed-max'`,
+      [tenant.tenantId, acceptedBatch]
+    );
+    assert.equal(
+      hashImportEvidence(acceptedEvidence.rows[0].raw_payload),
+      acceptedEvidence.rows[0].raw_payload_sha256
+    );
+    assert.deepEqual({
+      prospect_id: acceptedEvidence.rows[0].prospect_id,
+      commercial_value: acceptedEvidence.rows[0].commercial_value,
+      raw_relationship: acceptedEvidence.rows[0].raw_relationship,
+      relationship_kind: acceptedEvidence.rows[0].relationship_kind
+    }, {
+      prospect_id: null,
+      commercial_value: "99999999999999.999999",
+      raw_relationship: "",
+      relationship_kind: "BLANK"
+    });
+
+    for (const [suffix, literal] of [
+      ["over", "100000000000000.000000"],
+      ["scale", "0.0000001"]
+    ]) {
+      const batchId = `canonical-typed-${suffix}-${randomUUID()}`;
+      const targetId = `typed-${suffix}`;
+      await stageCsvBatch(
+        repositories,
+        tenant.context,
+        batchId,
+        "source_id,id,business_name,stage,value,probability\n" +
+          `source-${suffix},${targetId},Invalid Trade,QUALIFIED,${literal},0`
+      );
+      const result = await commitCsvBatch(
+        repositories,
+        tenant.context,
+        batchId,
+        canonicalOpportunityInput(`typed-${suffix}-${randomUUID()}`)
+      );
+      assert.equal(result.outcome, "FAILED", literal);
+      assert.equal(result.failures[0].validationErrors.some(issue =>
+        issue.code === "POSTGRES_NUMERIC_UNREPRESENTABLE"
+        && issue.targetField === "value"
+      ), true, literal);
+      const rejectedEvidence = await getAdminClient().query(
+        `select batch.status, staged.disposition,
+           staged.raw_payload->'cells'->4->>'raw' as raw_value,
+           (select count(*)::int from tge.opportunities
+            where tenant_id = $1 and id = $3) as canonical_count
+         from tge.import_batches batch
+         join tge.import_staging_records staged
+           on staged.tenant_id = batch.tenant_id
+          and staged.import_batch_id = batch.id
+         where batch.tenant_id = $1 and batch.id = $2`,
+        [tenant.tenantId, batchId, targetId]
+      );
+      assert.deepEqual(rejectedEvidence.rows[0], {
+        status: "PREVIEWED",
+        disposition: "PENDING",
+        raw_value: literal,
+        canonical_count: 0
+      });
+    }
   });
 
   test("migration 011 rejects NULL identity hashes and function evidence", async () => {

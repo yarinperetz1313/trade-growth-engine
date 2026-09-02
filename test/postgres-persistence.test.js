@@ -415,9 +415,9 @@ test("ordinary opportunity updates preserve exact imported numeric evidence", as
     tenantId: "a0e8a2a0-9c44-4d84-9263-7d417ac00b8e",
     subjectId: "auth0|member"
   });
-  const exactValue = "1.234567890123456789";
-  const exactProbability = "0.1234567890123456789";
-  const exactWeightedValue = "1e-4000";
+  const exactValue = "9007199254740.123456";
+  const exactProbability = "0.123456";
+  const exactWeightedValue = "0.000001";
   const metadata = {
     import: {
       numeric_evidence: {
@@ -489,13 +489,13 @@ test("ordinary opportunity updates preserve exact imported numeric evidence", as
 
   const assigned = assignments[0];
   assert.equal(updated.value, exactValue);
-  assert.equal(updated.probability, exactProbability);
-  assert.equal(updated.weighted_value, exactWeightedValue);
+  assert.equal(updated.probability, Number(exactProbability));
+  assert.equal(updated.weighted_value, Number(exactWeightedValue));
   assert.equal(assigned.commercial_value, exactValue);
   assert.equal(assigned.commercial_value_state, "KNOWN");
   assert.equal(assigned.commercial_value_raw, exactValue);
-  assert.equal(assigned.probability, exactProbability);
-  assert.equal(assigned.weighted_value, exactWeightedValue);
+  assert.equal(assigned.probability, Number(exactProbability));
+  assert.equal(assigned.weighted_value, Number(exactWeightedValue));
   assert.deepEqual(JSON.parse(assigned.metadata), {
     operator_note: "Reviewed",
     import: metadata.import

@@ -375,7 +375,7 @@ function createImportRepository(client, tenantId, checkpoint = async () => {}) {
       }
 
       await client.query("SAVEPOINT canonical_import_materialization");
-      let uniquenessConflict = null;
+      let materializationConflict = null;
       let materializingRow = null;
       try {
         for (const row of newRows) {
@@ -408,12 +408,15 @@ function createImportRepository(client, tenantId, checkpoint = async () => {}) {
         }
         await client.query("RELEASE SAVEPOINT canonical_import_materialization");
       } catch (error) {
-        uniquenessConflict = canonicalUniquenessConflict(error, materializingRow);
-        if (!uniquenessConflict) throw error;
+        materializationConflict = canonicalMaterializationConflict(
+          error,
+          materializingRow
+        );
+        if (!materializationConflict) throw error;
         await client.query("ROLLBACK TO SAVEPOINT canonical_import_materialization");
         await client.query("RELEASE SAVEPOINT canonical_import_materialization");
       }
-      if (uniquenessConflict) {
+      if (materializationConflict) {
         return recordBlockedAttempt(
           client,
           tenantId,
@@ -421,7 +424,7 @@ function createImportRepository(client, tenantId, checkpoint = async () => {}) {
           {
             ...plan,
             outcome: "CONFLICTED",
-            conflicts: [uniquenessConflict],
+            conflicts: [materializationConflict],
             summary: {
               total: plan.rows.length,
               committed: 0,
@@ -896,12 +899,17 @@ function commitInputFingerprint(batchId, input, sourceCollection) {
     selection.targetField,
     selection
   ]));
+  const definitionNames = new Set(definitions.map(definition => definition.targetField));
   const selections = definitions.length > 0
-    ? definitions.map(definition => supplied.get(definition.targetField) || {
-      targetField: definition.targetField,
-      sourceColumn: null,
-      selectedType: definition.declaredType
-    })
+    ? [
+      ...definitions.map(definition => supplied.get(definition.targetField) || {
+        targetField: definition.targetField,
+        sourceColumn: null,
+        selectedType: definition.declaredType
+      }),
+      ...(input.selections || []).filter(selection =>
+        !definitionNames.has(selection.targetField))
+    ]
     : [...(input.selections || [])];
   return hashImportEvidence({
     batchId,
@@ -913,8 +921,21 @@ function commitInputFingerprint(batchId, input, sourceCollection) {
   });
 }
 
-function canonicalUniquenessConflict(error, row) {
-  if (error?.code !== "23505" || !row) return null;
+function canonicalMaterializationConflict(error, row) {
+  if (!row) return null;
+  if (error?.code === "23503") {
+    const field = error.constraint?.match(
+      /_tenant_id_(prospect_id|opportunity_id)_fkey$/
+    )?.[1];
+    return {
+      code: "CANONICAL_REFERENCE_UNAVAILABLE",
+      sourceOrdinal: row.sourceOrdinal,
+      ...(field
+        ? { field, targetId: row.canonicalRecord?.[field] ?? null }
+        : {})
+    };
+  }
+  if (error?.code !== "23505") return null;
   const constraint = error.constraint || "";
   let code;
   if (constraint === "prospects_tenant_id_dedupe_key_key") {

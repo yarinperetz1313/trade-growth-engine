@@ -30,7 +30,7 @@ retention deletion, browser/adversarial breadth, and JSON cutover remain later
 Issue #13 work.
 
 PR-5C fresh-review remediation additionally makes parser-unknown identities
-non-authoritative, keeps unsafe and underflowing decimal evidence lossless,
+non-authoritative, keeps unsafe and underflowing decimal staging evidence lossless,
 hashes the complete reviewed-selection vector, fails closed on PostgreSQL
 `NULL`, normalizes canonical/dedupe uniqueness races into atomic conflicts, and
 audits illegal lifecycle attempts without allowing new transitions or raw-cell
@@ -41,7 +41,20 @@ commercial and mapped numeric evidence across ordinary PostgreSQL opportunity
 updates, returns malformed commit requests as the stable
 `IMPORT_COMMIT_REQUEST_INVALID` API contract, and rejects PostgreSQL numeric
 overflow or lossy-underflow literals as bounded row-level validation before any
-canonical insert. Migration `011` remains unchanged.
+canonical insert. The final remediation below supersedes that earlier generic
+numeric envelope.
+
+PR-5C bounded final-review remediation now aligns the canonical commercial
+schema and application boundary on `NUMERIC(20,6)`: the exact maximum
+`99999999999999.999999` succeeds, while adjacent overflow and excess effective
+fractional scale fail before canonical SQL without rewriting staged cells.
+Migration `011` alone applies the new typmods and fails closed rather than
+rounding incompatible existing canonical values. Blank optional relationship
+cells materialize as absent/SQL `NULL`, and defensive savepoint handling turns
+any remaining canonical FK `23503` into bounded relationship conflict evidence.
+Committed replay fingerprints retain unknown supplied target fields, so only a
+materially identical valid request reconciles; changed or invalid vectors
+conflict deterministically.
 
 Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 

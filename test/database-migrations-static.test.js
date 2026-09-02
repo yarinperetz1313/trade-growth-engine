@@ -476,6 +476,18 @@ test("migration 011 adds globally deterministic import identity and narrow commi
   assert.match(commit, /add column source_record_id text/);
   assert.match(commit, /add column canonical_payload_sha256 text/);
   assert.match(commit, /add column commit_idempotency_key text/);
+  for (const [table, column] of [
+    ["prospects", "qualification_score"],
+    ["opportunities", "qualification_score"],
+    ["opportunities", "commercial_value"],
+    ["opportunities", "probability"],
+    ["opportunities", "weighted_value"]
+  ]) {
+    assert.match(
+      commit,
+      new RegExp(`alter table tge\\.${table}[\\s\\S]*?alter column ${column} type numeric\\(20,6\\)`)
+    );
+  }
   assert.match(commit, /create unique index import_id_map_source_identity_uidx[\s\S]*tenant_id,[\s\S]*source_system,[\s\S]*source_collection,[\s\S]*source_record_id/);
   for (const target of ["prospect", "opportunity", "task", "activity"]) {
     assert.match(

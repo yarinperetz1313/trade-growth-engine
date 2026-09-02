@@ -1,8 +1,8 @@
 const DECIMAL_NUMBER_PATTERN = /^[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:e[+-]?\d+)?$/i;
-const POSTGRES_NUMERIC_MAX_INTEGER_DIGITS = 131072n;
-const POSTGRES_NUMERIC_MAX_FRACTIONAL_DIGITS = 16383n;
 const POSTGRES_NUMERIC_MAX_INPUT_EXPONENT = 2147483647n;
 const POSTGRES_NUMERIC_MIN_INPUT_EXPONENT = -2147483648n;
+const CANONICAL_NUMERIC_PRECISION = 20n;
+const CANONICAL_NUMERIC_SCALE = 6n;
 
 function isDecimalNumberLiteral(value) {
   return typeof value === "string" && DECIMAL_NUMBER_PATTERN.test(value.trim());
@@ -37,7 +37,7 @@ function isGreaterThanOneLiteral(value) {
   return significant[0] !== "1" || /[1-9]/.test(significant.slice(1));
 }
 
-function isPostgresNumericLiteralRepresentable(value) {
+function isCanonicalNumericLiteralRepresentable(value) {
   const normalized = normalizeDecimalLiteral(value);
   if (
     !normalized
@@ -47,8 +47,8 @@ function isPostgresNumericLiteralRepresentable(value) {
   if (normalized.zero) return true;
   const integerDigits = BigInt(normalized.digits.length) + normalized.power;
   const fractionalDigits = normalized.power < 0n ? -normalized.power : 0n;
-  return integerDigits <= POSTGRES_NUMERIC_MAX_INTEGER_DIGITS
-    && fractionalDigits <= POSTGRES_NUMERIC_MAX_FRACTIONAL_DIGITS;
+  return integerDigits <= CANONICAL_NUMERIC_PRECISION - CANONICAL_NUMERIC_SCALE
+    && fractionalDigits <= CANONICAL_NUMERIC_SCALE;
 }
 
 function areDecimalLiteralsEquivalent(left, right) {
@@ -108,14 +108,14 @@ function jsonNumberLiteral(value) {
 }
 
 module.exports = {
+  CANONICAL_NUMERIC_PRECISION,
+  CANONICAL_NUMERIC_SCALE,
   DECIMAL_NUMBER_PATTERN,
-  POSTGRES_NUMERIC_MAX_FRACTIONAL_DIGITS,
-  POSTGRES_NUMERIC_MAX_INTEGER_DIGITS,
   areDecimalLiteralsEquivalent,
   isDecimalNumberLiteral,
+  isCanonicalNumericLiteralRepresentable,
   isExactZeroLiteral,
   isGreaterThanOneLiteral,
   isNegativeNumberLiteral,
-  isPostgresNumericLiteralRepresentable,
   jsonNumberLiteral
 };

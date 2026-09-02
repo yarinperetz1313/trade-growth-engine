@@ -109,16 +109,16 @@ function persistenceContext(authorizationContext) {
 test("canonical commit preserves exact commercial evidence and known numeric zero", () => {
   const plan = buildCanonicalCommitPlan(stagedEvidence(
     "source_id,id,business_name,stage,value,probability\n" +
-    "src-1,opp-1,Large Trade,QUALIFIED,9007199254740993,0\n" +
-    "src-2,opp-2,Tiny Trade,QUALIFIED,1e-4000,0\n" +
+    "src-1,opp-1,Large Trade,QUALIFIED,9007199254740.123456,0\n" +
+    "src-2,opp-2,Tiny Trade,QUALIFIED,0.000001,0\n" +
     "src-3,opp-3,Unknown Trade,QUALIFIED,n/a,0\n" +
     "src-4,opp-4,Zero Trade,QUALIFIED,0,0"
   ), commitInput());
 
   assert.equal(plan.outcome, "READY");
   assert.equal(plan.rows.length, 4);
-  assert.equal(plan.rows[0].canonicalRecord.value, "9007199254740993");
-  assert.equal(plan.rows[1].canonicalRecord.value, "1e-4000");
+  assert.equal(plan.rows[0].canonicalRecord.value, "9007199254740.123456");
+  assert.equal(plan.rows[1].canonicalRecord.value, "0.000001");
   assert.equal(plan.rows[2].canonicalRecord.value, "unknown");
   assert.equal(plan.rows[0].canonicalRecord.probability, 0);
   assert.equal(plan.rows[3].canonicalRecord.value, 0);
@@ -129,6 +129,58 @@ test("canonical commit preserves exact commercial evidence and known numeric zer
   );
   assert.match(plan.rows[0].canonicalPayloadSha256, /^[0-9a-f]{64}$/);
   assert.equal(plan.rows[0].rawPayloadSha256, plan.evidence.records[0].rawPayloadSha256);
+});
+
+test("canonical commit enforces the exact NUMERIC(20,6) commercial envelope", () => {
+  const maximum = "99999999999999.999999";
+  const accepted = buildCanonicalCommitPlan(stagedEvidence(
+    "source_id,id,business_name,stage,value,probability\n" +
+    `src-1,opp-1,Maximum Trade,QUALIFIED,${maximum},1`
+  ), commitInput());
+
+  assert.equal(accepted.outcome, "READY");
+  assert.equal(accepted.rows[0].canonicalRecord.value, maximum);
+
+  for (const literal of ["100000000000000.000000", "0.0000001"]) {
+    const rejected = buildCanonicalCommitPlan(stagedEvidence(
+      "source_id,id,business_name,stage,value,probability\n" +
+      `src-1,opp-1,Invalid Trade,QUALIFIED,${literal},0`
+    ), commitInput());
+
+    assert.equal(rejected.outcome, "FAILED", literal);
+    assert.equal(rejected.summary.failed, 1, literal);
+    assert.equal(rejected.failures[0].validationErrors.some(issue =>
+      issue.code === "POSTGRES_NUMERIC_UNREPRESENTABLE"
+      && issue.targetField === "value"
+      && issue.rawEvidence.raw === literal
+    ), true, literal);
+  }
+});
+
+test("blank optional relationship evidence materializes as absent while raw evidence remains exact", () => {
+  const evidence = stagedEvidence(
+    "source_id,id,prospect_id,business_name,stage,value,probability\n" +
+    "src-1,opp-1,,Unlinked Trade,QUALIFIED,0,0"
+  );
+  const plan = buildCanonicalCommitPlan(evidence, commitInput({
+    selections: [
+      ...commitInput().selections,
+      {
+        targetField: "prospect_id",
+        sourceColumn: "prospect_id",
+        selectedType: "TEXT"
+      }
+    ]
+  }));
+
+  assert.equal(plan.outcome, "READY");
+  assert.equal(Object.hasOwn(plan.rows[0].canonicalRecord, "prospect_id"), false);
+  assert.deepEqual(evidence.records[0].rawPayload.cells[2], {
+    columnOrdinal: 2,
+    present: true,
+    raw: "",
+    valueKind: "BLANK"
+  });
 });
 
 test("parser-classified unknown source identities fail without becoming global IDs", () => {
@@ -487,6 +539,59 @@ test("malformed commit requests preserve the commit-specific API contract throug
     error: "IMPORT_COMMIT_REQUEST_INVALID",
     message: "The canonical import commit request is invalid."
   });
+});
+
+test("the public commit service keeps blank optional relationships out of canonical materialization", async () => {
+  const owner = await authContext();
+  const evidence = stagedEvidence(
+    "source_id,id,prospect_id,business_name,stage,value,probability\n" +
+    "src-1,opp-1,,Unlinked Trade,QUALIFIED,0,0"
+  );
+  let prepared;
+  const persistence = {
+    adapter: "postgres",
+    forTenant() {
+      return {
+        imports: {
+          async commitCanonical(request) {
+            prepared = request.prepare(evidence);
+            return {
+              outcome: "COMMITTED",
+              batch: { id: evidence.batch.id, status: "COMMITTED" },
+              rows: prepared.rows,
+              summary: prepared.summary,
+              reconciled: false
+            };
+          }
+        }
+      };
+    }
+  };
+  const router = createImportsRouter({
+    service: createImportService({ persistence }),
+    resolveAuthorizationContext: () => owner,
+    resolvePersistenceContext: () => persistenceContext(owner)
+  });
+  const input = commitInput({
+    selections: [
+      ...commitInput().selections,
+      {
+        targetField: "prospect_id",
+        sourceColumn: "prospect_id",
+        selectedType: "TEXT"
+      }
+    ]
+  });
+  const response = await requestRouter(
+    router,
+    "/api/import-batches/batch-commit/commit",
+    { method: "POST", body: input }
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(Object.hasOwn(prepared.rows[0].canonicalRecord, "prospect_id"), false);
+  assert.equal(prepared.evidence.records[0].rawPayload.cells[2].raw, "");
+  assert.equal(prepared.evidence.records[0].rawPayload.cells[2].valueKind, "BLANK");
 });
 
 test("commit HTTP conflicts expose bounded outcome evidence without raw staged cells", async () => {

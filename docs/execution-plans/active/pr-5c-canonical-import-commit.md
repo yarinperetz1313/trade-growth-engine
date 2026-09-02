@@ -65,6 +65,13 @@
   `IMPORT_COMMIT_REQUEST_INVALID`; and every mapped numeric is checked against
   PostgreSQL's exact integer/scale envelope before materialization, with at most
   100 detailed failed-row outcomes while full summary counts still reconcile.
+- Bounded final-review remediation findings/resolution: the final three review
+  findings were reproduced before implementation. Migration `011` and mapped
+  numeric validation now share the exact `NUMERIC(20,6)` envelope; blank
+  optional relationship evidence becomes an absent canonical field while raw
+  staging remains unchanged, with defensive `23503` normalization; and replay
+  fingerprints retain every supplied target so invalid or materially changed
+  committed retries cannot reconcile as identical.
 - Final-review evidence:
   - RED: `node --test test/import-commit.test.js` failed with
     `MODULE_NOT_FOUND`; follow-on service, repository, static migration, and API
@@ -110,6 +117,41 @@
     cluster was stopped and its generated test directory removed.
   - Bounded final-review build: `npm run build` passed with Vite **8.2.2**,
     **22** modules.
-  - Hygiene: `git diff --check` passed; migrations `001`–`011` were not edited.
+  - Final remediation RED: the focused regressions observed over-range
+    `100000000000000.000000` as `READY`, retained blank `prospect_id` as `""`,
+    and reconciled an unknown supplied target as `COMMITTED`; the static schema
+    assertion found no `NUMERIC(20,6)` typmods. The sandbox-only route run also
+    reported loopback `EPERM`, while its permitted rerun exercised the product
+    assertions normally.
+  - Final remediation focused GREEN: `node --test
+    --test-name-pattern='NUMERIC\\(20,6\\)|blank optional relationship|public
+    commit service|unknown supplied targets|relationship violations|migration
+    011' test/import-commit.test.js test/import-repository.test.js
+    test/database-migrations-static.test.js` passed **6/6** with permitted
+    loopback binding.
+  - Final remediation affected GREEN: `node --test test/import-commit.test.js
+    test/import-repository.test.js test/import-staging.test.js
+    test/import-mapping.test.js test/database-migrations-static.test.js
+    test/database-migration-runner.test.js test/postgres-persistence.test.js`
+    passed **94/94** with permitted loopback binding.
+  - Final remediation fast gate: `npm run verify:fast` passed the engineering
+    harness and integration **187/187**.
+  - Final remediation database gate:
+    `TGE_TEST_DATABASE_URL=postgresql://127.0.0.1:55433/postgres npm run test:db`
+    passed **53/53** against a disposable PostgreSQL **16.15** cluster,
+    including exact max/overflow/scale, SQL `NULL` relationship materialization,
+    immutable blank staging evidence, and changed committed replay. The server
+    was stopped and its generated test directory removed.
+  - Final remediation build: `npm run build` passed with Vite **8.2.2**,
+    **22** modules.
+  - Final remediation fresh review: no P0–P2 findings. The reviewer confirmed
+    numeric schema/application coherence, blank relationship/raw-evidence
+    handling, bounded `23503` rollback, complete replay fingerprints, and the
+    preserved tenant/transaction/audit boundaries.
+  - Hygiene: `git diff --check` passed; migrations `001`–`010` were not edited,
+    and the unmerged PR-5C migration `011` was updated in place.
 - Debt/follow-up: PR-5D owns browser flow/adversarial browser coverage and final
   Issue #13 UI breadth. Production provisioning and JSON cutover remain gated.
+  Migration `011` intentionally refuses pre-existing canonical numerics outside
+  `NUMERIC(20,6)` instead of rounding them; any future populated deployment must
+  resolve such rows explicitly before applying it.

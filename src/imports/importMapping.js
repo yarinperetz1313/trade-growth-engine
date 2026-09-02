@@ -2,9 +2,9 @@ const ROW_SAMPLE_LIMIT = 100;
 const FIELD_SAMPLE_LIMIT = 5;
 const TASK_STATUSES = new Set(["OPEN", "IN_PROGRESS", "COMPLETED", "CANCELLED"]);
 const {
+  isCanonicalNumericLiteralRepresentable,
   isGreaterThanOneLiteral,
-  isNegativeNumberLiteral,
-  isPostgresNumericLiteralRepresentable
+  isNegativeNumberLiteral
 } = require("./numericEvidence");
 
 class ImportMappingError extends Error {
@@ -420,7 +420,7 @@ function validateRows(records, headers, fields, targetCollection, sourceIdentity
       if (
         mappedField.declaredType === "NUMBER"
         && ["NUMERIC", "KNOWN_ZERO"].includes(evidence.valueKind)
-        && !isPostgresNumericLiteralRepresentable(evidence.raw)
+        && !isCanonicalNumericLiteralRepresentable(evidence.raw)
       ) {
         errors.push({ code: "POSTGRES_NUMERIC_UNREPRESENTABLE", ...issueBase });
       }

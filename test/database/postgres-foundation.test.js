@@ -679,7 +679,7 @@ if (!testDatabaseUrl) {
         "NON_NUMERIC"
       ]
     );
-    assert.equal(byId.get("opp-zero").commercial_value, "0");
+    assert.equal(byId.get("opp-zero").commercial_value, "0.000000");
     assert.equal(byId.get("opp-unknown").commercial_value, null);
     assert.equal(byId.get("opp-unknown").commercial_value_raw, null);
     assert.equal(byId.get("opp-unknown").raw_is_sql_null, false);
