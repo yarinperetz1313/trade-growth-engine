@@ -131,6 +131,38 @@ test("canonical commit preserves exact commercial evidence and known numeric zer
   assert.equal(plan.rows[0].rawPayloadSha256, plan.evidence.records[0].rawPayloadSha256);
 });
 
+test("equivalent decimal spellings share one exact canonical commercial interpretation", () => {
+  const first = buildCanonicalCommitPlan(stagedEvidence(
+    "source_id,id,business_name,stage,value,probability\n" +
+    "src-1,opp-1,Equivalent Trade,QUALIFIED,1.230000,0.500000"
+  ), commitInput());
+  const equivalent = buildCanonicalCommitPlan(stagedEvidence(
+    "source_id,id,business_name,stage,value,probability\n" +
+    "src-1,opp-1,Equivalent Trade,QUALIFIED,123e-2,5e-1"
+  ), commitInput());
+
+  assert.equal(first.outcome, "READY");
+  assert.equal(equivalent.outcome, "READY");
+  assert.equal(first.rows[0].canonicalRecord.value, "1.23");
+  assert.equal(first.rows[0].canonicalRecord.probability, "0.5");
+  assert.deepEqual(
+    equivalent.rows[0].canonicalRecord,
+    first.rows[0].canonicalRecord
+  );
+  assert.deepEqual(first.rows[0].numericEvidence, {
+    value: { valueKind: "NUMERIC", raw: "1.230000" },
+    probability: { valueKind: "NUMERIC", raw: "0.500000" }
+  });
+  assert.deepEqual(equivalent.rows[0].numericEvidence, {
+    value: { valueKind: "NUMERIC", raw: "123e-2" },
+    probability: { valueKind: "NUMERIC", raw: "5e-1" }
+  });
+  assert.equal(
+    equivalent.rows[0].canonicalPayloadSha256,
+    first.rows[0].canonicalPayloadSha256
+  );
+});
+
 test("canonical commit enforces the exact NUMERIC(20,6) commercial envelope", () => {
   const maximum = "99999999999999.999999";
   const accepted = buildCanonicalCommitPlan(stagedEvidence(
@@ -539,6 +571,69 @@ test("malformed commit requests preserve the commit-specific API contract throug
     error: "IMPORT_COMMIT_REQUEST_INVALID",
     message: "The canonical import commit request is invalid."
   });
+});
+
+test("malformed reviewed selections preserve the commit-specific API contract", async () => {
+  const owner = await authContext();
+  const evidence = stagedEvidence(
+    "source_id,id,business_name,stage,value,probability\n" +
+    "src-1,opp-1,Acme,QUALIFIED,0,0"
+  );
+  const persistence = {
+    adapter: "postgres",
+    forTenant() {
+      return {
+        imports: {
+          async commitCanonical(request) {
+            request.prepare(evidence);
+            assert.fail("malformed reviewed columns must not produce a commit plan");
+          }
+        }
+      };
+    }
+  };
+  const router = createImportsRouter({
+    service: createImportService({ persistence }),
+    resolveAuthorizationContext: () => owner,
+    resolvePersistenceContext: () => persistenceContext(owner)
+  });
+  const malformedInputs = [
+    commitInput({
+      selections: commitInput().selections.map(selection => (
+        selection.targetField === "value"
+          ? { ...selection, sourceColumn: "absent-value-column" }
+          : selection
+      ))
+    }),
+    commitInput({
+      selections: commitInput().selections.map(selection => (
+        selection.targetField === "probability"
+          ? { ...selection, sourceColumn: "value" }
+          : selection
+      ))
+    }),
+    commitInput({
+      sourceIdentitySelection: { sourceColumn: "absent-source-id-column" }
+    })
+  ];
+
+  for (const input of malformedInputs) {
+    const response = await requestRouter(
+      router,
+      "/api/import-batches/batch-commit/commit",
+      {
+        method: "POST",
+        body: input
+      }
+    );
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(response.data, {
+      ok: false,
+      error: "IMPORT_COMMIT_REQUEST_INVALID",
+      message: "The canonical import commit request is invalid."
+    });
+  }
 });
 
 test("the public commit service keeps blank optional relationships out of canonical materialization", async () => {

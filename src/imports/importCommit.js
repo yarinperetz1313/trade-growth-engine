@@ -3,6 +3,7 @@ const {
   buildCompleteImportAnalysis
 } = require("./importMapping");
 const { hashImportEvidence } = require("./csvParser");
+const { canonicalizeDecimalLiteral } = require("./numericEvidence");
 
 const SOURCE_SYSTEM_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const IDEMPOTENCY_KEY_MAX_BYTES = 255;
@@ -52,10 +53,16 @@ function buildCanonicalCommitPlan(evidence, input) {
       selectedType: definition.declaredType
     }
   ));
-  const analysis = buildCompleteImportAnalysis(evidence, {
-    selections: reviewedSelections,
-    sourceIdentitySelection: input.sourceIdentitySelection
-  });
+  let analysis;
+  try {
+    analysis = buildCompleteImportAnalysis(evidence, {
+      selections: reviewedSelections,
+      sourceIdentitySelection: input.sourceIdentitySelection
+    });
+  } catch (error) {
+    if (error?.code === "IMPORT_MAPPING_SELECTION_INVALID") invalidRequest();
+    throw error;
+  }
   if (!analysis.mapping.sourceIdentity.sourceColumn) invalidRequest();
 
   const requestFingerprint = hashImportEvidence({
@@ -116,7 +123,7 @@ function buildCanonicalCommitPlan(evidence, input) {
       canonicalTargetId: canonicalRecord.id,
       canonicalPayloadSha256: hashImportEvidence({
         canonicalRecord,
-        numericEvidence,
+        numericEvidence: canonicalNumericEvidence(numericEvidence),
         sourceCollection
       }),
       canonicalRecord,
@@ -210,7 +217,9 @@ function cellValue(record, columnOrdinal, declaredType, targetField) {
   ) return MISSING;
   if (declaredType === "NUMBER") {
     if (cell.valueKind === "KNOWN_ZERO") return 0;
-    if (cell.valueKind === "NUMERIC") return cell.raw;
+    if (cell.valueKind === "NUMERIC") {
+      return canonicalizeDecimalLiteral(cell.raw) ?? cell.raw;
+    }
     if (cell.valueKind === "UNKNOWN") {
       return targetField === "value" ? "unknown" : MISSING;
     }
@@ -220,6 +229,18 @@ function cellValue(record, columnOrdinal, declaredType, targetField) {
     return MISSING;
   }
   return cell.raw;
+}
+
+function canonicalNumericEvidence(numericEvidence) {
+  return Object.fromEntries(Object.entries(numericEvidence).map(([field, evidence]) => [
+    field,
+    evidence.valueKind === "NUMERIC"
+      ? {
+        valueKind: evidence.valueKind,
+        raw: canonicalizeDecimalLiteral(evidence.raw)
+      }
+      : evidence
+  ]));
 }
 
 function blockedPlan(

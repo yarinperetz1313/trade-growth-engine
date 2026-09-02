@@ -72,6 +72,13 @@
   staging remains unchanged, with defensive `23503` normalization; and replay
   fingerprints retain every supplied target so invalid or materially changed
   committed retries cannot reconcile as identical.
+- Final two-finding remediation: equivalent representable decimal spellings are
+  converted with exact string/`BigInt` arithmetic to one canonical commercial
+  value used by materialization and canonical payload reconciliation, while raw
+  staged cells and numeric evidence remain unchanged. Commit-time malformed
+  reviewed columns and source identity selections are normalized to the
+  existing `IMPORT_COMMIT_REQUEST_INVALID` 400 response instead of exposing the
+  draft-mapping error contract.
 - Final-review evidence:
   - RED: `node --test test/import-commit.test.js` failed with
     `MODULE_NOT_FOUND`; follow-on service, repository, static migration, and API
@@ -148,6 +155,30 @@
     numeric schema/application coherence, blank relationship/raw-evidence
     handling, bounded `23503` rollback, complete replay fingerprints, and the
     preserved tenant/transaction/audit boundaries.
+  - Final two-finding RED: the focused regressions retained `1.230000` instead
+    of canonical `1.23`, produced different canonical payload fingerprints for
+    `1.230000` and `123e-2`, and returned
+    `IMPORT_MAPPING_SELECTION_INVALID` for an absent reviewed source column.
+  - Final two-finding focused GREEN: `node --test
+    --test-name-pattern='equivalent decimal spellings|malformed reviewed
+    selections' test/import-commit.test.js` passed **2/2** with permitted
+    loopback binding. The expanded API case covers absent, reused, and absent
+    source-identity columns.
+  - Final two-finding affected GREEN: `node --test test/import-commit.test.js
+    test/import-repository.test.js test/import-staging.test.js
+    test/import-mapping.test.js test/database-migrations-static.test.js
+    test/database-migration-runner.test.js test/postgres-persistence.test.js`
+    passed **96/96** with permitted loopback and temporary-Git access.
+  - Final two-finding fast gate: `npm run verify:fast` passed the engineering
+    harness and integration **189/189**.
+  - Final two-finding database gate:
+    `TGE_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55433/postgres npm
+    run test:db` passed **53/53** against a disposable PostgreSQL **16.15**
+    cluster, including alternate decimal spelling reconciliation, canonical
+    readback, and exact raw staging evidence. The server was stopped and its
+    verified test-only directory removed.
+  - Final two-finding build: `npm run build` passed with Vite **8.2.2**, **22**
+    modules.
   - Hygiene: `git diff --check` passed; migrations `001`–`010` were not edited,
     and the unmerged PR-5C migration `011` was updated in place.
 - Debt/follow-up: PR-5D owns browser flow/adversarial browser coverage and final

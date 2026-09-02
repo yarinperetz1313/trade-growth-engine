@@ -56,6 +56,14 @@ Committed replay fingerprints retain unknown supplied target fields, so only a
 materially identical valid request reconciles; changed or invalid vectors
 conflict deterministically.
 
+PR-5C final two-finding remediation gives every representable decimal spelling
+one exact, non-`Number` canonical interpretation for materialization, payload
+fingerprints, and cross-batch reconciliation while retaining the original raw
+cell and numeric evidence. Commit-time absent or reused reviewed columns,
+including source identity, now return the existing
+`IMPORT_COMMIT_REQUEST_INVALID` public API contract instead of the draft-mapping
+selection error.
+
 Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 
 The Product Truth audit/fix work unit is complete: [PR #17](https://github.com/yarinperetz1313/trade-growth-engine/pull/17) merged at `5231838` and closed [Issue #7](https://github.com/yarinperetz1313/trade-growth-engine/issues/7). This did not provision Auth0, SMTP, production persistence, import execution, or cutover, and it did not begin Pilot Readiness PR-5 or later slices.

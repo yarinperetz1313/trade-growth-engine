@@ -63,6 +63,23 @@ function areDecimalLiteralsEquivalent(left, right) {
     && normalizedLeft.power === normalizedRight.power;
 }
 
+function canonicalizeDecimalLiteral(value) {
+  const normalized = normalizeDecimalLiteral(value);
+  if (!normalized || !isCanonicalNumericLiteralRepresentable(value)) return null;
+  if (normalized.zero) return "0";
+
+  const sign = normalized.negative ? "-" : "";
+  if (normalized.power >= 0n) {
+    return `${sign}${normalized.digits}${"0".repeat(Number(normalized.power))}`;
+  }
+
+  const decimalIndex = normalized.digits.length + Number(normalized.power);
+  if (decimalIndex > 0) {
+    return `${sign}${normalized.digits.slice(0, decimalIndex)}.${normalized.digits.slice(decimalIndex)}`;
+  }
+  return `${sign}0.${"0".repeat(-decimalIndex)}${normalized.digits}`;
+}
+
 function normalizeDecimalLiteral(value) {
   if (!isDecimalNumberLiteral(value)) return null;
   const literal = value.trim();
@@ -112,6 +129,7 @@ module.exports = {
   CANONICAL_NUMERIC_SCALE,
   DECIMAL_NUMBER_PATTERN,
   areDecimalLiteralsEquivalent,
+  canonicalizeDecimalLiteral,
   isDecimalNumberLiteral,
   isCanonicalNumericLiteralRepresentable,
   isExactZeroLiteral,

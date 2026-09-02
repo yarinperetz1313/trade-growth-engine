@@ -3356,6 +3356,44 @@ function registerPostgresRepositoryContractTests({
     assert.equal(byId["exact-zero"].commercial_value_state, "ZERO");
     assert.equal(byId["exact-zero"].numeric_value, "0.000000");
 
+    const equivalentBatch = `canonical-equivalent-${randomUUID()}`;
+    await stageCsvBatch(
+      repositories,
+      tenant.context,
+      equivalentBatch,
+      "source_id,id,business_name,stage,value,probability\n" +
+        "source-decimal,exact-decimal,Decimal Trade,QUALIFIED,9007199254740123456e-6,123456e-6"
+    );
+    const equivalent = await commitCsvBatch(
+      repositories,
+      tenant.context,
+      equivalentBatch,
+      canonicalOpportunityInput(`equivalent-${randomUUID()}`)
+    );
+    assert.equal(equivalent.outcome, "COMMITTED");
+    assert.equal(equivalent.rows[0].disposition, "EXACT_DUPLICATE");
+    assert.equal(equivalent.rows[0].reconciledImportBatchId, batchId);
+    const equivalentEvidence = await getAdminClient().query(
+      `select staged.raw_payload->'cells'->4->>'raw' as raw_value,
+         staged.raw_payload->'cells'->5->>'raw' as raw_probability,
+         opportunity.commercial_value::text as canonical_value,
+         opportunity.probability::text as canonical_probability,
+         opportunity.metadata#>>'{import,numeric_evidence,value,raw}' as original_raw
+       from tge.import_staging_records staged
+       join tge.opportunities opportunity
+         on opportunity.tenant_id = staged.tenant_id
+        and opportunity.id = 'exact-decimal'
+       where staged.tenant_id = $1 and staged.import_batch_id = $2`,
+      [tenant.tenantId, equivalentBatch]
+    );
+    assert.deepEqual(equivalentEvidence.rows[0], {
+      raw_value: "9007199254740123456e-6",
+      raw_probability: "123456e-6",
+      canonical_value: "9007199254740.123456",
+      canonical_probability: "0.123456",
+      original_raw: "9007199254740.123456"
+    });
+
     const updatedDecimal = await repositories.opportunities.update(
       tenant.context,
       "exact-decimal",

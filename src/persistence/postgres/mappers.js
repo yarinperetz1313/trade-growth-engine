@@ -78,13 +78,15 @@ function classifyCommercialValue(opportunity, options = {}) {
 
   if (
     options.exactNumericFields?.value?.valueKind === "NUMERIC"
-    && options.exactNumericFields.value.raw === raw
+    && areDecimalLiteralsEquivalent(options.exactNumericFields.value.raw, raw)
     && isDecimalNumberLiteral(raw)
   ) {
     return {
       numeric: raw,
       state: isExactZeroLiteral(raw) ? "ZERO" : "KNOWN",
-      raw: { [EXACT_JSON_NUMBER]: jsonNumberLiteral(raw) }
+      raw: {
+        [EXACT_JSON_NUMBER]: jsonNumberLiteral(options.exactNumericFields.value.raw)
+      }
     };
   }
 
