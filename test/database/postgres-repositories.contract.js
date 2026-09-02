@@ -4269,6 +4269,37 @@ function registerPostgresRepositoryContractTests({
       await assert.rejects(
         runtime.query(
           `update tge.revenue_leak_cases
+           set state = 'DISMISSED',
+             dismissed_at = $3::timestamptz,
+             dismissal_reason = null,
+             updated_at = $3::timestamptz,
+             audit = audit || jsonb_build_array(jsonb_build_object(
+               'transition', 'DISMISSED',
+               'at', ($3::timestamptz)::text,
+               'subject_id', $4::text
+             ))
+           where tenant_id = $1 and id = $2`,
+          [
+            tenantA.tenantId,
+            next.record.id,
+            "2026-09-04T02:30:00.000Z",
+            tenantA.context.subjectId
+          ]
+        ),
+        error =>
+          error.code === "23514"
+          && /dismissal evidence is incoherent/.test(error.message)
+      );
+      await runtime.query("rollback");
+
+      await runtime.query("begin");
+      await runtime.query("select tge.set_request_context($1, $2)", [
+        tenantA.tenantId,
+        tenantA.context.subjectId
+      ]);
+      await assert.rejects(
+        runtime.query(
+          `update tge.revenue_leak_cases
            set revenue_action_id = $3,
              revenue_action_fingerprint = $4,
              revenue_action_status_at_link = $5,

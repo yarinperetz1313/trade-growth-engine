@@ -44,8 +44,8 @@ PostgreSQL takes a transaction-scoped advisory lock for the tenant and series,
 and both adapters apply these rules:
 
 1. The same active semantic identity returns the existing case.
-2. The same terminal semantic identity returns that terminal history and does
-   not silently reopen it.
+2. With no active case, replaying the latest terminal semantic identity returns
+   that terminal history and does not silently reopen it.
 3. Materially changed evidence creates a new `OPEN` case. An active predecessor
    becomes `SUPERSEDED`, points to the replacement, and retains its original
    evidence. A terminal predecessor remains terminal and is referenced only by

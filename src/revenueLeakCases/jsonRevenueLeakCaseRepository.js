@@ -9,6 +9,17 @@ const {
   requireTenantContext
 } = require("../persistence/tenantContext");
 
+const REVENUE_ACTION_STATUSES = new Set([
+  "RECOMMENDED",
+  "PREPARED",
+  "APPROVED",
+  "EXECUTING",
+  "EXECUTED",
+  "REJECTED",
+  "CANCELLED",
+  "FAILED"
+]);
+
 function fail(code, message, details = {}) {
   throw new RevenueLeakCaseError(code, message, details);
 }
@@ -285,7 +296,11 @@ function createJsonRevenueLeakCaseRepository({
       const action = store.readCollection("revenue_actions").find(record =>
         record.id === actionId && record.opportunity_id === current.opportunity_id
       );
-      if (!action || !/^[0-9a-f]{64}$/.test(action.basis_fingerprint || "")) {
+      if (
+        !action
+        || !/^[0-9a-f]{64}$/.test(action.basis_fingerprint || "")
+        || !REVENUE_ACTION_STATUSES.has(action.status)
+      ) {
         fail(
           "REVENUE_ACTION_UNAVAILABLE",
           "The requested RevenueAction is unavailable."

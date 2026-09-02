@@ -88,7 +88,12 @@ function canonicalJson(value, field = "value", ancestors = new Set()) {
       if (value[key] === undefined) {
         invalid(`${field}.${key} must not be undefined.`, `${field}.${key}`);
       }
-      normalized[key] = canonicalJson(value[key], `${field}.${key}`, ancestors);
+      Object.defineProperty(normalized, key, {
+        value: canonicalJson(value[key], `${field}.${key}`, ancestors),
+        enumerable: true,
+        configurable: true,
+        writable: true
+      });
     }
   }
   ancestors.delete(value);

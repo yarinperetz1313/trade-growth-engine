@@ -25,8 +25,10 @@ create table tge.revenue_leak_cases (
   ),
   evidence_snapshot jsonb not null check (
     jsonb_typeof(evidence_snapshot) = 'object'
+    and evidence_snapshot ? 'facts'
     and jsonb_typeof(evidence_snapshot->'facts') = 'object'
     and evidence_snapshot->'facts' <> '{}'::jsonb
+    and evidence_snapshot ? 'classification'
     and evidence_snapshot->>'classification' = evidence_classification
   ),
   evidence_fingerprint text not null check (evidence_fingerprint ~ '^[0-9a-f]{64}$'),
@@ -93,6 +95,7 @@ create table tge.revenue_leak_cases (
       commercial_value_classification = 'KNOWN'
       and revenue_at_risk is not null
       and revenue_at_risk >= 0
+      and currency is not null
       and currency ~ '^[A-Z]{3}$'
     )
     or (
@@ -120,18 +123,22 @@ create table tge.revenue_leak_cases (
     or (
       state = 'SNOOZED'
       and snoozed_at is not null
+      and snoozed_until is not null
       and snoozed_until > snoozed_at
+      and snooze_reason is not null
       and btrim(snooze_reason) <> ''
     )
     or (
       state = 'DISMISSED'
       and dismissed_at is not null
+      and dismissal_reason is not null
       and btrim(dismissal_reason) <> ''
     )
     or (
       state = 'SUPERSEDED'
       and superseded_at is not null
       and superseded_by_case_id is not null
+      and supersession_reason is not null
       and btrim(supersession_reason) <> ''
     )
   ),
@@ -219,7 +226,7 @@ begin
     if new.tenant_id is distinct from tge.current_tenant_id()
       or new.state <> 'OPEN'
       or jsonb_array_length(new.audit) <> 1
-      or new.audit->0->>'transition' <> 'OPEN'
+      or new.audit->0->>'transition' is distinct from 'OPEN'
       or new.audit->0->>'subject_id' is distinct from tge.current_subject_id()
       or new.audit->0->>'detector_id' is distinct from new.detector_id
       or new.audit->0->>'detector_version' is distinct from new.detector_version
@@ -311,7 +318,7 @@ begin
       or linked_action_fingerprint is null
       or new.revenue_action_fingerprint is distinct from linked_action_fingerprint
       or new.revenue_action_status_at_link is distinct from linked_action_status
-      or suffix->>'transition' <> 'REVENUE_ACTION_LINKED'
+      or suffix->>'transition' is distinct from 'REVENUE_ACTION_LINKED'
       or suffix->>'revenue_action_id' is distinct from new.revenue_action_id
       or suffix->>'revenue_action_fingerprint'
         is distinct from new.revenue_action_fingerprint
@@ -333,7 +340,8 @@ begin
     end if;
 
   elsif old.state = 'OPEN' and new.state = 'SNOOZED' then
-    if suffix->>'transition' <> 'SNOOZED'
+    if suffix->>'transition' is distinct from 'SNOOZED'
+      or coalesce(btrim(suffix->>'reason'), '') = ''
       or suffix->>'reason' is distinct from new.snooze_reason
       or (suffix->>'wake_at')::timestamptz is distinct from new.snoozed_until
       or new.snoozed_at is distinct from suffix_at
@@ -351,7 +359,7 @@ begin
     end if;
 
   elsif old.state = 'SNOOZED' and new.state = 'OPEN' then
-    if suffix->>'transition' <> 'REOPENED'
+    if suffix->>'transition' is distinct from 'REOPENED'
       or coalesce(btrim(suffix->>'reason'), '') = ''
       or new.snoozed_at is not null
       or new.snoozed_until is not null
@@ -369,7 +377,8 @@ begin
     end if;
 
   elsif old.state in ('OPEN', 'SNOOZED') and new.state = 'DISMISSED' then
-    if suffix->>'transition' <> 'DISMISSED'
+    if suffix->>'transition' is distinct from 'DISMISSED'
+      or coalesce(btrim(suffix->>'reason'), '') = ''
       or suffix->>'reason' is distinct from new.dismissal_reason
       or new.dismissed_at is distinct from suffix_at
       or to_jsonb(new) - array[
@@ -383,12 +392,12 @@ begin
     end if;
 
   elsif old.state in ('OPEN', 'SNOOZED') and new.state = 'SUPERSEDED' then
-    if suffix->>'transition' <> 'SUPERSEDED'
+    if suffix->>'transition' is distinct from 'SUPERSEDED'
       or suffix->>'reason_code' is distinct from new.supersession_reason
       or suffix->>'superseded_by_case_id'
         is distinct from new.superseded_by_case_id
       or new.superseded_at is distinct from suffix_at
-      or new.supersession_reason <> 'CANONICAL_EVIDENCE_CHANGED'
+      or new.supersession_reason is distinct from 'CANONICAL_EVIDENCE_CHANGED'
       or to_jsonb(new) - array[
         'state', 'updated_at', 'audit', 'superseded_by_case_id',
         'superseded_at', 'supersession_reason'

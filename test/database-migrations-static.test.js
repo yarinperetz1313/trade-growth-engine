@@ -546,7 +546,11 @@ test("migration 012 establishes immutable tenant-safe RevenueLeakCase history", 
   assert.match(foundation, /revenue_at_risk numeric\(20,6\)/);
   assert.match(
     foundation,
-    /commercial_value_classification = 'KNOWN'[\s\S]*?revenue_at_risk >= 0[\s\S]*?currency ~ '\^\[A-Z\]\{3\}\$'/
+    /evidence_snapshot \? 'facts'[\s\S]*?evidence_snapshot \? 'classification'/
+  );
+  assert.match(
+    foundation,
+    /commercial_value_classification = 'KNOWN'[\s\S]*?revenue_at_risk >= 0[\s\S]*?currency is not null[\s\S]*?currency ~ '\^\[A-Z\]\{3\}\$'/
   );
   assert.match(
     foundation,
@@ -586,6 +590,18 @@ test("migration 012 establishes immutable tenant-safe RevenueLeakCase history", 
   assert.match(foundation, /new\.revenue_action_fingerprint/);
   assert.match(foundation, /old\.revenue_action_id is null/);
   assert.match(foundation, /new\.superseded_by_case_id/);
+  assert.match(
+    foundation,
+    /state = 'SNOOZED'[\s\S]*?snooze_reason is not null[\s\S]*?btrim\(snooze_reason\) <> ''/
+  );
+  assert.match(
+    foundation,
+    /state = 'DISMISSED'[\s\S]*?dismissal_reason is not null[\s\S]*?btrim\(dismissal_reason\) <> ''/
+  );
+  assert.match(
+    foundation,
+    /state = 'SUPERSEDED'[\s\S]*?supersession_reason is not null[\s\S]*?btrim\(supersession_reason\) <> ''/
+  );
   assert.match(
     foundation,
     /grant select, insert, update on tge\.revenue_leak_cases to tge_runtime/

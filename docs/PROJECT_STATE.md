@@ -120,8 +120,9 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - Developer `data/*.json` must never be touched by tests/E2E.
 
 ## Milestone status
-- Active plans: [**Pilot Readiness**](execution-plans/active/pilot-readiness.md)
-  and [**RevenueLeakCase foundation**](execution-plans/active/revenue-leak-case-foundation.md).
+- Active plan: [**Pilot Readiness**](execution-plans/active/pilot-readiness.md).
+  The [**RevenueLeakCase foundation**](execution-plans/completed/revenue-leak-case-foundation.md)
+  is complete in its bounded Issue #8 slice.
 - Pilot Readiness **PR-0 is complete**: its architecture, operations, and harness consistency contracts are documented. This does **not** mean production infrastructure, authentication, authorization, tenancy, backups, imports, or deployment have been provisioned or implemented.
 - **PR-1 is complete**: it characterized legacy JSON compatibility, including deterministic fixtures, observable ordering/value semantics, RevenueAction lifecycle/effect links, and the migration manifest/handoff. It did not implement production persistence or tenancy.
 - **PR-2 is complete**: schema/security/migrations `001`–`004`, tests, and CI are present, and GitHub Actions run `33304131266` passed the full PostgreSQL 16.15 gate. This completion does not imply production repositories, Auth0 middleware, provisioning, import execution, or JSON cutover. Vendor decisions still gate provisioning and release.

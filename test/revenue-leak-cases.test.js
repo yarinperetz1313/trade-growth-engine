@@ -89,6 +89,11 @@ function repository(seed = {}) {
       opportunity_id: "opp-other",
       basis_fingerprint: "b".repeat(64),
       status: "PREPARED"
+    }, {
+      id: "action-malformed",
+      opportunity_id: "opp-stalled",
+      basis_fingerprint: "c".repeat(64),
+      status: "UNRECOGNIZED"
     }],
     revenue_leak_cases: [],
     ...seed
@@ -216,6 +221,18 @@ test("only the initial stalled-opportunity contract is accepted", () => {
     }),
     error => error.code === "REVENUE_LEAK_CASE_INPUT_INVALID"
   );
+
+  const unexpectedPrototypeKey = detection();
+  Object.defineProperty(unexpectedPrototypeKey, "__proto__", {
+    value: { tenant_id: TENANT_B },
+    enumerable: true,
+    configurable: true,
+    writable: true
+  });
+  assert.throws(
+    () => build(unexpectedPrototypeKey),
+    error => error.code === "REVENUE_LEAK_CASE_INPUT_INVALID"
+  );
 });
 
 test("JSON reconciliation is idempotent and supersedes changed active evidence", async () => {
@@ -338,7 +355,11 @@ test("RevenueAction linkage is same-opportunity, immutable, and idempotent", asy
       last_meaningful_activity_at: "2026-08-01T00:00:00.000Z"
     }
   }), { id: "case-2", detectedAt: "2026-09-03T00:00:00.000Z" }));
-  for (const revenue_action_id of ["action-other", "missing-action"]) {
+  for (const revenue_action_id of [
+    "action-other",
+    "missing-action",
+    "action-malformed"
+  ]) {
     await assert.rejects(
       cases.linkRevenueAction(tenant, "case-2", {
         revenue_action_id,
