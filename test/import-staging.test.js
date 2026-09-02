@@ -327,6 +327,12 @@ test("import router normalizes unavailable previews without an existence oracle"
     },
     async analyzePreview() {
       assert.fail("analyzePreview is not expected");
+    },
+    async commitBatch() {
+      assert.fail("commitBatch is not expected");
+    },
+    async readCommit() {
+      assert.fail("readCommit is not expected");
     }
   };
   const router = createImportsRouter({

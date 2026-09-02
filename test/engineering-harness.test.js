@@ -145,6 +145,11 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
       relativePath: "database/migrations/010_auth_membership_and_invitations.sql",
       expected: "create function tge.consume_assisted_invitation",
       error: /Migration 010 must provide atomic invitation consumption/
+    },
+    {
+      relativePath: "database/migrations/011_canonical_import_commit.sql",
+      expected: "create function tge.finalize_import_commit",
+      error: /Migration 011 must provide narrow canonical import finalization/
     }
   ];
 

@@ -217,6 +217,14 @@ function createPostgresRepositories({
     findAnalysisEvidence: (context, batchId) => run(
       context,
       scoped => scoped.imports.findAnalysisEvidence(batchId)
+    ),
+    commitCanonical: (context, request) => run(
+      context,
+      scoped => scoped.imports.commitCanonical(request)
+    ),
+    findCommit: (context, batchId) => run(
+      context,
+      scoped => scoped.imports.findCommit(batchId)
     )
   };
 
@@ -643,7 +651,8 @@ function createPostgresRepositories({
       executeRevenueActionAtomic(null, id, plan, transaction);
     scoped.imports = createImportRepository(
       transaction.client,
-      transaction.tenantId
+      transaction.tenantId,
+      (name, details) => checkpoint(name, transaction, details)
     );
     return scoped;
   }

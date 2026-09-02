@@ -44,12 +44,16 @@ Forced RLS reads transaction-local `app.tenant_id` and `app.subject_id`. These c
 The implemented PR-5A CSV staging/preview subset is specified in
 [CSV import staging and preview](IMPORT_STAGING_PREVIEW.md). PR-5B's preview-only
 analysis is specified in [deterministic import mapping and Data Health](IMPORT_MAPPING_DATA_HEALTH.md).
-Later Issue #13 slices still own accepted mapping persistence, canonical commit,
-ID reconciliation, retention deletion, and browser/adversarial breadth.
+PR-5C's atomic commit and existing-ID-map reconciliation are specified in
+[controlled canonical import commit](CANONICAL_IMPORT_COMMIT.md). Later Issue
+#13 slices still own retention deletion and browser/adversarial breadth.
 
 Imports are tenant-scoped and staged: CSV/XLSX upload → preview → explicit commit. Exact duplicates are skipped; ambiguous records require explicit user resolution; imports never merge into or overwrite existing CRM data implicitly. Every PR-2 ID-map row references its exact staging source and exactly one real tenant-owned prospect, opportunity, task, activity, or RevenueAction through a typed foreign key. Runtime may only select and insert batch, staging, ID-map, and audit evidence.
 
-Controlled import status transitions and retention deletion are deliberately deferred. A later authorized slice must add them through a reviewed append-only migration and narrow function/repository boundary; unrestricted runtime `UPDATE` or `DELETE` is not an acceptable shortcut.
+PR-5C adds only the narrow `PREVIEWED → COMMITTED` transition and row outcomes
+needed for canonical commit through append-only migration `011`; runtime keeps
+no unrestricted import `UPDATE` or `DELETE`. Retention expiry and deletion
+transitions remain deliberately deferred to a later authorized slice.
 
 Validate MIME type, file signature, file size, row count, sheet count, cell count, decompression expansion, and parser resource limits before preview or commit. Treat spreadsheet formula-like values as data: neutralize formula injection on export/display paths and never evaluate formulas as executable content.
 

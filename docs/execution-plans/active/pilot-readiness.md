@@ -5,7 +5,7 @@
 - **PR-0 through PR-2 are COMPLETE.** PR-2's PostgreSQL 16.15 authority remains [GitHub Actions run 33304131266](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33304131266): harness, 68 integration tests, 11 database tests, 7 Chromium E2E tests, and the production build passed.
 - **PR-3 and PR-4 are integrated in code, complete, and merged through [PR #16](https://github.com/yarinperetz1313/trade-growth-engine/pull/16) at `b0a8e36`.** PR #16 closed [Issue #2](https://github.com/yarinperetz1313/trade-growth-engine/issues/2) and [Issue #5](https://github.com/yarinperetz1313/trade-growth-engine/issues/5). Tenant-aware PostgreSQL repositories and transactional RevenueAction execution consume PR-4 membership authority through a server-only bridge between independently branded contexts. The old magic-link blocker is removed.
 - **Combined verification is COMPLETE at `9fe7cea`.** [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854) passed the engineering harness, 129 integration tests, 44 PostgreSQL 16.15 database tests, 7 managed Chromium tests, and the production build. Fresh combined review found no P0, P1, or P3 findings; its only P2 was stale status text corrected in this record.
-- **PR-5A implements the bounded CSV contract, immutable staging, and preview; PR-5B implements draft mapping, validation, and Data Health analysis only.** PR-5C/5D, import commit, JSON cutover, deployment, and production provisioning remain out of scope.
+- **PR-5A implements bounded CSV staging/preview; PR-5B implements draft mapping, validation, and Data Health; PR-5C implements controlled atomic canonical commit and existing-ID-map reconciliation.** PR-5D browser breadth, retention deletion, JSON cutover, deployment, and production provisioning remain out of scope.
 
 The canonical architecture is the [foundation](../../architecture/PILOT_READINESS_FOUNDATION.md), with the identity path detailed in [Authentication and TenantContext](../../architecture/AUTHENTICATION_AND_TENANT_CONTEXT.md). Provisioning and release evidence live in the [production gate](../../operations/PILOT_PRODUCTION_GATE.md).
 
@@ -14,7 +14,7 @@ The canonical architecture is the [foundation](../../architecture/PILOT_READINES
 | Area | Contract |
 | --- | --- |
 | Current product | Local JSON remains the local runtime/test persistence authority. Deterministic intelligence and manual RevenueAction approval are unchanged. |
-| Database foundation | PostgreSQL 16.15 uses append-only migrations. `001` remains 2,752 bytes with SHA-256 `d08f3b7e5c97e05a5ec7f96242543fbbf437d7af4edea34d22dc09db910cfc62`; PR-3 owns unchanged migrations `005`–`009`; PR-4 follows with `010_auth_membership_and_invitations.sql`. |
+| Database foundation | PostgreSQL 16.15 uses append-only migrations. `001` remains 2,752 bytes with SHA-256 `d08f3b7e5c97e05a5ec7f96242543fbbf437d7af4edea34d22dc09db910cfc62`; PR-3 owns unchanged migrations `005`–`009`; PR-4 follows with `010_auth_membership_and_invitations.sql`; PR-5C appends `011_canonical_import_commit.sql`. |
 | Identity | Auth0 AU, New Universal Login, passwordless email OTP, Authorization Code Flow with PKCE. No Classic Login, magic links, Auth0 Organizations invitations, or public signup. |
 | Authorization | TGE resolves exactly one active membership by `(issuer, subject)`, derives immutable `TenantContext`, and applies centralized OWNER/ADMIN/MEMBER policy. Client tenant, email, role, headers, query values, and JWT custom claims are never authority. |
 | Isolation | Server authorization, explicit tenant repository predicates, and forced PostgreSQL RLS remain separate required layers. Transaction-local GUCs are trusted server inputs only after membership resolution. |
@@ -66,7 +66,8 @@ No local mock or deterministic seam may be reported as real Auth0/SMTP proof.
 - [x] **PR-4 — auth implemented and integrated; completed through merged PR #16.**
 - [x] **PR-5A — CSV contract, parser limits, immutable staging, and preview.**
 - [x] **PR-5B — draft mapping, validation, and Data Health analysis.**
-- [ ] **PR-5C–PR-7 — not started and outside this work unit.**
+- [x] **PR-5C — controlled atomic canonical commit and ID-map reconciliation.**
+- [ ] **PR-5D–PR-7 — not started and outside this work unit.**
 
 ## Verification
 
@@ -74,6 +75,7 @@ No local mock or deterministic seam may be reported as real Auth0/SMTP proof.
 | --- | --- | --- |
 | PR-5A initial full local gate at `178409c` | `TGE_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/postgres npm run verify` against an isolated PostgreSQL 16.15 cluster | **PASS:** harness; integration **142/142**; database **45/45**; managed Chromium **14/14**; production build. The temporary database cluster was removed after verification. This is historical evidence for that checkpoint. |
 | PR-5A bounded review-fix checkpoint (parent `dc5e3c9`) | `npm run verify:fast` on the code and tests recorded by this document's checkpoint | **PASS:** harness; integration **144/144**. Database, managed Chromium, and production build were not rerun for this bounded transport-error fix. |
+| PR-5C controlled canonical commit | `npm run verify:fast`; `TGE_TEST_DATABASE_URL=postgresql://127.0.0.1:55433/postgres npm run test:db` against disposable PostgreSQL 16.15; `npm run build` | **PASS:** harness; integration **173/173**; database **47/47**; production build (Vite 8.2.2, 22 modules). Browser E2E was intentionally not run because PR-5D/browser flow is outside this slice. The disposable cluster was stopped and removed. |
 | Focused combined auth + persistence | `OPENSSL_CONF=/dev/null node --test test/authentication.test.js test/authorization.test.js test/invitations.test.js test/auth-api.test.js test/browser-auth-contract.test.js test/postgres-auth-repository.test.js test/postgres-persistence.test.js test/revenue-actions-api.test.js` | **PASS: 79/79.** This includes the trusted-context bridge and fail-closed adapter boundary. |
 | Integration | [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854) at `9fe7cea` | **PASS: 129/129.** |
 | Real PostgreSQL 16.15 | [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854) at `9fe7cea` | **PASS: 44/44.** |

@@ -42,7 +42,7 @@ For local database verification, start the pinned disposable service with `docke
 - executable/configuration and relevant untracked documentation have no developer-home absolute path;
 - `src/intelligence/` has no web-client dependency or `fetch` call;
 - E2E retains managed-store creation/seeding/cleanup, `LOCAL_STORE_DIR` injection, serial fixed-port configuration, and an empty seeded `revenue_actions` collection.
-- migration `001` retains its locked checksum; append-only migrations through PR-4 `010` (after PR-3 `005`–`009`), the checksum-ledger runner, audited-baseline refusal, post-bootstrap owner-role execution, pinned PostgreSQL 16.15 Compose/CI service, explicit database URL, and full-gate wiring remain present.
+- migration `001` retains its locked checksum; append-only migrations through PR-5C `011` (after PR-3 `005`–`009` and PR-4 `010`), the checksum-ledger runner, audited-baseline refusal, post-bootstrap owner-role execution, pinned PostgreSQL 16.15 Compose/CI service, explicit database URL, and full-gate wiring remain present.
 - the PR-4 Auth0 decision, issuer-bound membership, hashed assisted invitations, memory-only browser SDK configuration, and deployment-gated real OTP acceptance contract remain aligned across code and canonical docs.
 - the active Pilot Readiness plan and its two canonical contracts agree on a small set of locked production facts; it does not scan historical plans or certify provisioned infrastructure.
 

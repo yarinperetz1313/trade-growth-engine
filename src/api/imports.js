@@ -18,6 +18,8 @@ function createImportsRouter({
     || typeof service.createPreview !== "function"
     || typeof service.readPreview !== "function"
     || typeof service.analyzePreview !== "function"
+    || typeof service.commitBatch !== "function"
+    || typeof service.readCommit !== "function"
   ) {
     throw new TypeError("An import staging service is required.");
   }
@@ -59,6 +61,23 @@ function createImportsRouter({
     res.json({ ok: true, data: analysis });
   }));
 
+  router.post("/api/import-batches/:batchId/commit", route(async (req, res) => {
+    const committed = await service.commitBatch({
+      ...(await contexts(req)),
+      batchId: req.params.batchId,
+      input: req.body
+    });
+    res.json({ ok: true, data: committed });
+  }));
+
+  router.get("/api/import-batches/:batchId/commit", route(async (req, res) => {
+    const committed = await service.readCommit({
+      ...(await contexts(req)),
+      batchId: req.params.batchId
+    });
+    res.json({ ok: true, data: committed });
+  }));
+
   return router;
 }
 
@@ -88,7 +107,8 @@ function route(handler) {
         return res.status(error.status || 400).json({
           ok: false,
           error: error.code,
-          message: error.message
+          message: error.message,
+          ...(error.details === undefined ? {} : { details: error.details })
         });
       }
       return next(error);

@@ -127,7 +127,8 @@ if (!testDatabaseUrl) {
         ["007", "007_revenue_action_lifecycle_integrity.sql"],
         ["008", "008_revenue_action_outcome_integrity.sql"],
         ["009", "009_revenue_action_cancellation_integrity.sql"],
-        ["010", "010_auth_membership_and_invitations.sql"]
+        ["010", "010_auth_membership_and_invitations.sql"],
+        ["011", "011_canonical_import_commit.sql"]
       ]
     );
     assert.equal(
@@ -139,7 +140,7 @@ if (!testDatabaseUrl) {
       sha256(fs.readFileSync(
         path.join(
           repositoryRoot,
-          "database/migrations/010_auth_membership_and_invitations.sql"
+          "database/migrations/011_canonical_import_commit.sql"
         )
       ))
     );
@@ -219,12 +220,12 @@ if (!testDatabaseUrl) {
           migrationsDirectory: retroactiveDirectory,
           logger: silentLogger
         }),
-        /retroactive; append-only migrations must follow 010/
+        /retroactive; append-only migrations must follow 011/
       );
 
       copyMigrations(brokenDirectory);
       fs.writeFileSync(
-        path.join(brokenDirectory, "011_broken_transaction.sql"),
+        path.join(brokenDirectory, "012_broken_transaction.sql"),
         "create table tge.must_rollback (id integer);\nselect 1 / 0;\n"
       );
       await assert.rejects(
@@ -236,13 +237,13 @@ if (!testDatabaseUrl) {
         error => {
           assert.match(
             error.message,
-            /Migration 011_broken_transaction\.sql failed \[22012\]: division by zero/
+            /Migration 012_broken_transaction\.sql failed \[22012\]: division by zero/
           );
           assert.equal(error.code, "22012");
           assert.equal(error.migrationLine, undefined);
           assert.deepEqual(error.migration, {
-            id: "011",
-            fileName: "011_broken_transaction.sql"
+            id: "012",
+            fileName: "012_broken_transaction.sql"
           });
           assert.equal(error.cause?.message, "division by zero");
           for (const unsafeField of [
@@ -274,7 +275,7 @@ if (!testDatabaseUrl) {
             to_regclass('tge.must_rollback') as relation,
             exists (
               select 1 from tge_migration.schema_migrations
-              where migration_id = '011'
+              where migration_id = '012'
             ) as ledger_row
         `
       );
@@ -285,7 +286,7 @@ if (!testDatabaseUrl) {
 
       copyMigrations(ownerDirectory);
       fs.writeFileSync(
-        path.join(ownerDirectory, "011_owner_default_probe.sql"),
+        path.join(ownerDirectory, "012_owner_default_probe.sql"),
         `
           create function tge.owner_default_probe()
           returns integer
@@ -298,7 +299,7 @@ if (!testDatabaseUrl) {
         migrationsDirectory: ownerDirectory,
         logger: silentLogger
       });
-      assert.deepEqual(ownerProbe.applied, ["011"]);
+      assert.deepEqual(ownerProbe.applied, ["012"]);
       const ownerProbeSecurity = await adminClient.query(
         `
           select

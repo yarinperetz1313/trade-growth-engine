@@ -1,10 +1,12 @@
 # Deterministic import mapping and Data Health
 
 PR-5B adds preview-only mapping, validation, and Data Health analysis over the
-immutable CSV staging evidence established by PR-5A. It does not accept or
-persist mappings, mutate import lifecycle state, reconcile source IDs, or read
-or write canonical CRM records. Those boundaries remain with PR-5C. Browser UI
-remains with PR-5D.
+immutable CSV staging evidence established by PR-5A. It does not itself accept
+or persist mappings, mutate import lifecycle state, reconcile source IDs, or
+read or write canonical CRM records. PR-5C's separate
+[controlled canonical import commit](CANONICAL_IMPORT_COMMIT.md) consumes an
+explicit reviewed selection request and rebuilds this validation from locked
+staging evidence. Browser UI remains with PR-5D.
 
 ## HTTP contract
 

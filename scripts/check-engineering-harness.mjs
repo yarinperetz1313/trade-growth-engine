@@ -207,6 +207,9 @@ function validateDatabaseFoundationContract() {
   const authMigration = readFile(
     "database/migrations/010_auth_membership_and_invitations.sql"
   );
+  const canonicalImportMigration = readFile(
+    "database/migrations/011_canonical_import_commit.sql"
+  );
   const migrationFiles = fs
     .readdirSync(path.join(rootDir, "database", "migrations"))
     .filter(fileName => /^\d{3}_[a-z0-9_]+\.sql$/.test(fileName))
@@ -303,6 +306,16 @@ function validateDatabaseFoundationContract() {
     "Migration 010 must provide atomic invitation consumption"
   );
   requireText(
+    canonicalImportMigration,
+    "create function tge.finalize_import_commit",
+    "Migration 011 must provide narrow canonical import finalization"
+  );
+  requireText(
+    canonicalImportMigration,
+    "import_id_map_source_identity_uidx",
+    "Migration 011 must serialize canonical source identity"
+  );
+  requireText(
     databaseTest,
     "TGE_TEST_DATABASE_URL",
     "Database tests must require an explicit real PostgreSQL URL"
@@ -327,7 +340,8 @@ function validateDatabaseFoundationContract() {
       "007_revenue_action_lifecycle_integrity.sql",
       "008_revenue_action_outcome_integrity.sql",
       "009_revenue_action_cancellation_integrity.sql",
-      "010_auth_membership_and_invitations.sql"
+      "010_auth_membership_and_invitations.sql",
+      "011_canonical_import_commit.sql"
     ])
   ) {
     failures.push(
