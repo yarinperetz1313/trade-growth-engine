@@ -151,7 +151,12 @@ function isPreview(value) {
       batchId: value.batch.id,
       sourceCollection: summary.sourceCollection
     })
-  ));
+  )) && countMapMatchesRows(
+    summary.valueKindCounts,
+    countValueKinds(value.records),
+    summary.rowCount - value.records.length,
+    summary.columnCount
+  );
 }
 
 function isAnalysis(value, expectations) {
@@ -202,7 +207,8 @@ function isAnalysis(value, expectations) {
         health.unknownUnmappedStatuses.unmappedSourceColumns,
         mapping.unmappedSourceColumns
       )
-      && Object.keys(health.timestampCoverage).length === 0;
+      && Object.keys(health.timestampCoverage).length === 0
+      && analysisEvidenceIsCoherent(value, expectations);
   }
 
   if (
@@ -246,7 +252,121 @@ function isAnalysis(value, expectations) {
       health.unknownUnmappedStatuses.unmappedSourceColumns,
       mapping.unmappedSourceColumns
     )
-    && sameStringSet(Object.keys(health.timestampCoverage), expectedTimestampFields);
+    && sameStringSet(Object.keys(health.timestampCoverage), expectedTimestampFields)
+    && analysisEvidenceIsCoherent(value, expectations);
+}
+
+function analysisEvidenceIsCoherent(value, expectations) {
+  const { dataHealth: health, mapping, rows } = value;
+  const previewRecords = Array.isArray(expectations?.previewRecords)
+    ? expectations.previewRecords
+    : null;
+  if (
+    previewRecords !== null
+    && (
+      previewRecords.length < rows.length
+      || !rows.every((row, index) => sameStagedEvidence(row, previewRecords[index]))
+    )
+  ) return false;
+
+  const unseenRows = health.totalRows - rows.length;
+  const sampledValid = rows.filter(row => row.valid).length;
+  const sampledBlocking = rows.length - sampledValid;
+  const sampledDuplicates = rows.filter(row => row.errors.some(issue => (
+    ["DUPLICATE_SOURCE_ID", "EXACT_REPEATED_SOURCE_ROW"].includes(issue.code)
+  ))).length;
+  const sampledKinds = countValueKinds(rows);
+  if (
+    !countMatchesRows(health.validRows, sampledValid, unseenRows)
+    || !countMatchesRows(health.rowsWithBlockingErrors, sampledBlocking, unseenRows)
+    || !countMatchesRows(health.duplicateConflictCount, sampledDuplicates, unseenRows)
+  ) return false;
+
+  const previewCounts = expectations?.previewValueKindCounts;
+  const exactUnknownCount = isObject(previewCounts)
+    ? (previewCounts.UNKNOWN || 0) + (previewCounts.NULL || 0)
+    : null;
+  const sampledUnknownCount = (sampledKinds.UNKNOWN || 0) + (sampledKinds.NULL || 0);
+  if (exactUnknownCount === null) {
+    const columnCount = rows[0]?.rawPayload?.cells?.length || 0;
+    if (!countMatchesRows(
+      health.unknownUnmappedStatuses.unknownValueCount,
+      sampledUnknownCount,
+      unseenRows,
+      columnCount
+    )) return false;
+  } else if (health.unknownUnmappedStatuses.unknownValueCount !== exactUnknownCount) {
+    return false;
+  }
+
+  const fields = new Map((mapping.fields || []).map(field => [field.targetField, field]));
+  for (const [targetField, count] of Object.entries(health.missingValueCounts)) {
+    const field = fields.get(targetField);
+    if (!field) return false;
+    if (field.sourceColumn === null) {
+      if (count !== health.totalRows) return false;
+      continue;
+    }
+    const sampledMissing = rows.filter(row => (
+      isMissingForCount(cellAt(row, field.sourceColumnOrdinal))
+    )).length;
+    if (!countMatchesRows(count, sampledMissing, unseenRows)) return false;
+  }
+
+  const identity = mapping.sourceIdentity;
+  const sampledSourceIds = identity && identity.sourceColumn !== null
+    ? rows.filter(row => !isMissingSourceIdentity(
+        cellAt(row, identity.sourceColumnOrdinal)
+      )).length
+    : 0;
+  if (!identity || identity.sourceColumn === null) {
+    if (health.sourceIdCoverage.coveredRows !== 0) return false;
+  } else if (!countMatchesRows(
+      health.sourceIdCoverage.coveredRows,
+      sampledSourceIds,
+      unseenRows
+    )) return false;
+
+  for (const [targetField, coverage] of Object.entries(health.timestampCoverage)) {
+    const field = fields.get(targetField);
+    if (!field) return false;
+    if (field.sourceColumn === null) {
+      if (
+        coverage.coveredRows !== 0
+        || coverage.invalidRows !== 0
+        || coverage.missingRows !== health.totalRows
+      ) return false;
+      continue;
+    }
+    const sampled = { coveredRows: 0, invalidRows: 0, missingRows: 0 };
+    for (const row of rows) {
+      const evidence = cellAt(row, field.sourceColumnOrdinal);
+      if (isAbsent(evidence)) sampled.missingRows += 1;
+      else if (!validTimestamp(evidence.raw)) sampled.invalidRows += 1;
+      else sampled.coveredRows += 1;
+    }
+    if (!["coveredRows", "invalidRows", "missingRows"].every(key => (
+      countMatchesRows(coverage[key], sampled[key], unseenRows)
+    ))) return false;
+  }
+
+  if (health.contactabilityCoverage !== undefined) {
+    const contactFields = health.contactabilityCoverage.fields.map(name => fields.get(name));
+    if (contactFields.some(field => !field)) return false;
+    const sampledContactable = rows.filter(row => contactFields.some(field => (
+      field.sourceColumn !== null
+      && !isAbsent(cellAt(row, field.sourceColumnOrdinal))
+    ))).length;
+    if (contactFields.every(field => field.sourceColumn === null)) {
+      if (health.contactabilityCoverage.coveredRows !== 0) return false;
+    } else if (!countMatchesRows(
+      health.contactabilityCoverage.coveredRows,
+      sampledContactable,
+      unseenRows
+    )) return false;
+  }
+
+  return true;
 }
 
 function isCommittedResult(value, expectations) {
@@ -525,6 +645,116 @@ function isValueKindCounts(counts, expectedTotal) {
       VALUE_KINDS.has(kind) && isNonNegativeInteger(count)
     ))
     && Object.values(counts).reduce((total, count) => total + count, 0) === expectedTotal;
+}
+
+function countValueKinds(rows) {
+  const counts = {};
+  for (const row of rows) {
+    for (const cell of row.rawPayload.cells) {
+      counts[cell.valueKind] = (counts[cell.valueKind] || 0) + 1;
+    }
+  }
+  return counts;
+}
+
+function countMapMatchesRows(counts, sampledCounts, unseenRows, valuesPerRow) {
+  return [...VALUE_KINDS].every(kind => countMatchesRows(
+    counts[kind] || 0,
+    sampledCounts[kind] || 0,
+    unseenRows,
+    valuesPerRow
+  ));
+}
+
+function countMatchesRows(count, sampledCount, unseenRows, maximumPerUnseenRow = 1) {
+  return count >= sampledCount
+    && count <= sampledCount + (unseenRows * maximumPerUnseenRow);
+}
+
+function sameStagedEvidence(row, previewRecord) {
+  return isObject(previewRecord)
+    && row.id === previewRecord.id
+    && row.sourceOrdinal === previewRecord.sourceOrdinal
+    && row.sourceRowNumber === previewRecord.sourceRowNumber
+    && row.rawPayloadSha256 === previewRecord.rawPayloadSha256
+    && row.disposition === previewRecord.disposition
+    && sameRawPayload(row.rawPayload, previewRecord.rawPayload);
+}
+
+function sameRawPayload(left, right) {
+  return isObject(left)
+    && isObject(right)
+    && left.sourceRowNumber === right.sourceRowNumber
+    && Array.isArray(left.cells)
+    && Array.isArray(right.cells)
+    && left.cells.length === right.cells.length
+    && left.cells.every((cell, index) => {
+      const other = right.cells[index];
+      return isObject(other)
+        && cell.columnOrdinal === other.columnOrdinal
+        && cell.present === other.present
+        && cell.raw === other.raw
+        && cell.valueKind === other.valueKind;
+    });
+}
+
+function cellAt(row, columnOrdinal) {
+  return Number.isInteger(columnOrdinal)
+    ? row.rawPayload.cells[columnOrdinal]
+    : null;
+}
+
+function isAbsent(evidence) {
+  return !evidence
+    || ["MISSING", "BLANK", "NULL", "UNKNOWN"].includes(evidence.valueKind);
+}
+
+function isMissingForCount(evidence) {
+  return !evidence || ["MISSING", "BLANK", "NULL"].includes(evidence.valueKind);
+}
+
+function isMissingSourceIdentity(evidence) {
+  return isAbsent(evidence)
+    || (typeof evidence?.raw === "string" && evidence.raw.trim() === "");
+}
+
+function validTimestamp(raw) {
+  if (typeof raw !== "string") return false;
+  const match = raw.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(?:Z|([+-])(\d{2}):(\d{2}))?)?$/
+  );
+  if (!match) return false;
+  const [
+    , yearText, monthText, dayText, hourText, minuteText, secondText,
+    , offsetSign, offsetHourText, offsetMinuteText
+  ] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  if (
+    year < 1
+    || month < 1
+    || month > 12
+    || day < 1
+    || day > daysInMonth(year, month)
+  ) return false;
+  if (hourText !== undefined && (
+    Number(hourText) > 23
+    || Number(minuteText) > 59
+    || (secondText !== undefined && Number(secondText) > 59)
+  )) return false;
+  return !offsetSign || (
+    Number(offsetHourText) <= 14
+    && Number(offsetMinuteText) <= 59
+    && (Number(offsetHourText) !== 14 || Number(offsetMinuteText) === 0)
+  );
+}
+
+function daysInMonth(year, month) {
+  if (month === 2) {
+    return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28;
+  }
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
 }
 
 function isCountMap(counts, totalRows) {

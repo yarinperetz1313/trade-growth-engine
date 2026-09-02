@@ -40,7 +40,20 @@ The workflow distinguishes loading, zero-row empty, general error,
 unauthorized, canonical conflict, outcome-unknown retry/reconciliation, and
 success states. An unacknowledged preview or commit is reconciled through its
 existing GET endpoint before a repeated POST. A repeated commit retains the
-same reviewed payload and browser-generated idempotency key.
+same reviewed payload and browser-generated idempotency key. After GET confirms
+absence with `404`, a repeated POST that returns a definitive client error
+leaves outcome-unknown recovery and returns to the corresponding upload or
+confirmation error state; stale reconciliation controls are not retained.
+
+Successful preview envelopes reconcile aggregate value-kind counts against the
+exact returned cells. Successful analysis envelopes reconcile their returned
+rows with the accepted preview evidence and derive provable Data Health
+constraints for valid/blocking rows, duplicate conflicts, missing and unknown
+values, source identity, timestamps, and contactability. Exact equality is
+required when all rows or the preview aggregate provide complete evidence;
+responses capped at 100 rows are checked against the tight bounds supported by
+that sample. Contradictory success envelopes fail closed. Explicitly unsupported
+staged targets retain their contract-defined preview-only analysis shape.
 
 ## Explicit deferral
 

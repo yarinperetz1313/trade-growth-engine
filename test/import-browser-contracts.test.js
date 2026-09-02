@@ -163,6 +163,11 @@ test("preview evidence is bounded and internally coherent before rendering", asy
   incoherentCounts.batch.previewSummary.valueKindCounts.NONNUMERIC += 1;
   invalidPreviews.push(incoherentCounts);
 
+  const redistributedCounts = previewFixture();
+  redistributedCounts.batch.previewSummary.valueKindCounts.NONNUMERIC -= 1;
+  redistributedCounts.batch.previewSummary.valueKindCounts.NUMERIC += 1;
+  invalidPreviews.push(redistributedCounts);
+
   const unboundedRows = previewFixture();
   unboundedRows.batch.previewSummary.rowCount = 1001;
   invalidPreviews.push(unboundedRows);
@@ -189,6 +194,7 @@ test("analysis requires coherent totals and non-authoritative draft mapping shap
   const expectations = {
     batchId: "browser-batch-1",
     headers: previewHeaders(await fixtures),
+    previewRecords: (await fixtures).previewFixture().records,
     sourceCollection: "opportunities",
     totalRows: 2
   };
@@ -250,6 +256,45 @@ test("analysis requires coherent totals and non-authoritative draft mapping shap
   const incoherentTimestampCoverage = analysisFixture();
   incoherentTimestampCoverage.dataHealth.timestampCoverage.created_at.missingRows = 1;
   invalidAnalyses.push(incoherentTimestampCoverage);
+
+  const contradictoryDuplicateCount = analysisFixture();
+  contradictoryDuplicateCount.dataHealth.duplicateConflictCount = 1;
+  invalidAnalyses.push(contradictoryDuplicateCount);
+
+  const contradictoryUnknownCount = analysisFixture();
+  contradictoryUnknownCount.dataHealth.unknownUnmappedStatuses.unknownValueCount = 3;
+  invalidAnalyses.push(contradictoryUnknownCount);
+
+  const contradictoryMissingCount = analysisFixture();
+  contradictoryMissingCount.dataHealth.missingValueCounts.business_name = 1;
+  invalidAnalyses.push(contradictoryMissingCount);
+
+  const contradictorySourceCoverage = analysisFixture();
+  contradictorySourceCoverage.dataHealth.sourceIdCoverage = {
+    coveredRows: 1,
+    totalRows: 2,
+    percentage: 50
+  };
+  invalidAnalyses.push(contradictorySourceCoverage);
+
+  const contradictoryTimestampEvidence = analysisFixture();
+  contradictoryTimestampEvidence.dataHealth.timestampCoverage.created_at = {
+    coveredRows: 1,
+    invalidRows: 0,
+    missingRows: 1,
+    totalRows: 2,
+    percentage: 50
+  };
+  invalidAnalyses.push(contradictoryTimestampEvidence);
+
+  const contradictoryPreviewEvidence = analysisFixture();
+  contradictoryPreviewEvidence.rows[0].rawPayload.cells[6] = {
+    columnOrdinal: 6,
+    present: true,
+    raw: "changed after preview",
+    valueKind: "NONNUMERIC"
+  };
+  invalidAnalyses.push(contradictoryPreviewEvidence);
 
   const unsafeRows = analysisFixture();
   unsafeRows.rows[0].warnings = null;
@@ -358,6 +403,70 @@ test("browser analysis validation accepts the real deterministic mapping respons
       { ok: true, data: analysis },
       {
         headers: parsed.headers,
+        sourceCollection: "prospects",
+        totalRows: parsed.rows.length
+      }
+    ),
+    analysis
+  );
+
+  const contradictoryContactability = structuredClone(analysis);
+  contradictoryContactability.dataHealth.contactabilityCoverage = {
+    ...contradictoryContactability.dataHealth.contactabilityCoverage,
+    coveredRows: 1,
+    percentage: 50
+  };
+  assert.throws(
+    () => unwrapImportAnalysisResponse(
+      { ok: true, data: contradictoryContactability },
+      {
+        headers: parsed.headers,
+        previewRecords: staged.records,
+        sourceCollection: "prospects",
+        totalRows: parsed.rows.length
+      }
+    ),
+    error => error?.code === "IMPORT_RESPONSE_INVALID"
+  );
+});
+
+test("browser analysis validation respects the 100-row evidence boundary", async () => {
+  const { unwrapImportAnalysisResponse } = await contracts;
+  const parsed = parseCsvUpload({
+    contentBase64: Buffer.from([
+      "external_id,company",
+      ...Array.from({ length: 105 }, (_, index) => (
+        `source-${index + 1},Company ${index + 1}`
+      ))
+    ].join("\n"), "utf8").toString("base64")
+  });
+  const staged = {
+    batch: {
+      id: "batch-capped-analysis",
+      previewSummary: {
+        headers: parsed.headers,
+        rowCount: parsed.rows.length,
+        sourceCollection: "prospects"
+      }
+    },
+    records: parsed.rows.map(row => ({
+      id: `row:${row.sourceOrdinal}`,
+      sourceOrdinal: row.sourceOrdinal,
+      sourceRowNumber: row.sourceRowNumber,
+      rawPayload: row.rawPayload,
+      rawPayloadSha256: row.rawPayloadSha256,
+      disposition: "PENDING"
+    }))
+  };
+  const analysis = buildImportAnalysis(staged);
+
+  assert.equal(analysis.rows.length, 100);
+  assert.deepEqual(
+    unwrapImportAnalysisResponse(
+      { ok: true, data: analysis },
+      {
+        headers: parsed.headers,
+        previewRecords: staged.records.slice(0, 100),
         sourceCollection: "prospects",
         totalRows: parsed.rows.length
       }

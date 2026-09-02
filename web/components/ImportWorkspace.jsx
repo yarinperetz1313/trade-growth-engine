@@ -279,12 +279,15 @@ export default function ImportWorkspace() {
         setPhase("unknown-commit");
       } else if (caught?.status === 409 || caught?.code === "IMPORT_COMMIT_CONFLICT") {
         attemptedCommit.current = null;
+        setUnknownOutcome(null);
         setConflict(caught.details || null);
         setError(apiError(caught));
         setPhase("conflict");
       } else {
         attemptedCommit.current = null;
+        setUnknownOutcome(null);
         setError(apiError(caught));
+        setPhase("confirm");
       }
     } finally {
       finishOperation(token);
@@ -368,6 +371,7 @@ export default function ImportWorkspace() {
       setError(apiError(caught));
     } else {
       attemptedPreviewRequest.current = null;
+      setUnknownOutcome(null);
       setError(apiError(caught));
     }
   }
@@ -886,12 +890,15 @@ function ConfirmationStep({
   sourceSystem
 }) {
   const total = analysis.dataHealth.totalRows;
+  const unauthorized = error && [401, 403].includes(error.status);
   return (
     <section className="card import-panel">
       <div className="card-head">
         <div>
-          <h3>Confirm canonical import</h3>
-          <p>This explicit action may create canonical CRM records. It never sends external communications.</p>
+          <h3>{unauthorized ? "Commit access unavailable" : "Confirm canonical import"}</h3>
+          <p>{unauthorized
+            ? "Only an OWNER or ADMIN can commit imports."
+            : "This explicit action may create canonical CRM records. It never sends external communications."}</p>
         </div>
       </div>
       <div className="import-panel-body confirmation-body">
@@ -903,15 +910,15 @@ function ConfirmationStep({
         <MappingConfirmation mapping={analysis.mapping} />
         <label>
           <span>Source system</span>
-          <input disabled={loading} value={sourceSystem} maxLength={128} onChange={event => setSourceSystem(event.target.value)} placeholder="pilot-crm" />
+          <input disabled={loading || unauthorized} value={sourceSystem} maxLength={128} onChange={event => setSourceSystem(event.target.value)} placeholder="pilot-crm" />
         </label>
         <label className="confirmation-check">
-          <input type="checkbox" checked={confirmed} disabled={loading} onChange={event => setConfirmed(event.target.checked)} />
+          <input type="checkbox" checked={confirmed} disabled={loading || unauthorized} onChange={event => setConfirmed(event.target.checked)} />
           <span>I confirm this reviewed mapping and Data Health result.</span>
         </label>
         <div className="import-footer-actions">
           <button className="text-button" disabled={loading} onClick={onBack}>Back to mapping</button>
-          <button className="primary" disabled={loading || !confirmed || !sourceSystem.trim()} onClick={onCommit}>
+          <button className="primary" disabled={loading || unauthorized || !confirmed || !sourceSystem.trim()} onClick={onCommit}>
             {loading ? "Committing..." : `Commit ${total} rows`}
           </button>
         </div>
@@ -1014,6 +1021,8 @@ function analysisExpectations(preview) {
   return {
     batchId: preview?.batch?.id,
     headers: summary?.headers,
+    previewRecords: preview?.records,
+    previewValueKindCounts: summary?.valueKindCounts,
     sourceCollection: summary?.sourceCollection,
     totalRows: summary?.rowCount
   };

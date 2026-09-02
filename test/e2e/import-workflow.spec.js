@@ -241,6 +241,48 @@ test("reconciles an unknown preview outcome before retrying the upload", async (
   expect(requests).toEqual(["POST", "GET", "POST"]);
 });
 
+test("leaves preview recovery after GET 404 then a definitive retry failure", async ({ page }) => {
+  const operations = [];
+  let previewPosts = 0;
+  await page.route(`${apiBaseUrl}/api/import-batches/preview`, route => {
+    operations.push("POST");
+    previewPosts += 1;
+    return previewPosts === 1
+      ? json(route, 500, {
+          ok: false,
+          error: "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN",
+          message: "PostgreSQL did not confirm the transaction outcome; reconcile the attempted result before retrying.",
+          details: { attemptedId: "browser-batch-1" }
+        })
+      : json(route, 400, {
+          ok: false,
+          error: "CSV_MALFORMED",
+          message: "Preview input is malformed."
+        });
+  });
+  await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/preview`, route => {
+    operations.push("GET");
+    return json(route, 404, {
+      ok: false,
+      error: "IMPORT_BATCH_UNAVAILABLE",
+      message: "The requested import batch is unavailable."
+    });
+  });
+
+  await page.goto("/#imports");
+  await selectCsv(page, adversarialCsv);
+  await page.getByRole("button", { name: "Create preview" }).click();
+  await page.getByRole("button", { name: "Reconcile preview" }).click();
+  await page.getByRole("button", { name: "Retry preview" }).click();
+
+  await expect(page.getByText("Preview input is malformed.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Preview outcome unknown" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Reconcile preview" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry preview" })).toBeEnabled();
+  await expect(page.getByLabel("Source collection")).toBeEnabled();
+  expect(operations).toEqual(["POST", "GET", "POST"]);
+});
+
 test("reconciles an unsuccessful 2xx preview envelope before another POST", async ({ page }) => {
   const operations = [];
   let previewPosts = 0;
@@ -362,14 +404,52 @@ test("keeps preview outcome unknown after a non-404 reconciliation failure and c
 });
 
 test("blocks confirmation when source identity does not cover every staged row", async ({ page }) => {
+  const incompletePreview = previewFixture();
+  incompletePreview.records[1].rawPayload.cells[0] = {
+    columnOrdinal: 0,
+    present: true,
+    raw: "",
+    valueKind: "BLANK"
+  };
+  incompletePreview.batch.previewSummary.valueKindCounts.NONNUMERIC -= 1;
+  incompletePreview.batch.previewSummary.valueKindCounts.BLANK += 1;
   const incomplete = analysisFixture();
+  incomplete.rows[1].rawPayload.cells[0] = {
+    columnOrdinal: 0,
+    present: true,
+    raw: "",
+    valueKind: "BLANK"
+  };
+  const missingIdentityIssue = {
+    code: "REQUIRED_VALUE_MISSING",
+    targetField: "id",
+    sourceColumn: "external_id",
+    sourceOrdinal: 1,
+    sourceRowNumber: 3,
+    rawEvidence: incomplete.rows[1].rawPayload.cells[0]
+  };
+  incomplete.rows[1].errors = [missingIdentityIssue];
+  incomplete.rows[1].valid = false;
+  incomplete.mapping.sourceIdentity.sampleValues[1] = {
+    sourceOrdinal: 1,
+    sourceRowNumber: 3,
+    present: true,
+    raw: "",
+    valueKind: "BLANK"
+  };
+  const idField = incomplete.mapping.fields.find(field => field.targetField === "id");
+  idField.sampleValues[1] = { ...incomplete.mapping.sourceIdentity.sampleValues[1] };
+  idField.validationIssues = [missingIdentityIssue];
+  incomplete.dataHealth.validRows = 1;
+  incomplete.dataHealth.rowsWithBlockingErrors = 1;
+  incomplete.dataHealth.missingValueCounts.id = 1;
   incomplete.dataHealth.sourceIdCoverage = {
     coveredRows: 1,
     totalRows: 2,
     percentage: 50
   };
   await page.route(`${apiBaseUrl}/api/import-batches/preview`, route =>
-    json(route, 201, { ok: true, data: previewFixture() })
+    json(route, 201, { ok: true, data: incompletePreview })
   );
   await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/analysis`, route =>
     json(route, 200, { ok: true, data: incomplete })
@@ -636,6 +716,53 @@ test("retries a commit only after GET 404 with the identical confirmed request",
   expect(commitBodies).toHaveLength(2);
   expect(commitBodies[1]).toEqual(commitBodies[0]);
   expect(commitBodies[1].idempotencyKey).toBe(commitBodies[0].idempotencyKey);
+});
+
+test("leaves commit recovery after GET 404 then a definitive retry failure", async ({ page }) => {
+  const operations = [];
+  let commitPosts = 0;
+  await mockReadyToCommit(page);
+  await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/commit`, route => {
+    const method = route.request().method();
+    operations.push(method);
+    if (method === "GET") {
+      return json(route, 404, {
+        ok: false,
+        error: "IMPORT_BATCH_UNAVAILABLE",
+        message: "The requested import batch is unavailable."
+      });
+    }
+    commitPosts += 1;
+    return commitPosts === 1
+      ? json(route, 500, {
+          ok: false,
+          error: "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN",
+          message: "PostgreSQL did not confirm the transaction outcome; reconcile the attempted result before retrying.",
+          details: { attemptedId: "browser-batch-1" }
+        })
+      : json(route, 403, {
+          ok: false,
+          error: "ACCESS_DENIED",
+          message: "Access denied."
+        });
+  });
+
+  await reachConfirmation(page);
+  await page.getByLabel("Source system").fill("pilot-crm");
+  await page.getByLabel("I confirm this reviewed mapping and Data Health result.").check();
+  await page.getByRole("button", { name: "Commit 2 rows" }).click();
+  await page.getByRole("button", { name: "Reconcile commit" }).click();
+  await page.getByRole("button", { name: "Retry same commit" }).click();
+
+  await expect(page.getByRole("heading", { name: "Commit access unavailable" })).toBeVisible();
+  await expect(page.getByText("Only an OWNER or ADMIN can commit imports.")).toBeVisible();
+  await expect(page.getByText("Access denied.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Commit outcome unknown" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Reconcile commit" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry same commit" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Commit 2 rows" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Back to mapping" })).toBeEnabled();
+  expect(operations).toEqual(["POST", "GET", "POST"]);
 });
 
 async function mockReadyToCommit(page) {
