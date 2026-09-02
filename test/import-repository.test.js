@@ -153,3 +153,49 @@ test("import preview lookup uses explicit tenant scope and a bounded row sample"
   assert.match(selects[1][0], /limit \$3/i);
   assert.equal(selects[1][1][2], 100);
 });
+
+test("import analysis evidence reads every staged row in source order and remains tenant-scoped", async () => {
+  const calls = [];
+  const client = {
+    async query(sql, params) {
+      calls.push([sql, params]);
+      if (/from tge\.import_batches/i.test(sql)) {
+        return { rows: [{
+          tenant_id: context.tenantId,
+          id: "batch-1",
+          status: "PREVIEWED",
+          preview_summary: { headers: ["id"], rowCount: 101 }
+        }] };
+      }
+      if (/from tge\.import_staging_records/i.test(sql)) {
+        return { rows: [draft().records[0]].map(record => ({
+          import_batch_id: "batch-1",
+          id: record.id,
+          source_collection: record.sourceCollection,
+          source_id: record.sourceId,
+          source_ordinal: record.sourceOrdinal,
+          raw_payload: record.rawPayload,
+          raw_payload_sha256: record.rawPayloadSha256,
+          disposition: record.disposition,
+          idempotency_key: record.idempotencyKey,
+          metadata: record.metadata
+        })) };
+      }
+      return { rows: [] };
+    },
+    release() {}
+  };
+  const repositories = createPostgresRepositories({
+    pool: { connect: async () => client }
+  });
+
+  const evidence = await repositories.imports.findAnalysisEvidence(context, "batch-1");
+  assert.equal(evidence.batch.id, "batch-1");
+  assert.equal(evidence.records.length, 1);
+  const stagedSelect = calls.find(([sql]) => /from tge\.import_staging_records/i.test(sql));
+  assert.match(stagedSelect[0], /where tenant_id = \$1 and import_batch_id = \$2/i);
+  assert.match(stagedSelect[0], /order by source_ordinal/i);
+  assert.doesNotMatch(stagedSelect[0], /limit/i);
+  assert.deepEqual(stagedSelect[1], [context.tenantId, "batch-1"]);
+  assert.equal(calls.some(([sql]) => /tge\.(prospects|opportunities|tasks|activities|revenue_actions)/i.test(sql)), false);
+});

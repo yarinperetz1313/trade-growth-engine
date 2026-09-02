@@ -23,7 +23,7 @@
 - [x] Contract/TDD slice: add focused tests for alias precedence, conflicts,
   explicit draft selections, types, value-state validation, duplicates, and
   reconciled metrics.
-- [ ] Integration slice: wire analysis through the existing service/API and
+- [x] Integration slice: wire analysis through the existing service/API and
   tenant-scoped staging repository without canonical access.
 - [ ] Documentation/review slice: update canonical import/status truth, run
   gates, review the diff, and record exact evidence.
@@ -41,7 +41,10 @@
 - Implementer self-check: contract/core mapping and validation pass
   `node --test test/import-mapping.test.js` (6/6). The preserved red baseline
   failed with `MODULE_NOT_FOUND` for `src/imports/importMapping.js` before the
-  implementation was added.
+  implementation was added. Integration then passed
+  `node --test test/import-mapping.test.js test/import-staging.test.js
+  test/import-repository.test.js test/import-csv.test.js` (23/23), including
+  tenant-safe full-evidence reads and unchanged bounded PR-5A previews.
 - Fresh reviewer findings/resolution: pending.
 - Final-review evidence: pending.
 - Debt/follow-up: PR-5C owns accepted mapping persistence, controlled commit,

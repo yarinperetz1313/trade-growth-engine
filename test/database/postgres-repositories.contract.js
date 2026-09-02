@@ -2899,6 +2899,7 @@ function registerPostgresRepositoryContractTests({
         previewSummary: {
           format: "CSV",
           rowCount: 1,
+          headers: ["id"],
           valueKindCounts: { KNOWN_ZERO: 1 }
         },
         rawStorageKey: null,
@@ -2943,6 +2944,16 @@ function registerPostgresRepositoryContractTests({
     );
     assert.equal(
       await repositories.imports.findPreview(tenantB.context, batchId),
+      null
+    );
+    const analysisEvidence = await repositories.imports.findAnalysisEvidence(
+      tenantA.context,
+      batchId
+    );
+    assert.equal(analysisEvidence.records.length, 1);
+    assert.equal(analysisEvidence.records[0].rawPayload.cells[0].raw, "0");
+    assert.equal(
+      await repositories.imports.findAnalysisEvidence(tenantB.context, batchId),
       null
     );
 

@@ -3,6 +3,7 @@ const express = require("express");
 const { AuthorizationError } = require("../auth/authorization");
 const { ImportCsvError } = require("../imports/csvParser");
 const { ImportContractError } = require("../imports/importService");
+const { ImportMappingError } = require("../imports/importMapping");
 const {
   PostgresTransactionOutcomeUnknownError
 } = require("../persistence/postgres/transaction");
@@ -48,6 +49,15 @@ function createImportsRouter({
     res.json({ ok: true, data: preview });
   }));
 
+  router.post("/api/import-batches/:batchId/analysis", route(async (req, res) => {
+    const analysis = await service.analyzePreview({
+      ...(await contexts(req)),
+      batchId: req.params.batchId,
+      input: req.body || {}
+    });
+    res.json({ ok: true, data: analysis });
+  }));
+
   return router;
 }
 
@@ -71,6 +81,7 @@ function route(handler) {
       if (
         error instanceof ImportContractError
         || error instanceof ImportCsvError
+        || error instanceof ImportMappingError
         || error instanceof AuthorizationError
       ) {
         return res.status(error.status || 400).json({
