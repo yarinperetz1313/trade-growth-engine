@@ -81,12 +81,24 @@ including source identity, now return the existing
 `IMPORT_COMMIT_REQUEST_INVALID` public API contract instead of the draft-mapping
 selection error.
 
+The approved Issue #8 foundation adds `src/revenueLeakCases/`, thin
+RevenueLeakCase APIs, local JSON compatibility, and append-only migration
+`012_revenue_leak_case_foundation.sql`. Only `STALLED_OPPORTUNITY` is supported.
+Cases retain immutable evidence and explicit `KNOWN`/`UNKNOWN`/`NOT_APPLICABLE`
+commercial semantics, reconcile one active tenant/source/detector series
+deterministically, preserve superseded/terminal audit history, and may snapshot-
+link one same-opportunity RevenueAction without changing its lifecycle or
+effects. No detector, schedule, post-import hook, browser UI, Quote Recovery,
+outcome ledger, recovered-revenue calculation, or attribution exists.
+
 Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 
 The Product Truth audit/fix work unit is complete: [PR #17](https://github.com/yarinperetz1313/trade-growth-engine/pull/17) merged at `5231838` and closed [Issue #7](https://github.com/yarinperetz1313/trade-growth-engine/issues/7). This did not provision Auth0, SMTP, production persistence, import execution, or cutover, and it did not begin Pilot Readiness PR-5 or later slices.
 
 ## Phase and CI baseline
-Phase 2 Opportunity Execution Engine remains **locked**. The combined PR-3/PR-4 state at `9fe7cea` is verified by [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854): engineering harness, integration **129/129**, PostgreSQL 16.15 database **44/44**, managed Chromium **7/7**, and the production build passed. Fresh combined review found no P0, P1, or P3 findings; its only P2 was stale verification status corrected in the canonical records. This does not prove provisioned Auth0 AU/SMTP behavior or begin PR-5 and later product work.
+The existing Phase 2 Opportunity Execution Engine remains unchanged by the
+RevenueLeakCase foundation. Its combined PR-3/PR-4 state at `9fe7cea` is verified
+by [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854): engineering harness, integration **129/129**, PostgreSQL 16.15 database **44/44**, managed Chromium **7/7**, and the production build passed. Fresh combined review found no P0, P1, or P3 findings; its only P2 was stale verification status corrected in the canonical records. That historical CI run does not prove the later PR-5 or RevenueLeakCase changes, provisioned Auth0 AU, or SMTP behavior.
 
 ## Execution lifecycle
 `RECOMMENDED → PREPARED → APPROVED → EXECUTING → EXECUTED`, with `REJECTED`, `CANCELLED`, and recoverable `FAILED`. Server-side fingerprint checks supersede stale actions. Communication is deterministic email-draft preparation plus explicit manual confirmation, never external sending. Internal-task execution creates or reuses one linked open task and one linked activity.
@@ -100,15 +112,24 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - Deal/revenue intelligence remains deterministic and read-only.
 - External communication needs explicit human approval and confirmation; Phase 2 never sends it.
 - RevenueAction idempotency remains semantic and recovery-oriented. PostgreSQL mode encloses the closed loop in one tenant transaction; JSON mode remains the compatible non-transactional local default.
+- RevenueLeakCase evidence and terminal history remain immutable; unknown value
+  never becomes zero, potential value never becomes recovered revenue, and only
+  RevenueAction owns execution/effect semantics.
 - Tenant custom GUCs are trusted server-only transaction inputs, not API authorization; RLS does not replace PR-4 membership checks.
 - Legacy operational IDs remain text inside `(tenant_id, id)` keys; unknown commercial evidence and source ordinal/timestamps must survive cutover.
 - Developer `data/*.json` must never be touched by tests/E2E.
 
 ## Milestone status
 - Active plan: [**Pilot Readiness**](execution-plans/active/pilot-readiness.md).
+  The [**RevenueLeakCase foundation**](execution-plans/completed/revenue-leak-case-foundation.md)
+  is complete in its bounded Issue #8 slice.
 - Pilot Readiness **PR-0 is complete**: its architecture, operations, and harness consistency contracts are documented. This does **not** mean production infrastructure, authentication, authorization, tenancy, backups, imports, or deployment have been provisioned or implemented.
 - **PR-1 is complete**: it characterized legacy JSON compatibility, including deterministic fixtures, observable ordering/value semantics, RevenueAction lifecycle/effect links, and the migration manifest/handoff. It did not implement production persistence or tenancy.
 - **PR-2 is complete**: schema/security/migrations `001`–`004`, tests, and CI are present, and GitHub Actions run `33304131266` passed the full PostgreSQL 16.15 gate. This completion does not imply production repositories, Auth0 middleware, provisioning, import execution, or JSON cutover. Vendor decisions still gate provisioning and release.
 - **PR-3 and PR-4 are complete and merged through PR #16 at `b0a8e36`**: tenant-aware PostgreSQL repositories and transactional RevenueAction persistence consume the membership-derived auth boundary through a server-only trusted-context bridge. The underlying combined state at `9fe7cea` is verified by [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854), which passed the complete combined gate. Real Auth0 AU/SMTP acceptance remains deployment-gated; that combined PR-3/PR-4 verification did not cover the later PR-5 work summarized below.
 - **The Product Truth audit/fix work unit is complete through PR #17 at `5231838`**, and Issue #7 is closed. Its repository-backed UI corrections and managed Product Truth coverage do not establish external-provider, provisioning, import, or cutover evidence.
 - **PR-5A implements CSV contract, limits, immutable staging, and bounded preview; PR-5B implements draft mapping, validation, and Data Health analysis; PR-5C implements controlled atomic canonical commit and ID-map reconciliation; PR-5D implements the contract-mocked browser workflow and adversarial state coverage.** Raw-evidence retention/deletion acceptance is explicitly deferred to a separate reviewed follow-up; cutover and production provisioning remain unimplemented.
+- **Issue #8 RevenueLeakCase foundation implements the bounded domain,
+  JSON/PostgreSQL repositories, tenant-bound API, migration `012`, and focused
+  contract/database evidence for `STALLED_OPPORTUNITY`.** Detector execution,
+  browser recovery workflows, and attribution remain unimplemented.

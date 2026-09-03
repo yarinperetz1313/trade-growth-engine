@@ -14,7 +14,7 @@ The canonical architecture is the [foundation](../../architecture/PILOT_READINES
 | Area | Contract |
 | --- | --- |
 | Current product | Local JSON remains the local runtime/test persistence authority. Deterministic intelligence and manual RevenueAction approval are unchanged. |
-| Database foundation | PostgreSQL 16.15 uses append-only migrations. `001` remains 2,752 bytes with SHA-256 `d08f3b7e5c97e05a5ec7f96242543fbbf437d7af4edea34d22dc09db910cfc62`; PR-3 owns unchanged migrations `005`–`009`; PR-4 follows with `010_auth_membership_and_invitations.sql`; PR-5C appends `011_canonical_import_commit.sql`. |
+| Database foundation | PostgreSQL 16.15 uses append-only migrations. `001` remains 2,752 bytes with SHA-256 `d08f3b7e5c97e05a5ec7f96242543fbbf437d7af4edea34d22dc09db910cfc62`; PR-3 owns unchanged migrations `005`–`009`; PR-4 follows with `010_auth_membership_and_invitations.sql`; PR-5C appends `011_canonical_import_commit.sql`; the later approved Issue #8 foundation appends `012_revenue_leak_case_foundation.sql`. |
 | Identity | Auth0 AU, New Universal Login, passwordless email OTP, Authorization Code Flow with PKCE. No Classic Login, magic links, Auth0 Organizations invitations, or public signup. |
 | Authorization | TGE resolves exactly one active membership by `(issuer, subject)`, derives immutable `TenantContext`, and applies centralized OWNER/ADMIN/MEMBER policy. Client tenant, email, role, headers, query values, and JWT custom claims are never authority. |
 | Isolation | Server authorization, explicit tenant repository predicates, and forced PostgreSQL RLS remain separate required layers. Transaction-local GUCs are trusted server inputs only after membership resolution. |
@@ -68,7 +68,10 @@ No local mock or deterministic seam may be reported as real Auth0/SMTP proof.
 - [x] **PR-5B — draft mapping, validation, and Data Health analysis.**
 - [x] **PR-5C — controlled atomic canonical commit and ID-map reconciliation.**
 - [x] **PR-5D — contract-mocked browser upload, preview, mapping, Data Health, confirmation, commit, result, and adversarial state coverage.**
-- [ ] **PR-6–PR-7 — not started and outside this work unit. Raw-evidence retention/deletion acceptance is a separate reviewed follow-up.**
+- [ ] **Raw-evidence retention/deletion acceptance remains a separately reviewed
+  follow-up.** The earlier generic PR-6/PR-7 labels were planning placeholders,
+  not concrete unmerged code or dependencies, and are no longer used as roadmap
+  authority.
 
 ## Verification
 

@@ -41,6 +41,9 @@ const {
 const {
   calculateRevenueActionBasis
 } = require("../../src/revenueActions/revenueActionBasis");
+const {
+  buildRevenueLeakCaseDetection
+} = require("../../src/revenueLeakCases/revenueLeakCaseDomain");
 
 function registerPostgresRepositoryContractTests({
   test,
@@ -4043,6 +4046,292 @@ function registerPostgresRepositoryContractTests({
       maps: 0,
       audits: 0
     });
+  });
+
+  test("PostgreSQL RevenueLeakCase reconciliation is tenant-safe, immutable, and action-linked", async () => {
+    const pool = createPool({ max: 4 });
+    const repositories = createPostgresRepositories({ pool });
+    const tenantA = await createTenant("leak-case-a");
+    const tenantB = await createTenant("leak-case-b");
+    const opportunityId = "shared-stalled-opportunity";
+    for (const tenant of [tenantA, tenantB]) {
+      await repositories.opportunities.insert(tenant.context, {
+        id: opportunityId,
+        business_name: `Stalled ${tenant.tenantId}`,
+        stage: "PROPOSAL",
+        value: 0,
+        next_action: "Follow up on proposal",
+        contact_name: "Ava Wilson"
+      });
+    }
+
+    function detected({
+      id,
+      thresholdDays = 14,
+      detectedAt = "2026-09-02T01:00:00.000Z",
+      commercialValue = { classification: "UNKNOWN" },
+      subjectId = tenantA.context.subjectId
+    }) {
+      return buildRevenueLeakCaseDetection({
+        leak_type: "STALLED_OPPORTUNITY",
+        source: {
+          system: "TGE",
+          entity_type: "OPPORTUNITY",
+          entity_id: opportunityId,
+          observed_at: "2026-09-01T00:00:00.000Z",
+          observed_version: `opportunity-v${thresholdDays}`
+        },
+        detector: { id: "stalled-opportunity", version: "1" },
+        reason_code: "NO_MEANINGFUL_ACTIVITY",
+        evidence_classification: "OBSERVED",
+        evidence: {
+          threshold_days: thresholdDays,
+          last_meaningful_activity_at: "2026-08-01T00:00:00.000Z"
+        },
+        commercial_value: commercialValue,
+        recommended_action_type: "FOLLOW_UP",
+        supersession_condition: { kind: "CANONICAL_EVIDENCE_CHANGED" }
+      }, { id, detectedAt, subjectId });
+    }
+
+    const [first, replay] = await Promise.all([
+      repositories.revenueLeakCases.reconcile(
+        tenantA.context,
+        detected({ id: "leak-case-a-1" })
+      ),
+      repositories.revenueLeakCases.reconcile(
+        tenantA.context,
+        detected({ id: "leak-case-a-racing-duplicate" })
+      )
+    ]);
+    assert.deepEqual(
+      [first.created, replay.created].sort(),
+      [false, true]
+    );
+    assert.equal(first.record.id, replay.record.id);
+    assert.deepEqual(first.record.commercial_value, {
+      classification: "UNKNOWN",
+      amount: null,
+      currency: null
+    });
+
+    const original = first.record;
+    const changed = await repositories.revenueLeakCases.reconcile(
+      tenantA.context,
+      detected({
+        id: "leak-case-a-2",
+        thresholdDays: 21,
+        detectedAt: "2026-09-03T01:00:00.000Z",
+        commercialValue: {
+          classification: "KNOWN",
+          amount: "42000.500000",
+          currency: "AUD"
+        }
+      })
+    );
+    assert.equal(changed.created, true);
+    assert.equal(changed.superseded_case_id, original.id);
+    assert.equal(changed.record.supersedes_case_id, original.id);
+    assert.deepEqual(changed.record.commercial_value, {
+      classification: "KNOWN",
+      amount: "42000.5",
+      currency: "AUD"
+    });
+    const historical = await repositories.revenueLeakCases.findById(
+      tenantA.context,
+      original.id
+    );
+    assert.equal(historical.state, "SUPERSEDED");
+    assert.equal(historical.superseded_by_case_id, changed.record.id);
+    assert.deepEqual(historical.evidence_snapshot, original.evidence_snapshot);
+
+    assert.equal(
+      await repositories.revenueLeakCases.findById(tenantB.context, original.id),
+      null
+    );
+    assert.equal(
+      (await repositories.revenueLeakCases.list(tenantB.context)).length,
+      0
+    );
+
+    const action = (await repositories.revenueActions.materialize(
+      tenantA.context,
+      { id: "leak-case-action", opportunity_id: opportunityId }
+    )).record;
+    const linked = await repositories.revenueLeakCases.linkRevenueAction(
+      tenantA.context,
+      changed.record.id,
+      {
+        revenue_action_id: action.id,
+        at: "2026-09-03T02:00:00.000Z"
+      }
+    );
+    assert.equal(linked.record.revenue_action_id, action.id);
+    assert.equal(
+      linked.record.revenue_action_fingerprint,
+      action.basis_fingerprint
+    );
+    assert.equal(
+      (await repositories.revenueLeakCases.linkRevenueAction(
+        tenantA.context,
+        changed.record.id,
+        {
+          revenue_action_id: action.id,
+          at: "2026-09-03T03:00:00.000Z"
+        }
+      )).duplicate,
+      true
+    );
+
+    const snoozed = await repositories.revenueLeakCases.transition(
+      tenantA.context,
+      changed.record.id,
+      {
+        to: "SNOOZED",
+        reason: "Waiting for the scheduled meeting.",
+        wake_at: "2026-09-10T00:00:00.000Z",
+        at: "2026-09-03T04:00:00.000Z"
+      }
+    );
+    assert.equal(snoozed.record.state, "SNOOZED");
+    const dismissed = await repositories.revenueLeakCases.transition(
+      tenantA.context,
+      changed.record.id,
+      {
+        to: "DISMISSED",
+        reason: "Customer declined further follow-up.",
+        at: "2026-09-03T05:00:00.000Z"
+      }
+    );
+    assert.equal(dismissed.record.state, "DISMISSED");
+    await assert.rejects(
+      repositories.revenueLeakCases.transition(
+        tenantA.context,
+        changed.record.id,
+        {
+          to: "OPEN",
+          reason: "Attempt to rewrite terminal history.",
+          at: "2026-09-03T06:00:00.000Z"
+        }
+      ),
+      error => error.code === "REVENUE_LEAK_CASE_TRANSITION_INVALID"
+    );
+
+    const next = await repositories.revenueLeakCases.reconcile(
+      tenantA.context,
+      detected({
+        id: "leak-case-a-3",
+        thresholdDays: 28,
+        detectedAt: "2026-09-04T01:00:00.000Z"
+      })
+    );
+    const tenantBAction = (await repositories.revenueActions.materialize(
+      tenantB.context,
+      { id: "tenant-b-leak-action", opportunity_id: opportunityId }
+    )).record;
+    await assert.rejects(
+      repositories.revenueLeakCases.linkRevenueAction(
+        tenantA.context,
+        next.record.id,
+        {
+          revenue_action_id: tenantBAction.id,
+          at: "2026-09-04T02:00:00.000Z"
+        }
+      ),
+      error => error.code === "REVENUE_ACTION_UNAVAILABLE"
+    );
+
+    const runtime = await pool.connect();
+    try {
+      await runtime.query("begin");
+      await runtime.query("select tge.set_request_context($1, $2)", [
+        tenantA.tenantId,
+        tenantA.context.subjectId
+      ]);
+      await assert.rejects(
+        runtime.query(
+          `update tge.revenue_leak_cases
+           set evidence_snapshot = '{"facts":{"rewritten":true}}'::jsonb
+           where tenant_id = $1 and id = $2`,
+          [tenantA.tenantId, original.id]
+        ),
+        error =>
+          error.code === "23514"
+          && /detection evidence is immutable/.test(error.message)
+      );
+      await runtime.query("rollback");
+
+      await runtime.query("begin");
+      await runtime.query("select tge.set_request_context($1, $2)", [
+        tenantA.tenantId,
+        tenantA.context.subjectId
+      ]);
+      await assert.rejects(
+        runtime.query(
+          `update tge.revenue_leak_cases
+           set state = 'DISMISSED',
+             dismissed_at = $3::timestamptz,
+             dismissal_reason = null,
+             updated_at = $3::timestamptz,
+             audit = audit || jsonb_build_array(jsonb_build_object(
+               'transition', 'DISMISSED',
+               'at', ($3::timestamptz)::text,
+               'subject_id', $4::text
+             ))
+           where tenant_id = $1 and id = $2`,
+          [
+            tenantA.tenantId,
+            next.record.id,
+            "2026-09-04T02:30:00.000Z",
+            tenantA.context.subjectId
+          ]
+        ),
+        error =>
+          error.code === "23514"
+          && /dismissal evidence is incoherent/.test(error.message)
+      );
+      await runtime.query("rollback");
+
+      await runtime.query("begin");
+      await runtime.query("select tge.set_request_context($1, $2)", [
+        tenantA.tenantId,
+        tenantA.context.subjectId
+      ]);
+      await assert.rejects(
+        runtime.query(
+          `update tge.revenue_leak_cases
+           set revenue_action_id = $3,
+             revenue_action_fingerprint = $4,
+             revenue_action_status_at_link = $5,
+             revenue_action_linked_at = $6::timestamptz,
+             updated_at = $6::timestamptz,
+             audit = audit || jsonb_build_array(jsonb_build_object(
+               'transition', 'REVENUE_ACTION_LINKED',
+               'at', ($6::timestamptz)::text,
+               'subject_id', $7::text,
+               'revenue_action_id', $3::text,
+               'revenue_action_fingerprint', $4::text,
+               'revenue_action_status', $5::text
+             ))
+           where tenant_id = $1 and id = $2`,
+          [
+            tenantA.tenantId,
+            next.record.id,
+            action.id,
+            "f".repeat(64),
+            action.status,
+            "2026-09-04T03:00:00.000Z",
+            tenantA.context.subjectId
+          ]
+        ),
+        error =>
+          error.code === "23514"
+          && /action linkage is incoherent/.test(error.message)
+      );
+      await runtime.query("rollback");
+    } finally {
+      runtime.release();
+    }
   });
 
   async function stageCsvBatch(

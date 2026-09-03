@@ -46,3 +46,11 @@ These constraints protect structural ownership; they do not decide whether a lif
 - `POST /api/revenue-actions/:id/{prepare,approve,reject,cancel,execute}`
 
 Successful transitions return the action plus refreshed opportunity intelligence, pipeline metrics, and revenue intelligence. Revenue-action routes use stable structured errors for invalid JSON/body, not found, invalid transitions, conflicting linked effects, stale actions, closed opportunities, and persistence unavailability.
+
+## RevenueLeakCase linkage
+
+A RevenueLeakCase may snapshot-link one existing same-tenant/same-opportunity
+RevenueAction ID, basis fingerprint, and status at link time. The case never
+changes RevenueAction preparation, approval, execution, effect reconciliation,
+or outcome semantics. RevenueAction remains the sole execution boundary; case
+linkage is optional, immutable, and idempotent.

@@ -1,4 +1,7 @@
 const localStore = require("../services/localStore");
+const {
+  createJsonRevenueLeakCaseRepository
+} = require("../revenueLeakCases/jsonRevenueLeakCaseRepository");
 
 function createJsonRepositories({ store = localStore } = {}) {
   const collection = (name, { immutable = false, order, filters = {} } = {}) => ({
@@ -52,7 +55,8 @@ function createJsonRepositories({ store = localStore } = {}) {
       filters: { opportunityId: "opportunity_id", status: "status" },
       order: (left, right) =>
         String(right.created_at).localeCompare(String(left.created_at))
-    })
+    }),
+    revenueLeakCases: createJsonRevenueLeakCaseRepository({ store })
   };
 }
 

@@ -261,6 +261,7 @@ export function seedE2eStore(storeDir) {
 
   writeCollection(storeDir, "tasks", []);
   writeCollection(storeDir, "revenue_actions", []);
+  writeCollection(storeDir, "revenue_leak_cases", []);
 }
 
 export function cleanupPlaywrightStore(config) {

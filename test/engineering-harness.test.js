@@ -150,6 +150,11 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
       relativePath: "database/migrations/011_canonical_import_commit.sql",
       expected: "create function tge.finalize_import_commit",
       error: /Migration 011 must provide narrow canonical import finalization/
+    },
+    {
+      relativePath: "database/migrations/012_revenue_leak_case_foundation.sql",
+      expected: "RevenueLeakCase detection evidence is immutable.",
+      error: /Migration 012 must protect immutable RevenueLeakCase evidence/
     }
   ];
 
