@@ -105,6 +105,15 @@ one tenant transaction; JSON fails closed for non-local tenants. The slice adds 
 migration, scheduler, import hook, UI, RevenueAction execution, recovery claim, or
 attribution.
 
+The first credible revenue-leak UX consumes those existing APIs in the Opportunity
+Command Center. An authenticated user explicitly runs the detector, sees all five
+outcomes and their stable reasons, reviews immutable why-now/source evidence and
+potential revenue at risk, reloads durable OPEN/SNOOZED/DISMISSED/SUPERSEDED
+history, and supplies audited human reasons for permitted transitions. The panel
+can snapshot-link one existing same-opportunity RevenueAction and points to the
+existing execution workflow; it does not prepare, approve, execute, send, recover,
+or attribute anything. No server/domain/persistence contract or migration changes.
+
 Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 
 The Product Truth audit/fix work unit is complete: [PR #17](https://github.com/yarinperetz1313/trade-growth-engine/pull/17) merged at `5231838` and closed [Issue #7](https://github.com/yarinperetz1313/trade-growth-engine/issues/7). This did not provision Auth0, SMTP, production persistence, import execution, or cutover, and it did not begin Pilot Readiness PR-5 or later slices.
@@ -150,6 +159,7 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - **Issue #8 RevenueLeakCase foundation implements the bounded domain,
   JSON/PostgreSQL repositories, tenant-bound API, migration `012`, and focused
   contract/database evidence for `STALLED_OPPORTUNITY`. The current follow-on
-  slice implements explicit deterministic detector execution and case
-  reconciliation without another migration.** Scheduling, browser recovery
-  workflows, and attribution remain unimplemented.
+  slices implement explicit deterministic detector execution, case reconciliation,
+  and the authorized-user Opportunity Command Center review/lifecycle UI without
+  another migration.** Scheduling, autonomous recovery, additional leak types, and
+  attribution remain unimplemented.

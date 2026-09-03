@@ -8,9 +8,10 @@ opportunity, task, prediction, message, recovered-revenue claim, or replacement
 for `RevenueAction`.
 
 This boundary supports only `STALLED_OPPORTUNITY`. It includes one explicit,
-per-opportunity detector invocation and the existing reconciliation contract.
-It does not schedule detection, hook detection to imports, add a browser surface,
-recover a quote, or calculate attribution.
+per-opportunity detector invocation, the existing reconciliation contract, and
+an explicit browser consumer in the Opportunity Command Center. It does not
+schedule detection, hook detection to imports, recover a quote, or calculate
+attribution.
 
 ## Detection contract
 
@@ -166,6 +167,22 @@ only the fixed server-created local tenant context. Existing tenantless local CR
 collections are unchanged; local JSON remains single-process and
 non-transactional, while reconciliation writes its case-history changes in one
 collection replacement.
+
+## Browser experience
+
+The Opportunity Command Center is the authorized-user surface for one explicit
+stalled-opportunity check and API-backed case history. It keeps all five detector
+outcomes distinct, explains the stable reason code, and shows only the immutable
+why-now facts, source observation/version, and commercial classification returned
+by this contract. Known positive, known zero, unknown, and not-applicable values
+are labelled as potential revenue at risk; none is a recovery claim.
+
+The browser offers snooze, resume, and dismiss only for server-permitted states,
+requires a human reason, and supplies a future wake time for snooze. It can link
+one existing same-opportunity RevenueAction and navigate to the existing execution
+panel, but it does not materialize, prepare, approve, or execute an action from the
+case lifecycle. Refresh and hash-route revisit reload durable case history through
+the API rather than browser storage.
 
 ## API
 

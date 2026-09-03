@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import RevenueLeakCasePanel from "./RevenueLeakCasePanel.jsx";
 import {
   createRevenueAction,
   getOpportunityRevenueActions,
@@ -652,9 +653,16 @@ export default function OpportunityCommandCenter({
         </div>
       </section>
 
+      <RevenueLeakCasePanel
+        opportunityId={currentOpportunity.id}
+        revenueActions={revenueActions}
+      />
+
       <section
         className="oc-panel oc-execution-panel"
         data-testid="revenue-action-execution"
+        id="revenue-action-workflow"
+        tabIndex="-1"
       >
         <div className="oc-card-label">
           OPPORTUNITY EXECUTION

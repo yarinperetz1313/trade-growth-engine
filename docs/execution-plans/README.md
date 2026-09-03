@@ -9,6 +9,7 @@
 - [`completed/pr-5b-import-mapping.md`](completed/pr-5b-import-mapping.md)
 - [`completed/pr-5c-canonical-import-commit.md`](completed/pr-5c-canonical-import-commit.md)
 - [`completed/pr-5d-browser-import.md`](completed/pr-5d-browser-import.md)
+- [`completed/first-credible-revenue-leak-ux.md`](completed/first-credible-revenue-leak-ux.md) — **Issue #8 browser slice adds explicit detector review, durable case lifecycle/history, and bounded existing-RevenueAction linkage without server or persistence changes.**
 - [`completed/revenue-leak-case-foundation.md`](completed/revenue-leak-case-foundation.md) — **Issue #8 foundation is complete; its historical scope excluded the later detector/UI/recovery/attribution consumers.**
 - [`completed/stalled-opportunity-detector.md`](completed/stalled-opportunity-detector.md) — **Issue #8 follow-on implements the versioned detector and tenant-safe reconciliation without scheduling, UI, execution, or attribution.**
 

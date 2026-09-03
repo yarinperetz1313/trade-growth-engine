@@ -121,6 +121,8 @@ export function writeCollection(storeDir, name, data) {
 
 export function seedE2eStore(storeDir) {
   const now = new Date().toISOString();
+  const stalledCreatedAt = new Date(Date.now() - 30 * 86400000).toISOString();
+  const stalledActivityAt = new Date(Date.now() - 21 * 86400000).toISOString();
 
   writeCollection(storeDir, "prospects", [
     {
@@ -208,6 +210,23 @@ export function seedE2eStore(storeDir) {
       probability: 0.75,
       weighted_value: 27000,
       next_action: "Follow up on proposal"
+    },
+    {
+      id: "e2e-opp-stalled",
+      created_at: stalledCreatedAt,
+      updated_at: now,
+      business_name: "E2E Stalled Roofing",
+      contact_name: "Alex Morgan",
+      service: "Commercial Roofing",
+      location: "Melbourne",
+      stage: "PROPOSAL",
+      priority: "HIGH",
+      qualification_score: 82,
+      value: "0.000000",
+      currency: "AUD",
+      probability: 0.75,
+      weighted_value: 0,
+      next_action: ""
     }
   ]);
 
@@ -253,6 +272,17 @@ export function seedE2eStore(storeDir) {
       opportunity_id: "e2e-opp-execution-failure",
       type: "OPPORTUNITY_CREATED",
       description: "Seeded independent failure-path opportunity",
+      metadata: {
+        source: "e2e-seed"
+      }
+    },
+    {
+      id: "e2e-stalled-activity",
+      created_at: stalledActivityAt,
+      updated_at: stalledActivityAt,
+      opportunity_id: "e2e-opp-stalled",
+      type: "FOLLOW_UP_RECORDED",
+      description: "Seeded stale opportunity activity",
       metadata: {
         source: "e2e-seed"
       }
