@@ -152,10 +152,10 @@ function createTenantService(
       lockSource ? { lock: true } : undefined
     );
     if (!opportunity) return sourceUnavailable();
-    const [activities, tasks] = await Promise.all([
-      scoped.activities.list({ opportunityId }),
-      scoped.tasks.list({ opportunityId })
-    ]);
+    // PostgreSQL transaction repositories share one checked-out client, so keep
+    // these reads ordered instead of issuing concurrent queries on that client.
+    const activities = await scoped.activities.list({ opportunityId });
+    const tasks = await scoped.tasks.list({ opportunityId });
     const evaluation = evaluateStalledOpportunity({
       opportunity,
       activities,

@@ -160,38 +160,6 @@ function evaluateStalledOpportunity({
     return outcome(OUTCOMES.STALE_SOURCE, "CANONICAL_SOURCE_TOO_OLD");
   }
 
-  const sourceBasis = {
-    opportunity: {
-      id: opportunityId,
-      stage: stage.value,
-      next_action: nextAction.opportunity_value,
-      commercial_value: commercial.value,
-      created_at: opportunityTimestamps.created_at,
-      updated_at: opportunityTimestamps.updated_at
-    },
-    activities: normalizedActivities.records.map(record => ({
-      id: record.id,
-      type: record.type,
-      created_at: record.created_at,
-      updated_at: record.updated_at
-    })),
-    tasks: normalizedTasks.records.map(record => ({
-      id: record.id,
-      title: record.title,
-      status: record.status,
-      due_at: record.due_at,
-      completed_at: record.completed_at,
-      created_at: record.created_at,
-      updated_at: record.updated_at
-    }))
-  };
-  const source = deepFreeze({
-    system: "TGE",
-    entity_type: "OPPORTUNITY",
-    entity_id: opportunityId,
-    observed_at: sourceObservedAt,
-    observed_version: `sha256:${fingerprint(sourceBasis)}`
-  });
   const stalledSince = new Date(
     Date.parse(baseline.at) + STALE_AFTER_DAYS * DAY_MS
   ).toISOString();
@@ -217,6 +185,22 @@ function evaluateStalledOpportunity({
       maximum_age_days: SOURCE_FRESHNESS_DAYS
     },
     commercial_value_basis: commercial.basis
+  });
+  const sourceBasis = {
+    entity_id: opportunityId,
+    opportunity_stage: evidence.opportunity_stage,
+    activity_baseline: evidence.activity_baseline,
+    next_action: evidence.next_action,
+    source_observed_at: evidence.source_freshness.observed_at,
+    commercial_value: commercial.value,
+    commercial_value_basis: evidence.commercial_value_basis
+  };
+  const source = deepFreeze({
+    system: "TGE",
+    entity_type: "OPPORTUNITY",
+    entity_id: opportunityId,
+    observed_at: sourceObservedAt,
+    observed_version: `sha256:${fingerprint(sourceBasis)}`
   });
   const common = {
     detector: DETECTOR,

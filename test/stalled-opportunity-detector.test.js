@@ -312,6 +312,7 @@ test("identical canonical evidence has a stable version independent of collectio
     opportunity_id: "opp-stalled",
     title: "Old action",
     status: "CANCELLED",
+    due_at: atOffset(25),
     created_at: atOffset(40),
     updated_at: atOffset(20)
   }];
@@ -326,6 +327,22 @@ test("identical canonical evidence has a stable version independent of collectio
   assert.equal(reorderedLater.outcome, "ELIGIBLE_LEAK_DETECTED");
   assert.equal(first.source.observed_version, reorderedLater.source.observed_version);
   assert.deepEqual(first.detection, reorderedLater.detection);
+
+  const irrelevantHistoryEdit = evaluate({
+    activities: activities.map(record => record.id === "activity-old"
+      ? { ...record, type: "NOTE" }
+      : record),
+    tasks: [{
+      ...tasks[0],
+      title: "Renamed cancelled action",
+      due_at: atOffset(24)
+    }]
+  });
+  assert.equal(
+    first.source.observed_version,
+    irrelevantHistoryEdit.source.observed_version
+  );
+  assert.deepEqual(first.detection, irrelevantHistoryEdit.detection);
 });
 
 function createMemoryStore(seed) {
