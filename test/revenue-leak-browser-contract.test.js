@@ -63,6 +63,40 @@ const ALL_REASON_CODES = [
   "COMMERCIAL_CURRENCY_INVALID"
 ];
 
+function detectorEvidence(overrides = {}) {
+  return {
+    criteria: {
+      stale_after_days: 14,
+      stale_boundary: "AT_OR_AFTER",
+      source_freshness_days: 90,
+      source_freshness_boundary: "AT_OR_BEFORE"
+    },
+    opportunity_stage: "PROPOSAL",
+    activity_baseline: {
+      kind: "ACTIVITY",
+      entity_id: "activity-1",
+      at: "2026-08-01T00:00:00.000Z"
+    },
+    stalled_since: "2026-08-15T00:00:00.000Z",
+    next_action: {
+      present: true,
+      source: "OPPORTUNITY",
+      opportunity_value: "Call buyer",
+      active_task_ids: []
+    },
+    source_freshness: {
+      observed_at: "2026-09-01T00:00:00.000Z",
+      maximum_age_days: 90
+    },
+    commercial_value_basis: {
+      classification: "KNOWN",
+      amount_source: "opportunity.value",
+      currency_source: "opportunity.currency"
+    },
+    ...overrides
+  };
+}
+
 test("browser contract keeps all five detector outcomes and closed reasons distinct", async () => {
   const {
     detectorOutcomePresentation,
@@ -213,7 +247,14 @@ test("browser response contracts fail closed instead of turning malformed succes
         observed_at: "2026-09-01T00:00:00.000Z",
         observed_version: "sha256:evidence"
       },
-      facts: { opportunity_stage: "PROPOSAL" }
+      facts: detectorEvidence({
+        next_action: {
+          present: false,
+          source: "NONE",
+          opportunity_value: null,
+          active_task_ids: []
+        }
+      })
     },
     commercial_value: {
       classification: "KNOWN",
@@ -280,11 +321,11 @@ test("browser response contracts fail closed instead of turning malformed succes
       observed_at: "2026-09-01T00:00:00.000Z",
       observed_version: "sha256:evidence"
     },
-    evidence: { opportunity_stage: "PROPOSAL" },
+    evidence: detectorEvidence(),
     commercial_value: {
-      classification: "UNKNOWN",
-      amount: null,
-      currency: null
+      classification: "KNOWN",
+      amount: "0",
+      currency: "AUD"
     },
     case: null,
     reconciliation: null
@@ -293,14 +334,96 @@ test("browser response contracts fail closed instead of turning malformed succes
     unwrapStalledOpportunityDetectionResponse(detectorBase, "opp-1"),
     detectorBase
   );
+  const detectedResponse = {
+    ...detectorBase,
+    outcome: "ELIGIBLE_LEAK_DETECTED",
+    reason_code: "STALE_WITHOUT_NEXT_ACTION",
+    evidence: validCase.evidence_snapshot.facts,
+    case: validCase,
+    reconciliation: {
+      created: true,
+      duplicate: false,
+      superseded_case_id: null
+    }
+  };
+  assert.equal(
+    unwrapStalledOpportunityDetectionResponse(detectedResponse, "opp-1"),
+    detectedResponse
+  );
   for (const malformed of [
     { ...detectorBase, reason_code: "COMMERCIAL_VALUE_INVALID" },
     { ...detectorBase, outcome: "ELIGIBLE_LEAK_DETECTED" },
     { ...detectorBase, detector: { id: "caller-detector", version: "1" } },
-    { ...detectorBase, source: { ...detectorBase.source, entity_id: "other" } }
+    { ...detectorBase, source: { ...detectorBase.source, entity_id: "other" } },
+    { ...detectorBase, source: { ...detectorBase.source, observed_at: "not-a-time" } },
+    { ...detectorBase, source: { ...detectorBase.source, observed_version: "" } },
+    {
+      ...detectorBase,
+      evidence: detectorEvidence({
+        next_action: {
+          present: "false",
+          source: "OPPORTUNITY",
+          opportunity_value: "Call buyer",
+          active_task_ids: []
+        }
+      })
+    },
+    {
+      ...detectorBase,
+      evidence: detectorEvidence({
+        next_action: {
+          present: true,
+          source: 7,
+          opportunity_value: "Call buyer",
+          active_task_ids: []
+        }
+      })
+    },
+    {
+      ...detectorBase,
+      evidence: detectorEvidence({
+        next_action: {
+          present: true,
+          source: "OPPORTUNITY",
+          opportunity_value: "Call buyer",
+          active_task_ids: "task-1"
+        }
+      })
+    },
+    {
+      ...detectedResponse,
+      reconciliation: { created: "true", duplicate: false, superseded_case_id: null }
+    }
   ]) {
     assert.throws(
       () => unwrapStalledOpportunityDetectionResponse(malformed, "opp-1"),
+      error => error?.code === "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
+    );
+  }
+
+  for (const facts of [
+    {},
+    detectorEvidence({ stalled_since: "not-a-time" }),
+    detectorEvidence({
+      source_freshness: {
+        observed_at: "2026-08-31T00:00:00.000Z",
+        maximum_age_days: 90
+      }
+    })
+  ]) {
+    const malformedCase = {
+      ...validCase,
+      evidence_snapshot: {
+        ...validCase.evidence_snapshot,
+        facts
+      }
+    };
+    assert.throws(
+      () => unwrapRevenueLeakCaseListResponse({
+        ok: true,
+        data: [malformedCase],
+        count: 1
+      }, "opp-1"),
       error => error?.code === "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
     );
   }

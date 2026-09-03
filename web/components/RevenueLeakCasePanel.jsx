@@ -69,6 +69,9 @@ function EvidenceDetails({ source, evidence, evidenceClassification, evidenceSta
   const freshness = evidence.source_freshness;
   const criteria = evidence.criteria;
   const commercialBasis = evidence.commercial_value_basis;
+  const activeTaskIds = Array.isArray(nextAction?.active_task_ids)
+    ? nextAction.active_task_ids
+    : [];
 
   return (
     <div className="rlc-evidence" data-testid="revenue-leak-evidence">
@@ -96,12 +99,14 @@ function EvidenceDetails({ source, evidence, evidenceClassification, evidenceSta
         <span>Next action evidence</span>
         <strong>
           {nextAction
-            ? `${nextAction.present ? "Present" : "Absent"} · ${nextAction.source}`
+            ? `${nextAction.present === true ? "Present" : "Absent"} · ${nextAction.source}`
             : "Not recorded"}
         </strong>
-        {nextAction?.opportunity_value && <small>{nextAction.opportunity_value}</small>}
-        {nextAction?.active_task_ids?.length > 0 && (
-          <small>Active tasks: {nextAction.active_task_ids.join(", ")}</small>
+        {typeof nextAction?.opportunity_value === "string" && (
+          <small>{nextAction.opportunity_value}</small>
+        )}
+        {activeTaskIds.length > 0 && (
+          <small>Active tasks: {activeTaskIds.join(", ")}</small>
         )}
       </div>
       <div>
@@ -238,7 +243,8 @@ export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [
   );
   const activeRevenueAction = [...revenueActions]
     .filter(action =>
-      ["RECOMMENDED", "PREPARED", "APPROVED", "EXECUTING", "FAILED"].includes(action.status)
+      action.opportunity_id === opportunityId
+      && ["RECOMMENDED", "PREPARED", "APPROVED", "EXECUTING", "FAILED"].includes(action.status)
     )
     .sort((left, right) =>
       String(right.updated_at || right.created_at || "").localeCompare(

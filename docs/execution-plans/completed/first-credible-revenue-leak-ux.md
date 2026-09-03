@@ -56,6 +56,33 @@
 | Managed browser | `npm run test:e2e -- --grep "revenue leak"`; `npm run verify:browser` | Final focused run 5/5 passed. Full managed browser gate passed harness plus 37/37 tests. It covers real API-backed detection/link/transitions/reload, five outcomes, failure classes, terminal history/value classes, stale-response rejection, hash navigation, and 390px viewport fit. |
 | Near checkpoint | `npm run verify:fast`; `npm run build`; `git diff --check` | Harness plus 271/271 integration tests passed outside the restricted sandbox; Vite 8.2.2 built 30 modules; diff whitespace check passed. Full `npm run verify` remained coordinator-owned and was not run. |
 
+### Independent-review remediation checkpoint
+
+- Red P1 evidence: `node --test test/revenue-leak-browser-contract.test.js`
+  passed 5/6 and failed the malformed-success regression with
+  `ERR_ASSERTION: Missing expected exception` at the newly added nested-evidence
+  assertion. The browser contract now validates the complete version-1 evidence
+  shape for successful detector results and persisted case facts, including
+  canonical timestamps and their relationships, non-empty versions, exact
+  thresholds, stage/reason semantics, boolean next-action presence, source/value
+  consistency, sorted task-id arrays, and commercial-basis shapes.
+- Red P2 evidence: managed
+  `npm run test:e2e -- --grep "delayed RevenueAction history"` passed 0/1;
+  after changing the hash route, the old response rendered
+  `STALE ACTION MUST NOT RENDER` twice (`Expected: 0`, `Received: 2`). RevenueAction
+  list state is now cleared and guarded by opportunity, request, and generation;
+  both Command Center selection and case-panel linkage independently require the
+  current `opportunity_id`.
+- Remediation green evidence: focused browser contracts passed 6/6; the affected
+  detector, RevenueLeakCase API, RevenueAction API, and managed-store selection
+  passed 44/44; focused managed revenue-leak/stale-action E2E passed 6/6;
+  `npm run verify:fast` passed the harness and 271/271 integration tests;
+  Vite 8.2.2 built 30 modules; `git diff --check` passed. The first affected-test
+  attempt inside the restricted sandbox produced `listen EPERM` for listener-based
+  tests; the identical approved run passed 44/44. No full browser or database suite
+  was rerun because the bounded browser/client remediation did not justify those
+  coordinator-owned gates.
+
 The first sandboxed browser/fast-gate attempts failed because the managed sandbox
 denied localhost listeners (and one temporary Git-index fixture). The same commands
 passed under the approved execution profile. One focused browser rerun exposed a
@@ -77,6 +104,11 @@ while a transition reconciles, and the final focused run passed 5/5.
   empty state, stale prior evaluation after a failed recheck, variable audit-grid
   placement, and lifecycle-input settling during consecutive transitions. No open
   P0-P3 finding remains.
+- Independent reviewer BLOCK resolution: the shallow nested-evidence acceptance
+  and cross-opportunity late RevenueAction list application now have red-first
+  regressions and bounded fixes. Remediation self-review covered
+  `origin/main...HEAD`; no open P0-P3 finding remains and no server, domain,
+  persistence, schema, migration, scheduler, or import file changed.
 - Final-review evidence: branch/base preflight matched `3173d4bad1541ed83dce60f33cc636ec490f2640`;
   no server/domain/persistence/migration file or unrelated product surface changed;
   managed browser, integration, build, and diff-hygiene evidence is green.

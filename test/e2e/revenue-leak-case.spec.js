@@ -66,6 +66,19 @@ function leakCase({
         : {})
     });
   }
+  const commercialValueBasis = commercialValue.classification === "KNOWN"
+    ? {
+        classification: "KNOWN",
+        amount_source: "opportunity.value",
+        currency_source: "opportunity.currency"
+      }
+    : commercialValue.classification === "UNKNOWN"
+      ? {
+          classification: "UNKNOWN",
+          reason: "VALUE_UNKNOWN",
+          currency_present: false
+        }
+      : { classification: "NOT_APPLICABLE" };
   return {
     id,
     leak_type: "STALLED_OPPORTUNITY",
@@ -86,7 +99,10 @@ function leakCase({
         observed_at: source.observed_at,
         observed_version: source.observed_version
       },
-      facts: evidence
+      facts: {
+        ...evidence,
+        commercial_value_basis: commercialValueBasis
+      }
     },
     commercial_value: commercialValue,
     recommended_action_type: "FOLLOW_UP",
@@ -421,5 +437,50 @@ test("revenue leak panel ignores stale history responses and fits a mobile viewp
     body: document.body.scrollWidth,
     viewport: document.documentElement.clientWidth
   }))).toEqual({ body: 390, viewport: 390 });
+  await expect(page).toHaveURL(/#opportunities\/e2e-opp-revenue$/);
+});
+
+test("delayed RevenueAction history cannot cross an opportunity route change", async ({ page }) => {
+  await page.route(`${apiBaseUrl}/api/revenue-actions?*`, async route => {
+    const opportunityId = new URL(route.request().url()).searchParams.get("opportunity_id");
+    if (opportunityId === "e2e-opp-command") {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      return route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          data: [{
+            id: "stale-action-must-not-render",
+            opportunity_id: "e2e-opp-command",
+            status: "PREPARED",
+            title: "STALE ACTION MUST NOT RENDER",
+            action_type: "FOLLOW_UP",
+            priority: "HIGH",
+            reason: "Delayed response from the previous opportunity",
+            created_at: "2026-09-01T00:00:00.000Z",
+            updated_at: "2026-09-01T00:00:00.000Z"
+          }],
+          count: 1
+        })
+      });
+    }
+    return route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, data: [], count: 0 })
+    });
+  });
+
+  await page.goto("/#opportunities/e2e-opp-command");
+  await expect(page.getByRole("heading", { name: "E2E Command Plumbing" })).toBeVisible();
+  await page.evaluate(() => {
+    window.location.hash = "opportunities/e2e-opp-revenue";
+  });
+  await expect(page.getByRole("heading", { name: "E2E Revenue Electrical" })).toBeVisible();
+  await expect(page.getByTestId("revenue-action-history")).toContainText(
+    "No durable revenue actions recorded."
+  );
+  await page.waitForTimeout(550);
+  await expect(page.getByText("STALE ACTION MUST NOT RENDER")).toHaveCount(0);
+  await expect(page.getByTestId("link-revenue-action-to-case")).toHaveCount(0);
   await expect(page).toHaveURL(/#opportunities\/e2e-opp-revenue$/);
 });

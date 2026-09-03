@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import RevenueLeakCasePanel from "./RevenueLeakCasePanel.jsx";
 import {
   createRevenueAction,
@@ -142,13 +142,36 @@ export default function OpportunityCommandCenter({
   const [executionMessage, setExecutionMessage] =
     useState(null);
 
-  async function loadRevenueActions() {
+  const revenueActionOpportunityId = useRef(opportunity.id);
+  const revenueActionGeneration = useRef(0);
+  const revenueActionRequest = useRef(0);
+  revenueActionOpportunityId.current = opportunity.id;
+
+  async function loadRevenueActions(
+    targetOpportunityId = opportunity.id,
+    generation = revenueActionGeneration.current
+  ) {
+    const requestId = ++revenueActionRequest.current;
     try {
       const result = await getOpportunityRevenueActions(
-        opportunity.id
+        targetOpportunityId
       );
-      setRevenueActions(result.data || []);
+      if (
+        generation !== revenueActionGeneration.current
+        || requestId !== revenueActionRequest.current
+        || targetOpportunityId !== revenueActionOpportunityId.current
+      ) return;
+      setRevenueActions(
+        Array.isArray(result.data)
+          ? result.data.filter(action => action?.opportunity_id === targetOpportunityId)
+          : []
+      );
     } catch (err) {
+      if (
+        generation !== revenueActionGeneration.current
+        || requestId !== revenueActionRequest.current
+        || targetOpportunityId !== revenueActionOpportunityId.current
+      ) return;
       setExecutionError(
         err.message || "Unable to load execution history."
       );
@@ -185,8 +208,17 @@ export default function OpportunityCommandCenter({
   }
 
   useEffect(() => {
+    const revenueActionLoadGeneration = ++revenueActionGeneration.current;
+    setRevenueActions([]);
+    setExecutionLoading(null);
+    setExecutionError(null);
+    setExecutionMessage(null);
     loadIntelligence();
-    loadRevenueActions();
+    loadRevenueActions(opportunity.id, revenueActionLoadGeneration);
+    return () => {
+      revenueActionGeneration.current += 1;
+      revenueActionRequest.current += 1;
+    };
   }, [opportunity.id]);
 
   const intelligence =
@@ -238,7 +270,10 @@ export default function OpportunityCommandCenter({
     70;
 
   const activeRevenueAction = revenueActions
-    .filter(action => ACTIVE_REVENUE_ACTION_STATUSES.has(action.status))
+    .filter(action =>
+      action.opportunity_id === opportunity.id
+      && ACTIVE_REVENUE_ACTION_STATUSES.has(action.status)
+    )
     .sort((left, right) =>
       String(right.updated_at || right.created_at || "").localeCompare(
         String(left.updated_at || left.created_at || "")
