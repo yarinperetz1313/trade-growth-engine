@@ -1,6 +1,6 @@
 # Project State
 
-_Last locally audited on 2026-09-02. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+_Last locally audited on 2026-09-03. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
 ## Current verified shape
 Trade Growth Engine is a Vite React + Express local-first CRM. `src/index.js` starts the server, `src/api/` exposes thin structured HTTP boundaries, and `web/main.jsx` provides hash-routed UI. Local JSON persistence flows through `src/services/localStore.js`; tests and E2E use isolated stores. The [Legacy JSON Compatibility Contract](architecture/LEGACY_JSON_COMPATIBILITY.md) and deterministic fixtures characterize that adapter for the future persistence cutover.
@@ -89,7 +89,21 @@ commercial semantics, reconcile one active tenant/source/detector series
 deterministically, preserve superseded/terminal audit history, and may snapshot-
 link one same-opportunity RevenueAction without changing its lifecycle or
 effects. No detector, schedule, post-import hook, browser UI, Quote Recovery,
-outcome ledger, recovered-revenue calculation, or attribution exists.
+outcome ledger, recovered-revenue calculation, or attribution exists in that
+foundation checkpoint.
+
+The completed bounded Issue #8 follow-on adds detector `stalled-opportunity` version `1`
+and an explicit per-opportunity API seam. It produces five distinct outcomes and
+creates a case only when a recognized active-stage opportunity is at least 14
+exact elapsed days beyond its canonical activity/creation baseline, has no
+meaningful opportunity next action or active task, and has canonical source
+evidence no more than 90 exact elapsed days old. Missing evidence, stale/future
+source observations, and Data Health suppressions remain non-case outcomes.
+Known value—including zero—requires a lossless amount and authoritative currency;
+valid missing value/currency remains unknown. PostgreSQL loads and reconciles under
+one tenant transaction; JSON fails closed for non-local tenants. The slice adds no
+migration, scheduler, import hook, UI, RevenueAction execution, recovery claim, or
+attribution.
 
 Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 
@@ -107,7 +121,10 @@ by [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/tr
 Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification levels and evidence. `npm run verify` is the full harness, integration, real-database, managed-E2E, and production-build gate; report only commands actually executed and their outcomes.
 
 ## Do not break
-- Unknown evidence stays unknown; unknown/zero commercial value is not known `$0`.
+- Unknown evidence stays unknown. The existing revenue portfolio continues to
+  treat zero as unknown under its own read-model contract; the leak detector
+  preserves an explicitly recorded zero plus currency as `KNOWN` zero under the
+  RevenueLeakCase contract. Neither path turns missing evidence into known `$0`.
 - Health is not close probability.
 - Deal/revenue intelligence remains deterministic and read-only.
 - External communication needs explicit human approval and confirmation; Phase 2 never sends it.
@@ -122,7 +139,8 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 ## Milestone status
 - Active plan: [**Pilot Readiness**](execution-plans/active/pilot-readiness.md).
   The [**RevenueLeakCase foundation**](execution-plans/completed/revenue-leak-case-foundation.md)
-  is complete in its bounded Issue #8 slice.
+  and [**deterministic stalled-opportunity detector**](execution-plans/completed/stalled-opportunity-detector.md)
+  are complete in their bounded Issue #8 slices.
 - Pilot Readiness **PR-0 is complete**: its architecture, operations, and harness consistency contracts are documented. This does **not** mean production infrastructure, authentication, authorization, tenancy, backups, imports, or deployment have been provisioned or implemented.
 - **PR-1 is complete**: it characterized legacy JSON compatibility, including deterministic fixtures, observable ordering/value semantics, RevenueAction lifecycle/effect links, and the migration manifest/handoff. It did not implement production persistence or tenancy.
 - **PR-2 is complete**: schema/security/migrations `001`–`004`, tests, and CI are present, and GitHub Actions run `33304131266` passed the full PostgreSQL 16.15 gate. This completion does not imply production repositories, Auth0 middleware, provisioning, import execution, or JSON cutover. Vendor decisions still gate provisioning and release.
@@ -131,5 +149,7 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - **PR-5A implements CSV contract, limits, immutable staging, and bounded preview; PR-5B implements draft mapping, validation, and Data Health analysis; PR-5C implements controlled atomic canonical commit and ID-map reconciliation; PR-5D implements the contract-mocked browser workflow and adversarial state coverage.** Raw-evidence retention/deletion acceptance is explicitly deferred to a separate reviewed follow-up; cutover and production provisioning remain unimplemented.
 - **Issue #8 RevenueLeakCase foundation implements the bounded domain,
   JSON/PostgreSQL repositories, tenant-bound API, migration `012`, and focused
-  contract/database evidence for `STALLED_OPPORTUNITY`.** Detector execution,
-  browser recovery workflows, and attribution remain unimplemented.
+  contract/database evidence for `STALLED_OPPORTUNITY`. The current follow-on
+  slice implements explicit deterministic detector execution and case
+  reconciliation without another migration.** Scheduling, browser recovery
+  workflows, and attribution remain unimplemented.

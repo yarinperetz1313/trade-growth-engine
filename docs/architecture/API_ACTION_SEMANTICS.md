@@ -31,13 +31,17 @@ Revenue intelligence is a GET-only portfolio projection. It excludes `WON` and `
 
 Communication execution requires `executionMode: "MANUAL_CONFIRMED"`; it records human confirmation and never claims TGE sent a message. Internal execution creates one linked task or reuses only a task with matching structured deal-intelligence identity, then records one linked activity. Recovery validates approval, execution mode, opportunity, action/effect types, and record state; conflicting linked effects return `REVENUE_ACTION_EFFECT_CONFLICT`. Successful transitions return refreshed opportunity, pipeline, and revenue projections. Invalid JSON is `INVALID_JSON_BODY`; non-object bodies are `INVALID_REQUEST_BODY`; unexpected local-store failures are `REVENUE_ACTION_PERSISTENCE_UNAVAILABLE`.
 
-## RevenueLeakCase foundation routes
+## RevenueLeakCase and detector routes
 
 - `GET /api/revenue-leak-cases` lists tenant-visible history with optional
   `opportunity_id` and lifecycle-state filters.
 - `GET /api/revenue-leak-cases/:id` returns one tenant-visible case.
 - `POST /api/revenue-leak-cases/reconcile` validates and deterministically
   reconciles a `STALLED_OPPORTUNITY` detection snapshot.
+- `POST /api/opportunities/:id/revenue-leak-cases/detect-stalled` accepts only an
+  empty object, loads tenant-visible canonical opportunity/activity/task evidence,
+  returns one of the five versioned detector outcomes, and reconciles only
+  `ELIGIBLE_LEAK_DETECTED` through the existing case service.
 - `POST /api/revenue-leak-cases/:id/snooze`, `/resume`, and `/dismiss` apply the
   bounded audited human lifecycle.
 - `POST /api/revenue-leak-cases/:id/link-revenue-action` links one existing
@@ -45,5 +49,7 @@ Communication execution requires `executionMode: "MANUAL_CONFIRMED"`; it records
 
 Caller-authored tenant/lifecycle fields and unsupported leak types are rejected.
 Cross-tenant and nonexistent case IDs use the same not-found response; unavailable
-source/action relationships are also non-oracular. The route does not run a
-detector or claim recovery/attribution.
+source/action relationships are also non-oracular. Detector thresholds, time,
+tenant, evidence, economics, and lifecycle are never caller-authored. Detection
+does not materialize or execute a RevenueAction and makes no recovery or
+attribution claim.

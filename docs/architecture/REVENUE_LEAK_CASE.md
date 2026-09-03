@@ -1,4 +1,4 @@
-# RevenueLeakCase foundation
+# RevenueLeakCase and stalled-opportunity detector
 
 ## Purpose and bounded scope
 
@@ -7,9 +7,10 @@ leak evidence and later human-controlled recovery work. It is not an
 opportunity, task, prediction, message, recovered-revenue claim, or replacement
 for `RevenueAction`.
 
-This foundation supports only `STALLED_OPPORTUNITY`. It provides a contract and
-reconciliation boundary; it does not run a detector, schedule detection after
-imports, add a browser surface, recover a quote, or calculate attribution.
+This boundary supports only `STALLED_OPPORTUNITY`. It includes one explicit,
+per-opportunity detector invocation and the existing reconciliation contract.
+It does not schedule detection, hook detection to imports, add a browser surface,
+recover a quote, or calculate attribution.
 
 ## Detection contract
 
@@ -32,6 +33,70 @@ incoherent value data fail validation.
 explicitly known. `UNKNOWN` and `NOT_APPLICABLE` require both amount and currency
 to be null, so neither can become a numeric zero. This foundation has no
 recovered-value, influenced-value, outcome, or attribution field.
+
+## Deterministic `STALLED_OPPORTUNITY` rule
+
+Detector identity is `stalled-opportunity` version `1`. One invocation reads only
+the tenant-visible canonical opportunity and its canonical activities and tasks.
+PostgreSQL locks the opportunity before reading child evidence and reconciles in
+the same trusted tenant transaction. JSON rejects non-local tenant contexts before
+reading its tenantless local collections; it retains the documented single-process,
+non-transactional adapter limitation.
+
+The rule is deliberately conservative:
+
+- recognized active stages are `NEW`, `QUALIFIED`, `CONTACTED`, `REPLIED`,
+  `MEETING`, and `PROPOSAL`; `WON` and `LOST` are no-leak terminal stages;
+- the meaningful-activity baseline is the latest canonical activity `created_at`,
+  or the opportunity `created_at` when no activity exists;
+- the opportunity is stale at or after exactly 14 elapsed 24-hour days from that
+  baseline;
+- a next action exists when `opportunity.next_action` is nonblank and is not one
+  of `unknown`, `n/a`, `na`, or `not known`, or when a canonical task is `OPEN`
+  or `IN_PROGRESS`;
+- a case is detected only when an active-stage opportunity is stale and has no
+  next action; the stable reason is `STALE_WITHOUT_NEXT_ACTION`;
+- the newest canonical created/updated/completed observation across the
+  opportunity, relevant activities, and relevant tasks must be no more than
+  exactly 90 elapsed 24-hour days old. One millisecond older is stale source
+  evidence. Canonical source timestamps may not be in the future.
+
+The minimum evaluable evidence is a canonical opportunity ID, a recognized stage,
+and a valid activity-or-opportunity-creation baseline. Supplied timestamps must be
+valid and coherently ordered. Task/activity identity must be unique in the loaded
+snapshot; task status and completion evidence must be coherent. Malformed supplied
+next-action, timestamp, task/activity, stage, commercial-value, or currency evidence
+is a Data Health suppression rather than a leak.
+
+Evaluation has five disjoint outcomes with a closed version-1 reason-code set:
+
+| Outcome | Reason codes |
+| --- | --- |
+| `ELIGIBLE_LEAK_DETECTED` | `STALE_WITHOUT_NEXT_ACTION` |
+| `ELIGIBLE_NO_LEAK` | `OPPORTUNITY_CLOSED`, `RECENT_MEANINGFUL_ACTIVITY`, `NEXT_ACTION_PRESENT` |
+| `INSUFFICIENT_EVIDENCE` | `OPPORTUNITY_STAGE_MISSING`, `MEANINGFUL_ACTIVITY_BASELINE_MISSING` |
+| `STALE_OR_UNTRUSTWORTHY_SOURCE` | `CANONICAL_TIMESTAMP_IN_FUTURE`, `CANONICAL_SOURCE_TOO_OLD` |
+| `DATA_HEALTH_SUPPRESSED` | `OPPORTUNITY_EVIDENCE_INVALID`, `OPPORTUNITY_STAGE_UNRECOGNIZED`, `CANONICAL_TIMESTAMP_INVALID`, `NEXT_ACTION_EVIDENCE_INVALID`, `TASK_STATUS_UNRECOGNIZED`, `TASK_EVIDENCE_INVALID`, `ACTIVITY_EVIDENCE_INVALID`, `COMMERCIAL_VALUE_INVALID`, `COMMERCIAL_CURRENCY_INVALID` |
+
+When evidence has multiple defects, evaluation is deterministic: opportunity/stage
+minimums precede collection shape, task/activity and timestamp health, next-action
+and commercial health, future-source checks, baseline sufficiency, source age, then
+closed/recent/next-action/leak eligibility.
+
+The source version hashes only normalized, conclusion-relevant canonical evidence.
+Collection order is normalized before deriving that evidence; historical labels
+or due dates that cannot affect the conclusion are excluded. Evaluation and
+case-generation times are also excluded. A detected replay therefore retains the
+same semantic identity as time passes; a materially changed canonical snapshot
+follows foundation supersession. Non-leak, insufficient, stale-source, and Data
+Health outcomes do not mutate historical cases.
+
+Potential value is not recovered revenue. `KNOWN` requires a non-negative lossless
+`NUMERIC(20,6)`-representable opportunity value and a three-letter opportunity
+currency. Known zero remains `KNOWN` zero. Missing, null, blank, recognized-unknown
+value evidence—or a valid amount without currency—remains `UNKNOWN`. Malformed or
+unrepresentable supplied value/currency evidence suppresses detection. The detector
+never uses opportunity probability or invents expected revenue.
 
 ## Identity and reconciliation
 
@@ -107,9 +172,11 @@ collection replacement.
 - `GET /api/revenue-leak-cases`
 - `GET /api/revenue-leak-cases/:id`
 - `POST /api/revenue-leak-cases/reconcile`
+- `POST /api/opportunities/:id/revenue-leak-cases/detect-stalled`
 - `POST /api/revenue-leak-cases/:id/{snooze,resume,dismiss}`
 - `POST /api/revenue-leak-cases/:id/link-revenue-action`
 
-The reconciliation endpoint is the bounded ingestion seam for future
-deterministic detector output; its presence is not evidence that a detector or
-scheduler exists.
+The detector endpoint accepts only an empty object, derives time and evidence on
+the server, and returns one of the five outcomes. Only a detected outcome enters
+the existing reconciliation path. Neither endpoint schedules work or executes an
+external action.
