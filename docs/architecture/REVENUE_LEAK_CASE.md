@@ -84,9 +84,9 @@ and commercial health, future-source checks, baseline sufficiency, source age, t
 closed/recent/next-action/leak eligibility.
 
 The source version hashes only normalized, conclusion-relevant canonical evidence.
-Collection order is normalized before deriving that evidence; historical labels
-or due dates that cannot affect the conclusion are excluded. Evaluation and
-case-generation times are also excluded. A detected replay therefore retains the
+Collection order is normalized before deriving that evidence; activity display
+labels or task due dates that cannot affect the conclusion are excluded.
+Evaluation and case-generation times are also excluded. A detected replay retains the
 same semantic identity as time passes; a materially changed canonical snapshot
 follows foundation supersession. Non-leak, insufficient, stale-source, and Data
 Health outcomes do not mutate historical cases.

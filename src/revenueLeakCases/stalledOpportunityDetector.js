@@ -286,7 +286,6 @@ function normalizeOpportunityTimestamps(opportunity) {
 }
 
 function normalizeActivities(records) {
-  const normalized = [];
   const ids = new Set();
   for (const record of records) {
     if (
@@ -298,6 +297,10 @@ function normalizeActivities(records) {
       return { error: "ACTIVITY_EVIDENCE_INVALID" };
     }
     ids.add(record.id.trim());
+  }
+
+  const normalized = [];
+  for (const record of records) {
     const created = timestamp(record.created_at, { required: true });
     const updated = timestamp(record.updated_at);
     if (
@@ -309,7 +312,6 @@ function normalizeActivities(records) {
     }
     normalized.push({
       id: record.id.trim(),
-      type: record.type.trim(),
       created_at: created.value,
       updated_at: updated.value,
       source_timestamps: [created.value, updated.value].filter(Boolean)
@@ -320,7 +322,6 @@ function normalizeActivities(records) {
 }
 
 function normalizeTasks(records) {
-  const normalized = [];
   const ids = new Set();
   for (const record of records) {
     if (
@@ -332,9 +333,16 @@ function normalizeTasks(records) {
       return { error: "TASK_EVIDENCE_INVALID" };
     }
     ids.add(record.id.trim());
+  }
+
+  for (const record of records) {
     if (typeof record.status !== "string" || !TASK_STATUSES.has(record.status.trim().toUpperCase())) {
       return { error: "TASK_STATUS_UNRECOGNIZED" };
     }
+  }
+
+  const normalized = [];
+  for (const record of records) {
     const created = timestamp(record.created_at, { required: true });
     const updated = timestamp(record.updated_at);
     const due = timestamp(record.due_at);
@@ -349,30 +357,49 @@ function normalizeTasks(records) {
     ) {
       return { error: "CANONICAL_TIMESTAMP_INVALID" };
     }
-    const status = record.status.trim().toUpperCase();
+    normalized.push({
+      record,
+      created,
+      updated,
+      due,
+      completed,
+      status: record.status.trim().toUpperCase()
+    });
+  }
+
+  for (const candidate of normalized) {
+    const { completed, status } = candidate;
     if (
       (status === "COMPLETED" && completed.value === null)
       || (status !== "COMPLETED" && completed.value !== null)
     ) {
       return { error: "TASK_EVIDENCE_INVALID" };
     }
-    normalized.push({
-      id: record.id.trim(),
-      title: normalizeText(record.title),
-      status,
-      completed_at: completed.value,
-      due_at: due.value,
-      created_at: created.value,
-      updated_at: updated.value,
-      source_timestamps: [
-        created.value,
-        updated.value,
-        completed.value
-      ].filter(Boolean)
-    });
   }
-  normalized.sort(compareEvidenceRecords);
-  return { records: normalized };
+
+  const recordsById = normalized.map(({
+    record,
+    created,
+    updated,
+    due,
+    completed,
+    status
+  }) => ({
+    id: record.id.trim(),
+    title: normalizeText(record.title),
+    status,
+    completed_at: completed.value,
+    due_at: due.value,
+    created_at: created.value,
+    updated_at: updated.value,
+    source_timestamps: [
+      created.value,
+      updated.value,
+      completed.value
+    ].filter(Boolean)
+  }));
+  recordsById.sort(compareEvidenceRecords);
+  return { records: recordsById };
 }
 
 function normalizeNextAction(value, tasks) {
@@ -489,14 +516,12 @@ function latestActivityBaseline(activities, opportunityCreatedAt) {
     return {
       kind: "ACTIVITY",
       entity_id: latest.id,
-      activity_type: latest.type,
       at: latest.created_at
     };
   }
   return opportunityCreatedAt ? {
     kind: "OPPORTUNITY_CREATED",
     entity_id: null,
-    activity_type: null,
     at: opportunityCreatedAt
   } : null;
 }

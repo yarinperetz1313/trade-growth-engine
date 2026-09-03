@@ -182,6 +182,59 @@ test("future and malformed timestamps are not confused with business staleness",
   }).reason_code, "CANONICAL_TIMESTAMP_INVALID");
 });
 
+test("activity suppression reason precedence is independent of collection order", () => {
+  const invalidTimestamp = {
+    id: "activity-bad-time",
+    opportunity_id: "opp-stalled",
+    type: "CALL",
+    created_at: "not-a-time"
+  };
+  const invalidActivity = {
+    id: "activity-missing-type",
+    opportunity_id: "opp-stalled",
+    created_at: atOffset(20),
+    updated_at: atOffset(20)
+  };
+
+  for (const activities of [
+    [invalidTimestamp, invalidActivity],
+    [invalidActivity, invalidTimestamp]
+  ]) {
+    assert.equal(
+      evaluate({ activities }).reason_code,
+      "ACTIVITY_EVIDENCE_INVALID"
+    );
+  }
+});
+
+test("task suppression reason precedence is independent of collection order", () => {
+  const invalidTimestamp = {
+    id: "task-bad-time",
+    opportunity_id: "opp-stalled",
+    title: "Call buyer",
+    status: "CANCELLED",
+    created_at: "not-a-time"
+  };
+  const unrecognizedStatus = {
+    id: "task-bad-status",
+    opportunity_id: "opp-stalled",
+    title: "Call buyer",
+    status: "WAITING",
+    created_at: atOffset(20),
+    updated_at: atOffset(20)
+  };
+
+  for (const tasks of [
+    [invalidTimestamp, unrecognizedStatus],
+    [unrecognizedStatus, invalidTimestamp]
+  ]) {
+    assert.equal(
+      evaluate({ tasks }).reason_code,
+      "TASK_STATUS_UNRECOGNIZED"
+    );
+  }
+});
+
 test("a canonical next action or active task prevents a leak at the stale boundary", () => {
   const recorded = evaluate({ opportunity: { next_action: " Call buyer " } });
   const activeTask = evaluate({ tasks: [{
@@ -343,6 +396,18 @@ test("identical canonical evidence has a stable version independent of collectio
     irrelevantHistoryEdit.source.observed_version
   );
   assert.deepEqual(first.detection, irrelevantHistoryEdit.detection);
+
+  const irrelevantLatestLabelEdit = evaluate({
+    activities: activities.map(record => record.id === "activity-last"
+      ? { ...record, type: "NOTE" }
+      : record),
+    tasks
+  });
+  assert.equal(
+    first.source.observed_version,
+    irrelevantLatestLabelEdit.source.observed_version
+  );
+  assert.deepEqual(first.detection, irrelevantLatestLabelEdit.detection);
 });
 
 function createMemoryStore(seed) {
