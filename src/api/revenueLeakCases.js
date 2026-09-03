@@ -41,6 +41,27 @@ function validateBody(req, res) {
   return req.body;
 }
 
+function validateDetectorBody(req, res) {
+  if (
+    req.body === undefined
+    || (
+      req.body !== null
+      && typeof req.body === "object"
+      && !Array.isArray(req.body)
+      && Object.keys(req.body).length === 0
+    )
+  ) {
+    return true;
+  }
+  res.status(400).json({
+    ok: false,
+    error: "REVENUE_LEAK_DETECTOR_REQUEST_INVALID",
+    message: "Stalled-opportunity detection accepts only an empty JSON object.",
+    details: { field: "body" }
+  });
+  return false;
+}
+
 function createRevenueLeakCasesRouter({ service, resolveTenantContext } = {}) {
   if (!service || typeof service.forTenant !== "function") {
     throw new TypeError("A tenant-bound RevenueLeakCase service is required.");
@@ -105,6 +126,20 @@ function createRevenueLeakCasesRouter({ service, resolveTenantContext } = {}) {
     const result = await requestBound.reconcileRevenueLeakCase(body);
     return sendResult(res, result, result.created ? 201 : 200);
   }));
+
+  router.post(
+    "/api/opportunities/:id/revenue-leak-cases/detect-stalled",
+    route(async (req, res, resolveService) => {
+      if (!validateDetectorBody(req, res)) return;
+      const requestBound = await resolveService(req);
+      const result = await requestBound.detectStalledOpportunity(req.params.id);
+      return sendResult(
+        res,
+        result,
+        result.reconciliation?.created ? 201 : 200
+      );
+    })
+  );
 
   for (const [routeName, serviceMethod] of [
     ["snooze", "snoozeRevenueLeakCase"],

@@ -10,6 +10,12 @@ const {
 const {
   requireTenantContext
 } = require("../persistence/tenantContext");
+const {
+  LOCAL_REVENUE_LEAK_TENANT_ID
+} = require("./jsonRevenueLeakCaseRepository");
+const {
+  evaluateStalledOpportunity
+} = require("./stalledOpportunityDetector");
 
 const ERROR_STATUS = Object.freeze({
   REVENUE_LEAK_CASE_INPUT_INVALID: 400,
@@ -30,6 +36,14 @@ function caseNotFound() {
   return failure(
     "REVENUE_LEAK_CASE_NOT_FOUND",
     "Revenue leak case was not found.",
+    404
+  );
+}
+
+function sourceUnavailable() {
+  return failure(
+    "REVENUE_LEAK_SOURCE_UNAVAILABLE",
+    "The requested source is unavailable.",
     404
   );
 }
@@ -75,7 +89,11 @@ function createRevenueLeakCaseService({
       if (!repository) {
         throw new TypeError("RevenueLeakCase persistence is unavailable.");
       }
-      return createTenantService(repository, trusted, { createId, clock });
+      return createTenantService(repository, trusted, {
+        createId,
+        clock,
+        persistence
+      });
     }
   });
 }
@@ -89,7 +107,11 @@ function bindJsonRepository(repository, context) {
   ));
 }
 
-function createTenantService(repository, context, { createId, clock }) {
+function createTenantService(
+  repository,
+  context,
+  { createId, clock, persistence }
+) {
   const now = () => normalizeTimestamp(clock(), "server clock");
 
   async function run(operation) {
@@ -119,6 +141,58 @@ function createTenantService(repository, context, { createId, clock }) {
     });
   }
 
+  async function detectWithRepositories(
+    scoped,
+    opportunityId,
+    evaluatedAt,
+    { lockSource = false } = {}
+  ) {
+    const opportunity = await scoped.opportunities.findById(
+      opportunityId,
+      lockSource ? { lock: true } : undefined
+    );
+    if (!opportunity) return sourceUnavailable();
+    const [activities, tasks] = await Promise.all([
+      scoped.activities.list({ opportunityId }),
+      scoped.tasks.list({ opportunityId })
+    ]);
+    const evaluation = evaluateStalledOpportunity({
+      opportunity,
+      activities,
+      tasks,
+      evaluatedAt
+    });
+    const response = {
+      ok: true,
+      outcome: evaluation.outcome,
+      reason_code: evaluation.reason_code,
+      detector: evaluation.detector,
+      source: evaluation.source,
+      evidence: evaluation.evidence,
+      commercial_value: evaluation.commercial_value,
+      case: null,
+      reconciliation: null
+    };
+    if (!evaluation.detection) return response;
+
+    const detection = buildRevenueLeakCaseDetection(evaluation.detection, {
+      id: createId(),
+      detectedAt: evaluatedAt,
+      subjectId: context.subjectId
+    });
+    const reconciled = await scoped.revenueLeakCases.reconcile(detection);
+    return {
+      ...response,
+      case: reconciled.record,
+      reconciliation: {
+        created: Boolean(reconciled.created),
+        duplicate: Boolean(reconciled.duplicate),
+        ...(reconciled.terminal ? { terminal: true } : {}),
+        superseded_case_id: reconciled.superseded_case_id || null
+      }
+    };
+  }
+
   return Object.freeze({
     listRevenueLeakCases(filters = {}) {
       return repository.list(filters);
@@ -145,6 +219,36 @@ function createTenantService(repository, context, { createId, clock }) {
           ...(result.terminal ? { terminal: true } : {}),
           superseded_case_id: result.superseded_case_id || null
         };
+      });
+    },
+
+    detectStalledOpportunity(opportunityId) {
+      return run(async () => {
+        if (typeof opportunityId !== "string" || opportunityId.trim() === "") {
+          return sourceUnavailable();
+        }
+        const evaluatedAt = now();
+        if (persistence.adapter === "postgres") {
+          return persistence.repositories.transaction(
+            context,
+            scoped => detectWithRepositories(
+              scoped,
+              opportunityId.trim(),
+              evaluatedAt,
+              { lockSource: true }
+            )
+          );
+        }
+        if (context.tenantId !== LOCAL_REVENUE_LEAK_TENANT_ID) {
+          return sourceUnavailable();
+        }
+        const scoped = {
+          opportunities: persistence.repositories.opportunities,
+          activities: persistence.repositories.activities,
+          tasks: persistence.repositories.tasks,
+          revenueLeakCases: repository
+        };
+        return detectWithRepositories(scoped, opportunityId.trim(), evaluatedAt);
       });
     },
 

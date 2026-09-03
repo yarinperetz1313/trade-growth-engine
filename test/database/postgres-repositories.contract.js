@@ -44,6 +44,9 @@ const {
 const {
   buildRevenueLeakCaseDetection
 } = require("../../src/revenueLeakCases/revenueLeakCaseDomain");
+const {
+  createRevenueLeakCaseService
+} = require("../../src/revenueLeakCases/revenueLeakCaseService");
 
 function registerPostgresRepositoryContractTests({
   test,
@@ -4332,6 +4335,102 @@ function registerPostgresRepositoryContractTests({
     } finally {
       runtime.release();
     }
+  });
+
+  test("PostgreSQL stalled-opportunity detection reconciles atomically within its tenant", async () => {
+    const evaluatedAt = "2026-09-01T00:00:00.000Z";
+    const pool = createPool({ max: 4 });
+    const persistence = createPersistence({
+      adapter: "postgres",
+      pool,
+      clock: () => new Date(evaluatedAt)
+    });
+    const tenantA = await createTenant("stalled-detector-a");
+    const tenantB = await createTenant("stalled-detector-b");
+    const opportunityId = "detector-tenant-a-opportunity";
+    await persistence.repositories.opportunities.insert(tenantA.context, {
+      id: opportunityId,
+      business_name: "Detector tenant A",
+      stage: "PROPOSAL",
+      next_action: "",
+      value: "42000.500000",
+      currency: "AUD",
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-08-31T00:00:00.000Z"
+    });
+    await persistence.repositories.activities.insert(tenantA.context, {
+      id: "detector-old-activity",
+      opportunity_id: opportunityId,
+      type: "FOLLOW_UP_RECORDED",
+      description: "Authoritative follow-up evidence",
+      metadata: {},
+      created_at: "2026-08-18T00:00:00.000Z",
+      updated_at: "2026-08-18T00:00:00.000Z"
+    });
+
+    let nextCase = 0;
+    const service = createRevenueLeakCaseService({
+      persistence,
+      createId: () => `postgres-detected-case-${++nextCase}`,
+      clock: () => new Date(evaluatedAt)
+    });
+    const tenantAService = service.forTenant(tenantA.context);
+    const first = await tenantAService.detectStalledOpportunity(opportunityId);
+    const replay = await tenantAService.detectStalledOpportunity(opportunityId);
+
+    assert.equal(first.outcome, "ELIGIBLE_LEAK_DETECTED");
+    assert.equal(first.reason_code, "STALE_WITHOUT_NEXT_ACTION");
+    assert.equal(first.reconciliation.created, true);
+    assert.deepEqual(first.case.commercial_value, {
+      classification: "KNOWN",
+      amount: "42000.5",
+      currency: "AUD"
+    });
+    assert.equal(replay.reconciliation.duplicate, true);
+    assert.equal(replay.case.id, first.case.id);
+
+    await tenantAService.snoozeRevenueLeakCase(first.case.id, {
+      reason: "Waiting for buyer availability.",
+      wake_at: "2026-09-10T00:00:00.000Z"
+    });
+    const snoozedReplay = await tenantAService.detectStalledOpportunity(
+      opportunityId
+    );
+    assert.equal(snoozedReplay.case.state, "SNOOZED");
+    assert.equal(snoozedReplay.reconciliation.duplicate, true);
+
+    await persistence.repositories.opportunities.update(
+      tenantA.context,
+      opportunityId,
+      { stage: "MEETING" }
+    );
+    const changed = await tenantAService.detectStalledOpportunity(opportunityId);
+    assert.equal(changed.reconciliation.created, true);
+    assert.equal(changed.reconciliation.superseded_case_id, first.case.id);
+    assert.equal(changed.case.supersedes_case_id, first.case.id);
+    assert.equal(
+      (await persistence.repositories.revenueLeakCases.findById(
+        tenantA.context,
+        first.case.id
+      )).state,
+      "SUPERSEDED"
+    );
+
+    const hiddenSource = await service.forTenant(tenantB.context)
+      .detectStalledOpportunity(opportunityId);
+    assert.equal(hiddenSource.ok, false);
+    assert.equal(hiddenSource.error, "REVENUE_LEAK_SOURCE_UNAVAILABLE");
+    assert.equal(
+      await persistence.repositories.revenueLeakCases.findById(
+        tenantB.context,
+        first.case.id
+      ),
+      null
+    );
+    assert.equal(
+      (await persistence.repositories.revenueLeakCases.list(tenantB.context)).length,
+      0
+    );
   });
 
   async function stageCsvBatch(

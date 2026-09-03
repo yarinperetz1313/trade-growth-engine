@@ -17,6 +17,15 @@ const {
   createTenantContext
 } = require("../src/persistence/tenantContext");
 const {
+  createPersistence
+} = require("../src/persistence/createPersistence");
+const {
+  LOCAL_REVENUE_LEAK_TENANT_ID
+} = require("../src/revenueLeakCases/jsonRevenueLeakCaseRepository");
+const {
+  createRevenueLeakCaseService
+} = require("../src/revenueLeakCases/revenueLeakCaseService");
+const {
   readCollection,
   writeCollection
 } = require("../src/services/localStore");
@@ -343,5 +352,82 @@ test("tenant-bound router rejects an absent or forged server context", async () 
     const response = await request(baseUrl, "GET", "/api/revenue-leak-cases");
     assert.equal(response.status, 500);
     assert.equal(response.data.error, "REVENUE_LEAK_CASE_PERSISTENCE_UNAVAILABLE");
+  });
+});
+
+test("API exposes a bounded per-opportunity detector seam and rejects caller-authored evidence", async () => {
+  seedStore();
+  writeCollection("opportunities", [{
+    id: "opp-stalled",
+    business_name: "Stalled Trade",
+    stage: "PROPOSAL",
+    next_action: "",
+    value: "0.000000",
+    currency: "AUD",
+    created_at: "2026-07-01T00:00:00.000Z",
+    updated_at: "2026-08-31T00:00:00.000Z"
+  }]);
+  writeCollection("activities", [{
+    id: "activity-old",
+    opportunity_id: "opp-stalled",
+    type: "FOLLOW_UP_RECORDED",
+    created_at: "2026-08-18T00:00:00.000Z",
+    updated_at: "2026-08-18T00:00:00.000Z"
+  }]);
+  writeCollection("tasks", []);
+
+  const service = createRevenueLeakCaseService({
+    persistence: createPersistence({ adapter: "json" }),
+    createId: () => "detected-case",
+    clock: () => new Date("2026-09-01T00:00:00.000Z")
+  });
+  const localContext = createTenantContext({
+    tenantId: LOCAL_REVENUE_LEAK_TENANT_ID,
+    subjectId: "api-detector"
+  });
+  const express = require("express");
+  const detectorApp = express();
+  detectorApp.use(express.json());
+  detectorApp.use(createRevenueLeakCasesRouter({
+    service,
+    resolveTenantContext: () => localContext
+  }));
+
+  await withServer(detectorApp, async baseUrl => {
+    const detected = await request(
+      baseUrl,
+      "POST",
+      "/api/opportunities/opp-stalled/revenue-leak-cases/detect-stalled",
+      {}
+    );
+    assert.equal(detected.status, 201);
+    assert.equal(detected.data.outcome, "ELIGIBLE_LEAK_DETECTED");
+    assert.equal(detected.data.reason_code, "STALE_WITHOUT_NEXT_ACTION");
+    assert.equal(detected.data.case.id, "detected-case");
+    assert.deepEqual(detected.data.case.commercial_value, {
+      classification: "KNOWN",
+      amount: "0",
+      currency: "AUD"
+    });
+
+    const replay = await request(
+      baseUrl,
+      "POST",
+      "/api/opportunities/opp-stalled/revenue-leak-cases/detect-stalled",
+      {}
+    );
+    assert.equal(replay.status, 200);
+    assert.equal(replay.data.reconciliation.duplicate, true);
+    assert.equal(readCollection("revenue_leak_cases").length, 1);
+
+    const override = await request(
+      baseUrl,
+      "POST",
+      "/api/opportunities/opp-stalled/revenue-leak-cases/detect-stalled",
+      { evaluated_at: "2020-01-01T00:00:00.000Z", threshold_days: 1 }
+    );
+    assert.equal(override.status, 400);
+    assert.equal(override.data.error, "REVENUE_LEAK_DETECTOR_REQUEST_INVALID");
+    assert.equal(readCollection("revenue_leak_cases").length, 1);
   });
 });
