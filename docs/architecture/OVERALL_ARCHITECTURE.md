@@ -19,7 +19,8 @@ Trade Growth Engine is a local-first sales intelligence application.
 - Intelligence actions mutate CRM state and return refreshed state to close the loop.
 - RevenueLeakCase stores immutable, tenant-scoped leak evidence and deterministic
   reconciliation history before any future recovery consumer acts on it. The
-  initial contract supports only `STALLED_OPPORTUNITY`; no detector or UI exists.
+  initial `STALLED_OPPORTUNITY` detector is an explicit server-side invocation;
+  no detector scheduler or UI exists.
 
 ## Boundary rule
 Keep intelligence deterministic unless a module explicitly performs AI/web research. Do not blend speculative market analysis into CRM health scoring.
@@ -31,5 +32,7 @@ Keep intelligence deterministic unless a module explicitly performs AI/web resea
 
 `src/revenueLeakCases/` owns canonical detection identity, explicit commercial
 value semantics, minimal audited lifecycle, JSON/PostgreSQL repositories, and
-optional same-opportunity RevenueAction linkage. `src/api/revenueLeakCases.js`
-is the thin tenant-bound HTTP seam. See [RevenueLeakCase foundation](REVENUE_LEAK_CASE.md).
+optional same-opportunity RevenueAction linkage. It also owns the pure versioned
+stalled-opportunity rule and its tenant-transaction orchestration.
+`src/api/revenueLeakCases.js` is the thin tenant-bound HTTP seam. See
+[RevenueLeakCase and stalled-opportunity detector](REVENUE_LEAK_CASE.md).

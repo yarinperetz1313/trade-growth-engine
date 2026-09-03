@@ -9,7 +9,8 @@
 - [`completed/pr-5b-import-mapping.md`](completed/pr-5b-import-mapping.md)
 - [`completed/pr-5c-canonical-import-commit.md`](completed/pr-5c-canonical-import-commit.md)
 - [`completed/pr-5d-browser-import.md`](completed/pr-5d-browser-import.md)
-- [`completed/revenue-leak-case-foundation.md`](completed/revenue-leak-case-foundation.md) — **Issue #8 foundation is complete; detector/UI/recovery/attribution consumers remain out of scope.**
+- [`completed/revenue-leak-case-foundation.md`](completed/revenue-leak-case-foundation.md) — **Issue #8 foundation is complete; its historical scope excluded the later detector/UI/recovery/attribution consumers.**
+- [`completed/stalled-opportunity-detector.md`](completed/stalled-opportunity-detector.md) — **Issue #8 follow-on implements the versioned detector and tenant-safe reconciliation without scheduling, UI, execution, or attribution.**
 
 ## When to create a plan
 Create a plan before work that spans sessions, changes a safety boundary, has multiple dependent slices, or needs reviewable verification evidence. Use [`TEMPLATE.md`](TEMPLATE.md), place in-progress plans in `active/`, and move completed plans to `completed/` with final evidence and follow-ups.
