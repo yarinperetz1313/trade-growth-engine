@@ -10,7 +10,8 @@ import {
   classifyRevenueLeakCaseError,
   detectorOutcomePresentation,
   detectorReasonExplanation,
-  formatPotentialRevenueAtRisk
+  formatPotentialRevenueAtRisk,
+  isAmbiguousRevenueLeakCaseMutationError
 } from "../lib/revenueLeakCaseContracts.mjs";
 
 const DAY_MS = 86400000;
@@ -186,17 +187,29 @@ export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [
   const [snoozeDays, setSnoozeDays] = useState("7");
   const opportunityGeneration = useRef(0);
   const historyRequest = useRef(0);
+  const currentOpportunityId = useRef(opportunityId);
+  currentOpportunityId.current = opportunityId;
 
-  async function loadHistory(generation = opportunityGeneration.current) {
+  function isCurrentRequest(targetOpportunityId, generation) {
+    return generation === opportunityGeneration.current
+      && targetOpportunityId === currentOpportunityId.current;
+  }
+
+  async function loadHistory(
+    targetOpportunityId = opportunityId,
+    generation = opportunityGeneration.current
+  ) {
     const requestId = ++historyRequest.current;
-    setHistoryState("LOADING");
-    setHistoryError(null);
+    if (isCurrentRequest(targetOpportunityId, generation)) {
+      setHistoryState("LOADING");
+      setHistoryError(null);
+    }
     try {
-      const result = await getOpportunityRevenueLeakCases(opportunityId);
+      const result = await getOpportunityRevenueLeakCases(targetOpportunityId);
       if (
-        generation !== opportunityGeneration.current
+        !isCurrentRequest(targetOpportunityId, generation)
         || requestId !== historyRequest.current
-      ) return;
+      ) return null;
       const cases = Array.isArray(result?.data) ? result.data : [];
       setHistory(cases);
       setSelectedCaseId(current => {
@@ -206,13 +219,15 @@ export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [
           || null;
       });
       setHistoryState("READY");
+      return cases;
     } catch (error) {
       if (
-        generation !== opportunityGeneration.current
+        !isCurrentRequest(targetOpportunityId, generation)
         || requestId !== historyRequest.current
-      ) return;
+      ) return null;
       setHistoryError(errorCopy(error));
       setHistoryState("ERROR");
+      return null;
     }
   }
 
@@ -224,7 +239,7 @@ export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [
     setDetectionError(null);
     setMutationError(null);
     setMutationMessage(null);
-    loadHistory(generation);
+    loadHistory(opportunityId, generation);
     return () => {
       opportunityGeneration.current += 1;
       historyRequest.current += 1;
@@ -257,69 +272,104 @@ export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [
 
   async function runDetection() {
     const generation = opportunityGeneration.current;
+    const targetOpportunityId = opportunityId;
     setDetecting(true);
     setEvaluation(null);
     setDetectionError(null);
     setMutationMessage(null);
     try {
-      const result = await detectStalledOpportunity(opportunityId);
-      if (generation !== opportunityGeneration.current) return;
+      const result = await detectStalledOpportunity(targetOpportunityId);
+      if (!isCurrentRequest(targetOpportunityId, generation)) return;
       setEvaluation(result);
       if (result.case) {
         setHistory(current => replaceCase(current, result.case));
         setSelectedCaseId(result.case.id);
       }
-      await loadHistory(generation);
+      await loadHistory(targetOpportunityId, generation);
     } catch (error) {
-      if (generation !== opportunityGeneration.current) return;
+      if (!isCurrentRequest(targetOpportunityId, generation)) return;
       setDetectionError(errorCopy(error));
     } finally {
-      if (generation === opportunityGeneration.current) setDetecting(false);
+      if (isCurrentRequest(targetOpportunityId, generation)) setDetecting(false);
     }
   }
 
   async function runTransition(transition, body, successMessage) {
     if (!selectedCase) return;
     const generation = opportunityGeneration.current;
+    const targetOpportunityId = opportunityId;
+    const targetCaseId = selectedCase.id;
     setMutation(transition);
     setMutationError(null);
     setMutationMessage(null);
     try {
       const result = await transitionRevenueLeakCase(
-        selectedCase.id,
+        targetCaseId,
         transition,
         body,
-        opportunityId
+        targetOpportunityId
       );
-      if (generation !== opportunityGeneration.current) return;
+      if (!isCurrentRequest(targetOpportunityId, generation)) return;
       setHistory(current => replaceCase(current, result.data));
       setSelectedCaseId(result.data.id);
       setMutationMessage(successMessage);
       if (transition === "snooze") setSnoozeReason("");
       if (transition === "resume") setResumeReason("");
       if (transition === "dismiss") setDismissReason("");
-      await loadHistory(generation);
+      await loadHistory(targetOpportunityId, generation);
     } catch (error) {
-      if (generation !== opportunityGeneration.current) return;
-      setMutationError(errorCopy(error));
+      if (!isCurrentRequest(targetOpportunityId, generation)) return;
+      if (isAmbiguousRevenueLeakCaseMutationError(error)) {
+        const cases = await loadHistory(targetOpportunityId, generation);
+        if (!isCurrentRequest(targetOpportunityId, generation)) return;
+        if (cases) {
+          const recovered = cases.find(item => item.id === targetCaseId);
+          const expectedState = transition === "snooze"
+            ? "SNOOZED"
+            : transition === "resume"
+              ? "OPEN"
+              : "DISMISSED";
+          if (recovered?.state === expectedState) {
+            setMutationError(null);
+            setMutationMessage(
+              "The authoritative durable case history confirms the requested lifecycle update."
+            );
+          } else {
+            setMutationError({
+              ...errorCopy(error),
+              message: "Durable case history was reloaded and does not show the requested update. Review the current state before trying again."
+            });
+          }
+        } else {
+          setMutationError({
+            ...errorCopy(error),
+            message: "The update outcome is unknown. Durable history must reload successfully before another case write is allowed."
+          });
+        }
+      } else {
+        setMutationError(errorCopy(error));
+      }
     } finally {
-      if (generation === opportunityGeneration.current) setMutation(null);
+      if (isCurrentRequest(targetOpportunityId, generation)) setMutation(null);
     }
   }
 
   async function linkExistingRevenueAction() {
     if (!selectedCase || !activeRevenueAction) return;
     const generation = opportunityGeneration.current;
+    const targetOpportunityId = opportunityId;
+    const targetCaseId = selectedCase.id;
+    const targetRevenueActionId = activeRevenueAction.id;
     setMutation("link");
     setMutationError(null);
     setMutationMessage(null);
     try {
       const result = await linkRevenueLeakCaseToAction(
-        selectedCase.id,
-        activeRevenueAction.id,
-        opportunityId
+        targetCaseId,
+        targetRevenueActionId,
+        targetOpportunityId
       );
-      if (generation !== opportunityGeneration.current) return;
+      if (!isCurrentRequest(targetOpportunityId, generation)) return;
       setHistory(current => replaceCase(current, result.data));
       setSelectedCaseId(result.data.id);
       setMutationMessage(
@@ -327,12 +377,36 @@ export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [
           ? "This RevenueAction was already linked."
           : "Existing RevenueAction linked without changing its lifecycle."
       );
-      await loadHistory(generation);
+      await loadHistory(targetOpportunityId, generation);
     } catch (error) {
-      if (generation !== opportunityGeneration.current) return;
-      setMutationError(errorCopy(error));
+      if (!isCurrentRequest(targetOpportunityId, generation)) return;
+      if (isAmbiguousRevenueLeakCaseMutationError(error)) {
+        const cases = await loadHistory(targetOpportunityId, generation);
+        if (!isCurrentRequest(targetOpportunityId, generation)) return;
+        if (cases) {
+          const recovered = cases.find(item => item.id === targetCaseId);
+          if (recovered?.revenue_action_id === targetRevenueActionId) {
+            setMutationError(null);
+            setMutationMessage(
+              "The authoritative durable case history confirms the RevenueAction link."
+            );
+          } else {
+            setMutationError({
+              ...errorCopy(error),
+              message: "Durable case history was reloaded and does not show the requested RevenueAction link. Review the current state before trying again."
+            });
+          }
+        } else {
+          setMutationError({
+            ...errorCopy(error),
+            message: "The link outcome is unknown. Durable history must reload successfully before another case write is allowed."
+          });
+        }
+      } else {
+        setMutationError(errorCopy(error));
+      }
     } finally {
-      if (generation === opportunityGeneration.current) setMutation(null);
+      if (isCurrentRequest(targetOpportunityId, generation)) setMutation(null);
     }
   }
 
@@ -351,6 +425,7 @@ export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [
     observed_version: selectedCase.source_observed_version
   } : null;
   const blockedByAuth = historyError?.kind === "UNAUTHORIZED";
+  const writesBlocked = Boolean(mutation) || historyState !== "READY";
 
   return (
     <section className="oc-panel rlc-panel" data-testid="revenue-leak-case-panel">
@@ -366,7 +441,7 @@ export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [
         <button
           className="oc-primary-button"
           data-testid="detect-stalled-opportunity"
-          disabled={detecting || Boolean(mutation) || blockedByAuth}
+          disabled={detecting || writesBlocked || blockedByAuth}
           onClick={runDetection}
         >
           {detecting ? "Checking…" : "Check for stalled opportunity"}
@@ -382,7 +457,7 @@ export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [
           <strong>{historyError.title}</strong>
           <span>{historyError.message}</span>
           {!blockedByAuth && (
-            <button className="oc-secondary-button" onClick={() => loadHistory()}>
+            <button className="oc-secondary-button" onClick={() => loadHistory(opportunityId)}>
               Retry history
             </button>
           )}
@@ -528,7 +603,7 @@ export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [
                 <button
                   className="oc-secondary-button"
                   data-testid="link-revenue-action-to-case"
-                  disabled={Boolean(mutation)}
+                  disabled={writesBlocked}
                   onClick={linkExistingRevenueAction}
                 >
                   {mutation === "link" ? "Linking…" : "Link existing RevenueAction"}
@@ -547,14 +622,14 @@ export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [
                     id="revenue-leak-snooze-reason"
                     value={snoozeReason}
                     maxLength={512}
-                    disabled={Boolean(mutation)}
+                    disabled={writesBlocked}
                     onChange={event => setSnoozeReason(event.target.value)}
                   />
                   <label htmlFor="revenue-leak-snooze-duration">Future wake time</label>
                   <select
                     id="revenue-leak-snooze-duration"
                     value={snoozeDays}
-                    disabled={Boolean(mutation)}
+                    disabled={writesBlocked}
                     onChange={event => setSnoozeDays(event.target.value)}
                   >
                     <option value="1">In 1 day</option>
@@ -565,7 +640,7 @@ export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [
                   <small>Wake time: {readableDate(wakeAt)}</small>
                   <button
                     className="oc-secondary-button"
-                    disabled={!snoozeReason.trim() || Boolean(mutation)}
+                    disabled={!snoozeReason.trim() || writesBlocked}
                     onClick={() => runTransition(
                       "snooze",
                       {
@@ -589,12 +664,12 @@ export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [
                     id="revenue-leak-resume-reason"
                     value={resumeReason}
                     maxLength={512}
-                    disabled={Boolean(mutation)}
+                    disabled={writesBlocked}
                     onChange={event => setResumeReason(event.target.value)}
                   />
                   <button
                     className="oc-secondary-button"
-                    disabled={!resumeReason.trim() || Boolean(mutation)}
+                    disabled={!resumeReason.trim() || writesBlocked}
                     onClick={() => runTransition(
                       "resume",
                       { reason: resumeReason.trim() },
@@ -613,12 +688,12 @@ export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [
                     id="revenue-leak-dismiss-reason"
                     value={dismissReason}
                     maxLength={512}
-                    disabled={Boolean(mutation)}
+                    disabled={writesBlocked}
                     onChange={event => setDismissReason(event.target.value)}
                   />
                   <button
                     className="oc-secondary-button"
-                    disabled={!dismissReason.trim() || Boolean(mutation)}
+                    disabled={!dismissReason.trim() || writesBlocked}
                     onClick={() => runTransition(
                       "dismiss",
                       { reason: dismissReason.trim() },

@@ -145,7 +145,11 @@ export default function OpportunityCommandCenter({
   const revenueActionOpportunityId = useRef(opportunity.id);
   const revenueActionGeneration = useRef(0);
   const revenueActionRequest = useRef(0);
+  const intelligenceOpportunityId = useRef(opportunity.id);
+  const intelligenceGeneration = useRef(0);
+  const intelligenceRequest = useRef(0);
   revenueActionOpportunityId.current = opportunity.id;
+  intelligenceOpportunityId.current = opportunity.id;
 
   async function loadRevenueActions(
     targetOpportunityId = opportunity.id,
@@ -179,17 +183,30 @@ export default function OpportunityCommandCenter({
   }
 
   async function loadIntelligence({
-    notifyOpportunityUpdated = true
+    notifyOpportunityUpdated = true,
+    targetOpportunityId = opportunity.id,
+    generation = intelligenceGeneration.current
   } = {}) {
-    setLoading(true);
-    setError(null);
+    const requestId = ++intelligenceRequest.current;
+    const isCurrent = () =>
+      generation === intelligenceGeneration.current
+      && requestId === intelligenceRequest.current
+      && targetOpportunityId === intelligenceOpportunityId.current;
+    if (isCurrent()) {
+      setLoading(true);
+      setError(null);
+    }
 
     try {
       const data =
         await getOpportunityIntelligence(
-          opportunity.id
+          targetOpportunityId
         );
 
+      if (!isCurrent()) return;
+      if (data.data?.opportunity?.id !== targetOpportunityId) {
+        throw new Error("Opportunity intelligence returned for a different opportunity.");
+      }
       setPayload(data.data);
 
       if (
@@ -201,31 +218,42 @@ export default function OpportunityCommandCenter({
         );
       }
     } catch (err) {
-      setError(err.message);
+      if (isCurrent()) setError(err.message);
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }
 
   useEffect(() => {
     const revenueActionLoadGeneration = ++revenueActionGeneration.current;
+    const intelligenceLoadGeneration = ++intelligenceGeneration.current;
     setRevenueActions([]);
+    setPayload(null);
     setExecutionLoading(null);
     setExecutionError(null);
     setExecutionMessage(null);
-    loadIntelligence();
+    loadIntelligence({
+      targetOpportunityId: opportunity.id,
+      generation: intelligenceLoadGeneration
+    });
     loadRevenueActions(opportunity.id, revenueActionLoadGeneration);
     return () => {
       revenueActionGeneration.current += 1;
       revenueActionRequest.current += 1;
+      intelligenceGeneration.current += 1;
+      intelligenceRequest.current += 1;
     };
   }, [opportunity.id]);
 
+  const currentPayload = payload?.opportunity?.id === opportunity.id
+    ? payload
+    : null;
+
   const intelligence =
-    payload?.intelligence;
+    currentPayload?.intelligence;
 
   const currentOpportunity =
-    payload?.opportunity ||
+    currentPayload?.opportunity ||
     opportunity;
 
   const resolved =
@@ -689,7 +717,8 @@ export default function OpportunityCommandCenter({
       </section>
 
       <RevenueLeakCasePanel
-        opportunityId={currentOpportunity.id}
+        key={opportunity.id}
+        opportunityId={opportunity.id}
         revenueActions={revenueActions}
       />
 

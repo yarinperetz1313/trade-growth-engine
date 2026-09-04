@@ -1,6 +1,6 @@
 # Project State
 
-_Last locally audited on 2026-09-03. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+_Last locally audited on 2026-09-04. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
 ## Current verified shape
 Trade Growth Engine is a Vite React + Express local-first CRM. `src/index.js` starts the server, `src/api/` exposes thin structured HTTP boundaries, and `web/main.jsx` provides hash-routed UI. Local JSON persistence flows through `src/services/localStore.js`; tests and E2E use isolated stores. The [Legacy JSON Compatibility Contract](architecture/LEGACY_JSON_COMPATIBILITY.md) and deterministic fixtures characterize that adapter for the future persistence cutover.
@@ -113,6 +113,13 @@ history, and supplies audited human reasons for permitted transitions. The panel
 can snapshot-link one existing same-opportunity RevenueAction and points to the
 existing execution workflow; it does not prepare, approve, execute, send, recover,
 or attribute anything. No server/domain/persistence contract or migration changes.
+
+The bounded browser remediation validates complete temporal and audit chronology
+before rendering, including non-future evidence and the detector's exact 90-day
+source window. Request identity isolates intelligence, detector, case, and
+lifecycle state across hash-route changes. Lifecycle and RevenueAction-link writes
+with an unconfirmed response are never retried automatically; authoritative
+durable case history must reload before the write controls re-enable.
 
 Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 

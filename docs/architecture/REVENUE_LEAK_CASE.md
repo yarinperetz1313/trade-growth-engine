@@ -184,6 +184,17 @@ panel, but it does not materialize, prepare, approve, or execute an action from 
 case lifecycle. Refresh and hash-route revisit reload durable case history through
 the API rather than browser storage.
 
+Before rendering successful detector or case-history responses, the browser
+fails closed on malformed versioned evidence, future or contradictory source and
+detection timestamps, source age beyond the declared 90-day eligibility window,
+and audit entries that do not reproduce the bounded lifecycle in chronological
+order. Opportunity identity plus request generation prevents late intelligence,
+detection, history, or mutation responses from a prior hash route from binding to
+the current opportunity. If a snooze, resume, dismiss, or link write has an
+unconfirmed outcome because its response was lost, malformed, or outcome-unknown,
+the browser reloads authoritative case history before write controls can be used
+again. It never automatically retries those mutations.
+
 ## API
 
 - `GET /api/revenue-leak-cases`

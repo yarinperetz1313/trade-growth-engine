@@ -117,3 +117,32 @@ while a transition reconciles, and the final focused run passed 5/5.
   provisioning. Database verification was not run because this slice changes no
   database contract or migration; the coordinator-owned full verification remains
   intentionally outstanding.
+
+### Sole bounded durable-review remediation
+
+- Red temporal/audit evidence: the focused browser contract passed 6/7 and the
+  new malformed-evidence regression failed with `Missing expected exception`.
+  Cases could admit a stalled threshold after detection, a source outside the
+  exact 90-day window, future detection/source evidence, missing audit time,
+  reversed audit chronology, and a nested object that React could not render.
+- Red route evidence: the managed route-race regression observed the previous
+  opportunity name render after the hash and current opportunity had changed.
+  Opportunity intelligence now requires matching opportunity, request, and
+  generation identity; the leak panel is route-keyed and independently guards
+  detector, history, transition, and link responses by opportunity generation.
+- Red ambiguous-write evidence: after a committed snooze whose response was
+  lost, the old UI re-enabled without an authoritative reload. Snooze, resume,
+  dismiss, and RevenueAction-link failures with a network, malformed-success,
+  server, or outcome-unknown result now reload and validate durable history before
+  controls re-enable. No mutation is retried automatically.
+- The remediation remains browser/client-only. It changes no server, domain,
+  persistence, schema, migration, authorization, tenant, or RevenueAction execution
+  boundary.
+- Green evidence: focused browser contracts passed 7/7; the affected browser,
+  detector, RevenueLeakCase, RevenueAction, and managed-store selection passed
+  82/82; the complete affected managed Chromium file passed 8/8; `verify:fast`
+  passed the harness and 272/272 integration tests; `verify:browser` passed the
+  harness and 40/40 managed Chromium tests; Vite 8.2.2 built 30 modules; and
+  `git diff --check` passed. Listener-based tests required the approved execution
+  profile after the restricted sandbox returned `listen EPERM`; no database gate
+  was run because no database boundary changed.

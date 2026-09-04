@@ -47,6 +47,11 @@ const ACTIVE_OPPORTUNITY_STAGES = new Set([
   "NEW", "QUALIFIED", "CONTACTED", "REPLIED", "MEETING", "PROPOSAL"
 ]);
 const CLOSED_OPPORTUNITY_STAGES = new Set(["WON", "LOST"]);
+const REVENUE_ACTION_STATUSES = new Set([
+  "RECOMMENDED", "PREPARED", "APPROVED", "EXECUTING", "EXECUTED",
+  "REJECTED", "CANCELLED", "FAILED"
+]);
+const DAY_MS = 86400000;
 
 const REASON_EXPLANATIONS = Object.freeze({
   STALE_WITHOUT_NEXT_ACTION:
@@ -166,7 +171,19 @@ export function classifyRevenueLeakCaseError(error) {
   return "API";
 }
 
-export function unwrapRevenueLeakCaseListResponse(response, opportunityId) {
+export function isAmbiguousRevenueLeakCaseMutationError(error) {
+  if (String(error?.code || "").startsWith("BROWSER_AUTH")) return false;
+  return !Number.isInteger(error?.status)
+    || error.status >= 500
+    || error.code === "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN";
+}
+
+export function unwrapRevenueLeakCaseListResponse(
+  response,
+  opportunityId,
+  receivedAt = new Date()
+) {
+  const receivedAtMs = referenceTime(receivedAt);
   if (
     !isPlainObject(response)
     || response.ok !== true
@@ -177,18 +194,27 @@ export function unwrapRevenueLeakCaseListResponse(response, opportunityId) {
     invalidResponse();
   }
   for (const record of response.data) {
-    validateCase(record, opportunityId);
+    validateCase(record, opportunityId, receivedAtMs);
   }
   return response.data;
 }
 
-export function unwrapRevenueLeakCaseMutationResponse(response, opportunityId) {
+export function unwrapRevenueLeakCaseMutationResponse(
+  response,
+  opportunityId,
+  receivedAt = new Date()
+) {
   if (!isPlainObject(response) || response.ok !== true) invalidResponse();
-  validateCase(response.data, opportunityId);
+  validateCase(response.data, opportunityId, referenceTime(receivedAt));
   return response.data;
 }
 
-export function unwrapStalledOpportunityDetectionResponse(response, opportunityId) {
+export function unwrapStalledOpportunityDetectionResponse(
+  response,
+  opportunityId,
+  receivedAt = new Date()
+) {
+  const receivedAtMs = referenceTime(receivedAt);
   if (
     !isPlainObject(response)
     || response.ok !== true
@@ -214,6 +240,8 @@ export function unwrapStalledOpportunityDetectionResponse(response, opportunityI
       || response.source.entity_type !== "OPPORTUNITY"
       || response.source.entity_id !== opportunityId
       || !isTimestampString(response.source.observed_at)
+      || Date.parse(response.source.observed_at) > receivedAtMs
+      || receivedAtMs - Date.parse(response.source.observed_at) > 90 * DAY_MS
       || !isNonEmptyString(response.source.observed_version)
     ) {
       invalidResponse();
@@ -223,7 +251,8 @@ export function unwrapStalledOpportunityDetectionResponse(response, opportunityI
       response.source,
       response.commercial_value,
       response.reason_code,
-      false
+      false,
+      { evaluationAtMs: receivedAtMs }
     );
   } else if (response.source !== null || response.evidence !== null) {
     invalidResponse();
@@ -233,7 +262,7 @@ export function unwrapStalledOpportunityDetectionResponse(response, opportunityI
   }
 
   if (response.outcome === "ELIGIBLE_LEAK_DETECTED") {
-    validateCase(response.case, opportunityId);
+    validateCase(response.case, opportunityId, receivedAtMs);
     if (
       response.case.evidence_classification !== "MIXED"
       || response.case.source_observed_at !== response.source.observed_at
@@ -259,7 +288,7 @@ export function unwrapStalledOpportunityDetectionResponse(response, opportunityI
   return response;
 }
 
-function validateCase(record, opportunityId) {
+function validateCase(record, opportunityId, receivedAtMs) {
   if (
     !isPlainObject(record)
     || typeof record.id !== "string"
@@ -293,11 +322,14 @@ function validateCase(record, opportunityId) {
       !== record.source_observed_version
     || !isPlainObject(record.evidence_snapshot.facts)
     || !isTimestampString(record.detected_at)
+    || Date.parse(record.detected_at) > receivedAtMs
     || Date.parse(record.source_observed_at) > Date.parse(record.detected_at)
+    || Date.parse(record.detected_at) - Date.parse(record.source_observed_at)
+      > 90 * DAY_MS
     || !Array.isArray(record.audit)
     || record.audit.length === 0
-    || record.audit[0]?.transition !== "OPEN"
-    || record.audit[0]?.reason_code !== record.reason_code
+    || record.created_at !== undefined
+      && (!isTimestampString(record.created_at) || record.created_at !== record.detected_at)
   ) {
     invalidResponse();
   }
@@ -310,8 +342,13 @@ function validateCase(record, opportunityId) {
     },
     record.commercial_value,
     record.reason_code,
-    true
+    true,
+    {
+      evaluationAtMs: Date.parse(record.detected_at),
+      detectedAtMs: Date.parse(record.detected_at)
+    }
   );
+  validateAudit(record, receivedAtMs);
 }
 
 function validateDetectorEvidence(
@@ -319,7 +356,8 @@ function validateDetectorEvidence(
   source,
   commercialValue,
   reasonCode,
-  allowNotApplicable
+  allowNotApplicable,
+  { evaluationAtMs, detectedAtMs = null }
 ) {
   if (
     !isPlainObject(evidence)
@@ -358,11 +396,14 @@ function validateDetectorEvidence(
     || !isTimestampString(baseline.at)
     || !isTimestampString(evidence.stalled_since)
     || Date.parse(evidence.stalled_since) !== Date.parse(baseline.at) + 14 * 86400000
+    || detectedAtMs !== null && Date.parse(evidence.stalled_since) > detectedAtMs
     || !isPlainObject(freshness)
     || !hasExactKeys(freshness, ["observed_at", "maximum_age_days"])
     || freshness.observed_at !== source.observed_at
     || !isTimestampString(freshness.observed_at)
     || Date.parse(freshness.observed_at) < Date.parse(baseline.at)
+    || Date.parse(freshness.observed_at) > evaluationAtMs
+    || evaluationAtMs - Date.parse(freshness.observed_at) > 90 * DAY_MS
     || freshness.maximum_age_days !== 90
   ) {
     invalidResponse();
@@ -406,6 +447,110 @@ function validateDetectorEvidence(
     || reasonCode !== "OPPORTUNITY_CLOSED" && !ACTIVE_OPPORTUNITY_STAGES.has(stage)
     || reasonCode === "NEXT_ACTION_PRESENT" && nextAction.present !== true
     || reasonCode === "STALE_WITHOUT_NEXT_ACTION" && nextAction.present !== false
+  ) {
+    invalidResponse();
+  }
+}
+
+function validateAudit(record, receivedAtMs) {
+  const initial = record.audit[0];
+  if (
+    !isPlainObject(initial)
+    || !hasExactKeys(initial, [
+      "transition", "at", "subject_id", "detector_id", "detector_version",
+      "reason_code"
+    ])
+    || initial.transition !== "OPEN"
+    || initial.at !== record.detected_at
+    || !isBoundedText(initial.subject_id, 512)
+    || initial.detector_id !== record.detector_id
+    || initial.detector_version !== record.detector_version
+    || initial.reason_code !== record.reason_code
+  ) {
+    invalidResponse();
+  }
+
+  let state = "OPEN";
+  let linkedAction = null;
+  let previousAtMs = Date.parse(record.detected_at);
+  for (const entry of record.audit.slice(1)) {
+    if (!isPlainObject(entry) || !isTimestampString(entry.at)) invalidResponse();
+    const atMs = Date.parse(entry.at);
+    if (
+      atMs < previousAtMs
+      || atMs < Date.parse(record.detected_at)
+      || atMs > receivedAtMs
+      || !isBoundedText(entry.subject_id, 512)
+    ) {
+      invalidResponse();
+    }
+
+    if (entry.transition === "SNOOZED") {
+      if (
+        !hasExactKeys(entry, ["transition", "at", "subject_id", "reason", "wake_at"])
+        || state !== "OPEN"
+        || !isBoundedText(entry.reason, 1000)
+        || !isTimestampString(entry.wake_at)
+        || Date.parse(entry.wake_at) <= atMs
+      ) invalidResponse();
+      state = "SNOOZED";
+    } else if (entry.transition === "REOPENED") {
+      if (
+        !hasExactKeys(entry, ["transition", "at", "subject_id", "reason"])
+        || state !== "SNOOZED"
+        || !isBoundedText(entry.reason, 1000)
+      ) invalidResponse();
+      state = "OPEN";
+    } else if (entry.transition === "DISMISSED") {
+      if (
+        !hasExactKeys(entry, ["transition", "at", "subject_id", "reason"])
+        || !["OPEN", "SNOOZED"].includes(state)
+        || !isBoundedText(entry.reason, 1000)
+      ) invalidResponse();
+      state = "DISMISSED";
+    } else if (entry.transition === "SUPERSEDED") {
+      if (
+        !hasExactKeys(entry, [
+          "transition", "at", "subject_id", "reason_code",
+          "superseded_by_case_id", "replacement_semantic_key"
+        ])
+        || !["OPEN", "SNOOZED"].includes(state)
+        || entry.reason_code !== "CANONICAL_EVIDENCE_CHANGED"
+        || !isBoundedText(entry.superseded_by_case_id, 255)
+        || !/^[0-9a-f]{64}$/.test(entry.replacement_semantic_key || "")
+      ) invalidResponse();
+      state = "SUPERSEDED";
+    } else if (entry.transition === "REVENUE_ACTION_LINKED") {
+      if (
+        !hasExactKeys(entry, [
+          "transition", "at", "subject_id", "revenue_action_id",
+          "revenue_action_fingerprint", "revenue_action_status"
+        ])
+        || !["OPEN", "SNOOZED"].includes(state)
+        || linkedAction !== null
+        || !isBoundedText(entry.revenue_action_id, 255)
+        || !/^[0-9a-f]{64}$/.test(entry.revenue_action_fingerprint || "")
+        || !REVENUE_ACTION_STATUSES.has(entry.revenue_action_status)
+      ) invalidResponse();
+      linkedAction = {
+        id: entry.revenue_action_id,
+        status: entry.revenue_action_status
+      };
+    } else {
+      invalidResponse();
+    }
+    previousAtMs = atMs;
+  }
+
+  if (
+    state !== record.state
+    || record.updated_at !== undefined
+      && (!isTimestampString(record.updated_at)
+        || Date.parse(record.updated_at) !== previousAtMs)
+    || linkedAction !== null
+      && (record.revenue_action_id !== linkedAction.id
+        || record.revenue_action_status_at_link !== linkedAction.status)
+    || linkedAction === null && record.revenue_action_id
   ) {
     invalidResponse();
   }
@@ -479,6 +624,17 @@ function isTimestampString(value) {
 
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim() === value && value.length > 0;
+}
+
+function isBoundedText(value, maximumBytes) {
+  return isNonEmptyString(value)
+    && new TextEncoder().encode(value).length <= maximumBytes;
+}
+
+function referenceTime(value) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.valueOf())) invalidResponse();
+  return parsed.valueOf();
 }
 
 function hasExactKeys(value, expected) {

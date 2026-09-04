@@ -97,6 +97,54 @@ function detectorEvidence(overrides = {}) {
   };
 }
 
+function revenueLeakCase(overrides = {}) {
+  return {
+    id: "case-1",
+    leak_type: "STALLED_OPPORTUNITY",
+    opportunity_id: "opp-1",
+    source_system: "TGE",
+    source_entity_type: "OPPORTUNITY",
+    source_entity_id: "opp-1",
+    source_observed_at: "2026-09-01T00:00:00.000Z",
+    source_observed_version: "sha256:evidence",
+    state: "OPEN",
+    reason_code: "STALE_WITHOUT_NEXT_ACTION",
+    detector_id: "stalled-opportunity",
+    detector_version: "1",
+    evidence_classification: "MIXED",
+    evidence_snapshot: {
+      classification: "MIXED",
+      source_observation: {
+        observed_at: "2026-09-01T00:00:00.000Z",
+        observed_version: "sha256:evidence"
+      },
+      facts: detectorEvidence({
+        next_action: {
+          present: false,
+          source: "NONE",
+          opportunity_value: null,
+          active_task_ids: []
+        }
+      })
+    },
+    commercial_value: {
+      classification: "KNOWN",
+      amount: "0",
+      currency: "AUD"
+    },
+    detected_at: "2026-09-01T00:00:00.000Z",
+    audit: [{
+      transition: "OPEN",
+      at: "2026-09-01T00:00:00.000Z",
+      subject_id: "auth0|fixture-user",
+      detector_id: "stalled-opportunity",
+      detector_version: "1",
+      reason_code: "STALE_WITHOUT_NEXT_ACTION"
+    }],
+    ...overrides
+  };
+}
+
 test("browser contract keeps all five detector outcomes and closed reasons distinct", async () => {
   const {
     detectorOutcomePresentation,
@@ -203,7 +251,10 @@ test("browser lifecycle controls exactly mirror server-permitted case states", a
 });
 
 test("browser errors keep unauthorized, persistence, and other API failures distinct", async () => {
-  const { classifyRevenueLeakCaseError } = await browserContracts;
+  const {
+    classifyRevenueLeakCaseError,
+    isAmbiguousRevenueLeakCaseMutationError
+  } = await browserContracts;
 
   assert.equal(classifyRevenueLeakCaseError({ status: 401 }), "UNAUTHORIZED");
   assert.equal(classifyRevenueLeakCaseError({ status: 403 }), "UNAUTHORIZED");
@@ -219,6 +270,22 @@ test("browser errors keep unauthorized, persistence, and other API failures dist
     code: "TENANT_PERSISTENCE_UNAVAILABLE"
   }), "PERSISTENCE");
   assert.equal(classifyRevenueLeakCaseError({ status: 404 }), "API");
+
+  assert.equal(isAmbiguousRevenueLeakCaseMutationError(new TypeError("network")), true);
+  assert.equal(isAmbiguousRevenueLeakCaseMutationError({
+    status: null,
+    code: "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
+  }), true);
+  assert.equal(isAmbiguousRevenueLeakCaseMutationError({ status: 503 }), true);
+  assert.equal(isAmbiguousRevenueLeakCaseMutationError({
+    status: 500,
+    code: "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN"
+  }), true);
+  assert.equal(isAmbiguousRevenueLeakCaseMutationError({ status: 409 }), false);
+  assert.equal(isAmbiguousRevenueLeakCaseMutationError({
+    status: null,
+    code: "BROWSER_AUTH_UNAVAILABLE"
+  }), false);
 });
 
 test("browser response contracts fail closed instead of turning malformed success into empty or no leak", async () => {
@@ -227,47 +294,7 @@ test("browser response contracts fail closed instead of turning malformed succes
     unwrapRevenueLeakCaseMutationResponse,
     unwrapStalledOpportunityDetectionResponse
   } = await browserContracts;
-  const validCase = {
-    id: "case-1",
-    leak_type: "STALLED_OPPORTUNITY",
-    opportunity_id: "opp-1",
-    source_system: "TGE",
-    source_entity_type: "OPPORTUNITY",
-    source_entity_id: "opp-1",
-    source_observed_at: "2026-09-01T00:00:00.000Z",
-    source_observed_version: "sha256:evidence",
-    state: "OPEN",
-    reason_code: "STALE_WITHOUT_NEXT_ACTION",
-    detector_id: "stalled-opportunity",
-    detector_version: "1",
-    evidence_classification: "MIXED",
-    evidence_snapshot: {
-      classification: "MIXED",
-      source_observation: {
-        observed_at: "2026-09-01T00:00:00.000Z",
-        observed_version: "sha256:evidence"
-      },
-      facts: detectorEvidence({
-        next_action: {
-          present: false,
-          source: "NONE",
-          opportunity_value: null,
-          active_task_ids: []
-        }
-      })
-    },
-    commercial_value: {
-      classification: "KNOWN",
-      amount: "0",
-      currency: "AUD"
-    },
-    detected_at: "2026-09-01T00:00:00.000Z",
-    audit: [{
-      transition: "OPEN",
-      at: "2026-09-01T00:00:00.000Z",
-      reason_code: "STALE_WITHOUT_NEXT_ACTION"
-    }]
-  };
+  const validCase = revenueLeakCase();
 
   assert.deepEqual(
     unwrapRevenueLeakCaseListResponse({
@@ -427,6 +454,121 @@ test("browser response contracts fail closed instead of turning malformed succes
       error => error?.code === "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
     );
   }
+});
+
+test("browser contracts reject contradictory, future, stale, missing, and non-renderable temporal audit evidence", async () => {
+  const {
+    unwrapRevenueLeakCaseListResponse,
+    unwrapStalledOpportunityDetectionResponse
+  } = await browserContracts;
+  const receivedAt = "2026-09-04T00:00:00.000Z";
+  const validCase = revenueLeakCase();
+
+  const stalledAfterDetection = structuredClone(validCase);
+  stalledAfterDetection.evidence_snapshot.facts.activity_baseline.at =
+    "2026-08-20T00:00:00.000Z";
+  stalledAfterDetection.evidence_snapshot.facts.stalled_since =
+    "2026-09-03T00:00:00.000Z";
+
+  const sourceOutsideEligibilityWindow = structuredClone(validCase);
+  sourceOutsideEligibilityWindow.source_observed_at = "2026-05-01T00:00:00.000Z";
+  sourceOutsideEligibilityWindow.evidence_snapshot.source_observation.observed_at =
+    "2026-05-01T00:00:00.000Z";
+  sourceOutsideEligibilityWindow.evidence_snapshot.facts.activity_baseline.at =
+    "2026-04-01T00:00:00.000Z";
+  sourceOutsideEligibilityWindow.evidence_snapshot.facts.stalled_since =
+    "2026-04-15T00:00:00.000Z";
+  sourceOutsideEligibilityWindow.evidence_snapshot.facts.source_freshness.observed_at =
+    "2026-05-01T00:00:00.000Z";
+
+  const futureCase = structuredClone(validCase);
+  futureCase.detected_at = "2099-02-01T00:00:00.000Z";
+  futureCase.source_observed_at = "2099-01-01T00:00:00.000Z";
+  futureCase.evidence_snapshot.source_observation.observed_at =
+    "2099-01-01T00:00:00.000Z";
+  futureCase.evidence_snapshot.facts.activity_baseline.at =
+    "2098-12-01T00:00:00.000Z";
+  futureCase.evidence_snapshot.facts.stalled_since =
+    "2098-12-15T00:00:00.000Z";
+  futureCase.evidence_snapshot.facts.source_freshness.observed_at =
+    "2099-01-01T00:00:00.000Z";
+  futureCase.audit[0].at = futureCase.detected_at;
+
+  const missingAuditTime = structuredClone(validCase);
+  delete missingAuditTime.audit[0].at;
+
+  const nonRenderableAuditValue = structuredClone(validCase);
+  nonRenderableAuditValue.audit.push({
+    transition: "SNOOZED",
+    at: "2026-09-02T00:00:00.000Z",
+    subject_id: "auth0|fixture-user",
+    reason: { unsafe: "React child" },
+    wake_at: "2026-09-10T00:00:00.000Z"
+  });
+
+  const reversedAuditChronology = structuredClone(validCase);
+  reversedAuditChronology.audit.push({
+    transition: "SNOOZED",
+    at: "2026-08-31T00:00:00.000Z",
+    subject_id: "auth0|fixture-user",
+    reason: "Earlier than detection",
+    wake_at: "2026-09-10T00:00:00.000Z"
+  });
+
+  for (const record of [
+    stalledAfterDetection,
+    sourceOutsideEligibilityWindow,
+    futureCase,
+    missingAuditTime,
+    nonRenderableAuditValue,
+    reversedAuditChronology
+  ]) {
+    assert.throws(
+      () => unwrapRevenueLeakCaseListResponse({
+        ok: true,
+        data: [record],
+        count: 1
+      }, "opp-1", receivedAt),
+      error => error?.code === "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
+    );
+  }
+
+  const futureDetectorResponse = {
+    ok: true,
+    outcome: "ELIGIBLE_NO_LEAK",
+    reason_code: "RECENT_MEANINGFUL_ACTIVITY",
+    detector: { id: "stalled-opportunity", version: "1" },
+    source: {
+      system: "TGE",
+      entity_type: "OPPORTUNITY",
+      entity_id: "opp-1",
+      observed_at: "2099-01-01T00:00:00.000Z",
+      observed_version: "sha256:future"
+    },
+    evidence: detectorEvidence({
+      activity_baseline: {
+        kind: "ACTIVITY",
+        entity_id: "activity-future",
+        at: "2098-12-20T00:00:00.000Z"
+      },
+      stalled_since: "2099-01-03T00:00:00.000Z",
+      source_freshness: {
+        observed_at: "2099-01-01T00:00:00.000Z",
+        maximum_age_days: 90
+      }
+    }),
+    commercial_value: { classification: "KNOWN", amount: "0", currency: "AUD" },
+    case: null,
+    reconciliation: null
+  };
+  assert.throws(
+    () => unwrapStalledOpportunityDetectionResponse(
+      futureDetectorResponse,
+      "opp-1",
+      receivedAt
+    ),
+    error => error?.code === "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
+  );
 });
 
 test("browser API client and Opportunity Command Center expose only the bounded leak-case integration", () => {

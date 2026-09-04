@@ -56,15 +56,26 @@ function leakCase({
     reason_code: "STALE_WITHOUT_NEXT_ACTION"
   }];
   if (state !== "OPEN") {
-    audit.push({
-      transition: state,
-      at: "2026-09-02T00:00:00.000Z",
-      subject_id: "auth0|fixture-user",
-      reason: `${state.toLowerCase()} fixture reason`,
-      ...(state === "SNOOZED"
-        ? { wake_at: "2026-09-10T00:00:00.000Z" }
-        : {})
-    });
+    if (state === "SUPERSEDED") {
+      audit.push({
+        transition: "SUPERSEDED",
+        at: "2026-09-02T00:00:00.000Z",
+        subject_id: "auth0|fixture-user",
+        reason_code: "CANONICAL_EVIDENCE_CHANGED",
+        superseded_by_case_id: supersededBy,
+        replacement_semantic_key: "b".repeat(64)
+      });
+    } else {
+      audit.push({
+        transition: state,
+        at: "2026-09-02T00:00:00.000Z",
+        subject_id: "auth0|fixture-user",
+        reason: `${state.toLowerCase()} fixture reason`,
+        ...(state === "SNOOZED"
+          ? { wake_at: "2026-09-10T00:00:00.000Z" }
+          : {})
+      });
+    }
   }
   const commercialValueBasis = commercialValue.classification === "KNOWN"
     ? {
@@ -312,13 +323,13 @@ test("revenue leak history distinguishes every lifecycle and commercial-value st
       id: "case-open-known",
       state: "OPEN",
       commercialValue: { classification: "KNOWN", amount: "42000.5", currency: "AUD" },
-      detectedAt: "2026-09-04T00:00:00.000Z"
+      detectedAt: "2026-09-03T00:00:00.000Z"
     }),
     leakCase({
       id: "case-snoozed-zero",
       state: "SNOOZED",
       commercialValue: { classification: "KNOWN", amount: "0", currency: "AUD" },
-      detectedAt: "2026-09-03T00:00:00.000Z"
+      detectedAt: "2026-09-01T00:00:00.000Z"
     }),
     leakCase({
       id: "case-dismissed-unknown",
@@ -390,7 +401,7 @@ test("revenue leak history keeps unauthorized and persistence failures distinct 
   await expect(page.getByTestId("revenue-leak-empty-history")).toHaveCount(0);
 });
 
-test("revenue leak panel ignores stale history responses and fits a mobile viewport", async ({ page }) => {
+test("revenue leak panel ignores valid stale history responses and fits a mobile viewport", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route(`${apiBaseUrl}/api/revenue-leak-cases?*`, async route => {
     const opportunityId = new URL(route.request().url()).searchParams.get("opportunity_id");
@@ -401,7 +412,6 @@ test("revenue leak panel ignores stale history responses and fits a mobile viewp
         state: "OPEN",
         commercialValue: { classification: "KNOWN", amount: "1", currency: "AUD" }
       });
-      staleCase.reason_code = "STALE_RESPONSE_MUST_NOT_RENDER";
       return route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({ ok: true, data: [staleCase], count: 1 })
@@ -421,7 +431,7 @@ test("revenue leak panel ignores stale history responses and fits a mobile viewp
   await expect(page.getByRole("heading", { name: "E2E Revenue Electrical" })).toBeVisible();
   await expect(page.getByTestId("revenue-leak-empty-history")).toBeVisible();
   await page.waitForTimeout(550);
-  await expect(page.getByText("STALE_RESPONSE_MUST_NOT_RENDER")).toHaveCount(0);
+  await expect(page.getByText("Case stale-response-must-not-render")).toHaveCount(0);
   const overflowingElements = await page.locator("body *").evaluateAll(elements =>
     elements
       .filter(element => element.getBoundingClientRect().right > document.documentElement.clientWidth + 1)
@@ -438,6 +448,255 @@ test("revenue leak panel ignores stale history responses and fits a mobile viewp
     viewport: document.documentElement.clientWidth
   }))).toEqual({ body: 390, viewport: 390 });
   await expect(page).toHaveURL(/#opportunities\/e2e-opp-revenue$/);
+});
+
+test("late opportunity intelligence and detector responses cannot rebind route B to route A", async ({ page }) => {
+  let intelligenceRequests = 0;
+  let releaseIntelligence;
+  const intelligenceGate = new Promise(resolve => {
+    releaseIntelligence = resolve;
+  });
+  await page.route(
+    `${apiBaseUrl}/api/opportunities/e2e-opp-command/intelligence`,
+    async route => {
+      intelligenceRequests += 1;
+      await intelligenceGate;
+      await route.continue();
+    }
+  );
+
+  await page.goto("/#opportunities/e2e-opp-command");
+  await expect.poll(() => intelligenceRequests).toBe(1);
+  await page.evaluate(() => {
+    window.location.hash = "opportunities/e2e-opp-revenue";
+  });
+  await expect(page.getByRole("heading", { name: "E2E Revenue Electrical" })).toBeVisible();
+  await page.evaluate(() => {
+    window.__staleOpportunityRendered = false;
+    window.__staleOpportunityObserver = new MutationObserver(() => {
+      if (document.body.textContent?.includes("E2E Command Plumbing")) {
+        window.__staleOpportunityRendered = true;
+      }
+    });
+    window.__staleOpportunityObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+  });
+  releaseIntelligence();
+  await page.waitForTimeout(150);
+  expect(await page.evaluate(() => window.__staleOpportunityRendered)).toBe(false);
+  await expect(page.getByRole("heading", { name: "E2E Command Plumbing" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "E2E Revenue Electrical" })).toBeVisible();
+  await expect(page).toHaveURL(/#opportunities\/e2e-opp-revenue$/);
+
+  await page.unroute(`${apiBaseUrl}/api/opportunities/e2e-opp-command/intelligence`);
+
+  let detectorRequests = 0;
+  let releaseDetector;
+  const detectorGate = new Promise(resolve => {
+    releaseDetector = resolve;
+  });
+  const staleDetection = {
+    ok: true,
+    outcome: "ELIGIBLE_LEAK_DETECTED",
+    reason_code: "STALE_WITHOUT_NEXT_ACTION",
+    detector: { id: "stalled-opportunity", version: "1" },
+    source,
+    evidence,
+    commercial_value: { classification: "KNOWN", amount: "1", currency: "AUD" },
+    case: leakCase({
+      id: "late-detector-case-a",
+      state: "OPEN",
+      commercialValue: { classification: "KNOWN", amount: "1", currency: "AUD" }
+    }),
+    reconciliation: { created: true, duplicate: false, superseded_case_id: null }
+  };
+  await page.route(
+    `${apiBaseUrl}/api/opportunities/e2e-opp-command/revenue-leak-cases/detect-stalled`,
+    async route => {
+      detectorRequests += 1;
+      await detectorGate;
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify(staleDetection)
+      });
+    }
+  );
+
+  await page.evaluate(() => {
+    window.location.hash = "opportunities/e2e-opp-command";
+  });
+  await expect(page.getByRole("heading", { name: "E2E Command Plumbing" })).toBeVisible();
+  await page.getByTestId("detect-stalled-opportunity").click();
+  await expect.poll(() => detectorRequests).toBe(1);
+  await page.evaluate(() => {
+    window.location.hash = "opportunities/e2e-opp-revenue";
+  });
+  await expect(page.getByRole("heading", { name: "E2E Revenue Electrical" })).toBeVisible();
+  releaseDetector();
+  await page.waitForTimeout(150);
+  await expect(page.getByText("Case late-detector-case-a")).toHaveCount(0);
+  await expect(page.getByTestId("revenue-leak-detector-outcome")).toHaveCount(0);
+  await expect(page.getByTestId("revenue-leak-lifecycle-controls")).toHaveCount(0);
+  await expect(page).toHaveURL(/#opportunities\/e2e-opp-revenue$/);
+});
+
+test("ambiguous lifecycle and link writes reload durable history before controls re-enable", async ({ page }) => {
+  let durableCase = leakCase({
+    id: "case-ambiguous-recovery",
+    state: "OPEN",
+    commercialValue: { classification: "KNOWN", amount: "42000", currency: "AUD" }
+  });
+  let mutationPosts = 0;
+  const postCounts = {
+    snooze: 0,
+    resume: 0,
+    link: 0,
+    dismiss: 0
+  };
+
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases?opportunity_id=e2e-opp-command`,
+    async route => {
+      if (mutationPosts > 0) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, data: [durableCase], count: 1 })
+      });
+    }
+  );
+  await page.route(`${apiBaseUrl}/api/revenue-actions?*`, route => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({
+      ok: true,
+      data: [{
+        id: "action-ambiguous-recovery",
+        opportunity_id: "e2e-opp-command",
+        status: "PREPARED",
+        title: "Prepared recovery action",
+        action_type: "FOLLOW_UP",
+        priority: "HIGH",
+        reason: "Existing human-controlled RevenueAction",
+        created_at: "2026-09-01T00:00:00.000Z",
+        updated_at: "2026-09-02T00:00:00.000Z"
+      }],
+      count: 1
+    })
+  }));
+
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/case-ambiguous-recovery/snooze`,
+    async route => {
+      postCounts.snooze += 1;
+      mutationPosts += 1;
+      durableCase = {
+        ...durableCase,
+        state: "SNOOZED",
+        updated_at: "2026-09-02T01:00:00.000Z",
+        audit: [...durableCase.audit, {
+          transition: "SNOOZED",
+          at: "2026-09-02T01:00:00.000Z",
+          subject_id: "auth0|fixture-user",
+          reason: "Committed snooze with lost response",
+          wake_at: "2026-09-10T00:00:00.000Z"
+        }]
+      };
+      await route.abort("connectionreset");
+    }
+  );
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/case-ambiguous-recovery/resume`,
+    async route => {
+      postCounts.resume += 1;
+      mutationPosts += 1;
+      durableCase = {
+        ...durableCase,
+        state: "OPEN",
+        updated_at: "2026-09-02T02:00:00.000Z",
+        audit: [...durableCase.audit, {
+          transition: "REOPENED",
+          at: "2026-09-02T02:00:00.000Z",
+          subject_id: "auth0|fixture-user",
+          reason: "Committed resume with malformed response"
+        }]
+      };
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, data: null })
+      });
+    }
+  );
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/case-ambiguous-recovery/link-revenue-action`,
+    async route => {
+      postCounts.link += 1;
+      mutationPosts += 1;
+      durableCase = {
+        ...durableCase,
+        revenue_action_id: "action-ambiguous-recovery",
+        revenue_action_status_at_link: "PREPARED",
+        updated_at: "2026-09-02T03:00:00.000Z",
+        audit: [...durableCase.audit, {
+          transition: "REVENUE_ACTION_LINKED",
+          at: "2026-09-02T03:00:00.000Z",
+          subject_id: "auth0|fixture-user",
+          revenue_action_id: "action-ambiguous-recovery",
+          revenue_action_fingerprint: "a".repeat(64),
+          revenue_action_status: "PREPARED"
+        }]
+      };
+      await route.abort("connectionreset");
+    }
+  );
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/case-ambiguous-recovery/dismiss`,
+    async route => {
+      postCounts.dismiss += 1;
+      mutationPosts += 1;
+      durableCase = {
+        ...durableCase,
+        state: "DISMISSED",
+        updated_at: "2026-09-02T04:00:00.000Z",
+        audit: [...durableCase.audit, {
+          transition: "DISMISSED",
+          at: "2026-09-02T04:00:00.000Z",
+          subject_id: "auth0|fixture-user",
+          reason: "Committed dismissal with malformed response"
+        }]
+      };
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, data: { id: "uninterpretable" } })
+      });
+    }
+  );
+
+  await openCommandOpportunity(page);
+
+  await page.getByLabel("Reason to snooze").fill("Committed snooze with lost response");
+  await page.getByRole("button", { name: "Snooze case" }).click();
+  await expect(page.getByRole("button", { name: "Snoozing…" })).toBeDisabled();
+  await expect(page.getByTestId("revenue-leak-case-detail")).toContainText("SNOOZED");
+  await expect(page.getByTestId("revenue-leak-success")).toContainText("authoritative durable case history");
+
+  await page.getByLabel("Reason to resume").fill("Committed resume with malformed response");
+  await page.getByRole("button", { name: "Resume case" }).click();
+  await expect(page.getByTestId("revenue-leak-case-detail")).toContainText("OPEN");
+
+  await page.getByTestId("link-revenue-action-to-case").click();
+  await expect(page.getByTestId("linked-revenue-action")).toContainText(
+    "action-ambiguous-recovery · status at link PREPARED"
+  );
+
+  await page.getByLabel("Reason to dismiss").fill("Committed dismissal with malformed response");
+  await page.getByRole("button", { name: "Dismiss case" }).click();
+  await expect(page.getByTestId("revenue-leak-case-detail")).toContainText("DISMISSED");
+  await expect(page.getByTestId("revenue-leak-lifecycle-controls")).toHaveCount(0);
+  expect(postCounts).toEqual({ snooze: 1, resume: 1, link: 1, dismiss: 1 });
 });
 
 test("delayed RevenueAction history cannot cross an opportunity route change", async ({ page }) => {
