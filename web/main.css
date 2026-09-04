@@ -1688,3 +1688,363 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* RevenueLeakCase review */
+
+.rlc-panel {
+  border-color: rgba(212, 181, 106, .22);
+}
+
+.rlc-heading,
+.rlc-case-title,
+.rlc-action-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.rlc-heading .oc-primary-button {
+  flex: 0 0 auto;
+}
+
+.rlc-state,
+.rlc-evidence-empty {
+  margin-top: 18px;
+  padding: 15px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 10px;
+  color: #aab1bc;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.rlc-error {
+  margin-top: 18px;
+}
+
+.rlc-error .oc-secondary-button {
+  align-self: flex-start;
+}
+
+.rlc-outcome {
+  margin-top: 20px;
+  padding: 20px;
+  border: 1px solid rgba(101, 211, 145, .22);
+  border-radius: 14px;
+  background: rgba(101, 211, 145, .045);
+}
+
+.rlc-outcome.unavailable,
+.rlc-outcome.stale,
+.rlc-outcome.suppressed {
+  border-color: rgba(212, 181, 106, .28);
+  background: rgba(212, 181, 106, .05);
+}
+
+.rlc-outcome > span,
+.rlc-source-summary,
+.rlc-value > span,
+.rlc-value > small {
+  color: #858d9b;
+  font-size: 11px;
+}
+
+.rlc-outcome h3,
+.rlc-case-detail h3,
+.rlc-history h3 {
+  margin: 7px 0 9px;
+}
+
+.rlc-outcome code,
+.rlc-case-detail code {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: #d4b56a;
+  font-size: 11px;
+}
+
+.rlc-outcome > p,
+.rlc-case-title p,
+.rlc-action-link p {
+  color: #9aa2af;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.rlc-value {
+  min-width: 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.rlc-value > strong {
+  overflow-wrap: anywhere;
+  font-size: 18px;
+}
+
+.rlc-evidence {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.rlc-evidence > div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 10px;
+  background: rgba(0,0,0,.13);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.rlc-evidence span,
+.rlc-evidence small {
+  color: #7f8794;
+  font-size: 10px;
+}
+
+.rlc-evidence strong {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.rlc-version {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.rlc-history {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255,255,255,.07);
+}
+
+.rlc-history-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.rlc-history-list button {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 11px;
+  background: rgba(255,255,255,.018);
+  color: #f2f3f5;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.rlc-history-list button.selected {
+  border-color: rgba(212, 181, 106, .38);
+  background: rgba(212, 181, 106, .06);
+}
+
+.rlc-history-list small {
+  color: #7f8794;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.rlc-status {
+  width: fit-content;
+  padding: 5px 8px;
+  border: 1px solid rgba(101, 211, 145, .3);
+  border-radius: 999px;
+  color: #72d99a;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+.rlc-status.snoozed {
+  border-color: rgba(212, 181, 106, .35);
+  color: #d4b56a;
+}
+
+.rlc-status.dismissed,
+.rlc-status.superseded {
+  border-color: rgba(255,255,255,.14);
+  color: #8f96a3;
+}
+
+.rlc-case-detail {
+  margin-top: 18px;
+  padding: 20px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px;
+  background: rgba(0,0,0,.12);
+}
+
+.rlc-case-title .rlc-value {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.rlc-source-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 16px;
+  margin-top: 14px;
+}
+
+.rlc-action-link,
+.rlc-lifecycle,
+.rlc-audit {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255,255,255,.07);
+}
+
+.rlc-action-link h4,
+.rlc-lifecycle h4,
+.rlc-audit h4 {
+  margin: 0 0 8px;
+}
+
+.rlc-action-link > div:first-child {
+  min-width: 0;
+}
+
+.rlc-action-link span {
+  display: block;
+  color: #aeb5c1;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.rlc-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.rlc-lifecycle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.rlc-lifecycle > h4 {
+  grid-column: 1 / -1;
+}
+
+.rlc-control {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 11px;
+  display: grid;
+  gap: 8px;
+}
+
+.rlc-control label,
+.rlc-control small {
+  color: #858d9b;
+  font-size: 11px;
+}
+
+.rlc-control input,
+.rlc-control select {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid rgba(255,255,255,.1);
+  background: #17191d;
+  color: #fff;
+  border-radius: 8px;
+  padding: 9px 10px;
+}
+
+.rlc-control .oc-secondary-button {
+  justify-self: start;
+}
+
+.rlc-audit-entry {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 4px 12px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(255,255,255,.05);
+}
+
+.rlc-audit-entry strong {
+  grid-column: 1;
+  grid-row: 1;
+  color: #d4b56a;
+  font-size: 11px;
+}
+
+.rlc-audit-entry span {
+  grid-column: 2;
+  min-width: 0;
+  color: #7f8794;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .rlc-evidence {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rlc-heading,
+  .rlc-case-title,
+  .rlc-action-link {
+    flex-direction: column;
+  }
+
+  .rlc-case-title .rlc-value {
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .rlc-button-row {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 600px) {
+  .oc-action-form {
+    flex-direction: column;
+  }
+
+  .oc-action-form .oc-secondary-button {
+    width: 100%;
+  }
+
+  .rlc-evidence,
+  .rlc-history-list,
+  .rlc-lifecycle {
+    grid-template-columns: 1fr;
+  }
+
+  .rlc-audit-entry {
+    grid-template-columns: 1fr;
+  }
+
+  .rlc-audit-entry strong {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .rlc-audit-entry span {
+    grid-column: auto;
+  }
+
+  .rlc-heading .oc-primary-button,
+  .rlc-button-row,
+  .rlc-button-row .oc-secondary-button {
+    width: 100%;
+  }
+}

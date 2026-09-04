@@ -6,6 +6,11 @@ import {
 import {
   createBrowserApiRequest
 } from "./browserApiRequest.mjs";
+import {
+  unwrapRevenueLeakCaseListResponse,
+  unwrapRevenueLeakCaseMutationResponse,
+  unwrapStalledOpportunityDetectionResponse
+} from "./revenueLeakCaseContracts.mjs";
 
 export const API_BASE =
   import.meta.env.VITE_API_URL ||
@@ -243,6 +248,68 @@ export function transitionRevenueAction(
       body: JSON.stringify(body)
     }
   );
+}
+
+export async function getOpportunityRevenueLeakCases(
+  opportunityId
+) {
+  const query = new URLSearchParams({
+    opportunity_id: opportunityId
+  }).toString();
+
+  const response = await request(
+    `/api/revenue-leak-cases?${query}`
+  );
+  unwrapRevenueLeakCaseListResponse(response, opportunityId);
+  return response;
+}
+
+export async function detectStalledOpportunity(
+  opportunityId
+) {
+  const response = await request(
+    `/api/opportunities/${encodeURIComponent(opportunityId)}/revenue-leak-cases/detect-stalled`,
+    {
+      method: "POST",
+      body: JSON.stringify({})
+    }
+  );
+  return unwrapStalledOpportunityDetectionResponse(response, opportunityId);
+}
+
+export async function transitionRevenueLeakCase(
+  caseId,
+  transition,
+  body,
+  opportunityId
+) {
+  const response = await request(
+    `/api/revenue-leak-cases/${encodeURIComponent(caseId)}/${transition}`,
+    {
+      method: "POST",
+      body: JSON.stringify(body)
+    }
+  );
+  unwrapRevenueLeakCaseMutationResponse(response, opportunityId);
+  return response;
+}
+
+export async function linkRevenueLeakCaseToAction(
+  caseId,
+  revenueActionId,
+  opportunityId
+) {
+  const response = await request(
+    `/api/revenue-leak-cases/${encodeURIComponent(caseId)}/link-revenue-action`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        revenue_action_id: revenueActionId
+      })
+    }
+  );
+  unwrapRevenueLeakCaseMutationResponse(response, opportunityId);
+  return response;
 }
 
 export async function createImportPreview(
