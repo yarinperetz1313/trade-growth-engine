@@ -277,6 +277,7 @@ test("browser errors keep unauthorized, persistence, and other API failures dist
     code: "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
   }), true);
   assert.equal(isAmbiguousRevenueLeakCaseMutationError({ status: 503 }), true);
+  assert.equal(isAmbiguousRevenueLeakCaseMutationError({ status: 408 }), true);
   assert.equal(isAmbiguousRevenueLeakCaseMutationError({
     status: 500,
     code: "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN"
@@ -564,6 +565,60 @@ test("browser contracts reject contradictory, future, stale, missing, and non-re
   assert.throws(
     () => unwrapStalledOpportunityDetectionResponse(
       futureDetectorResponse,
+      "opp-1",
+      receivedAt
+    ),
+    error => error?.code === "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
+  );
+
+  const evaluatedAtStallBoundary = {
+    ...futureDetectorResponse,
+    source: {
+      ...futureDetectorResponse.source,
+      observed_at: "2026-09-01T00:00:00.000Z",
+      observed_version: "sha256:stall-boundary"
+    },
+    evidence: detectorEvidence({
+      activity_baseline: {
+        kind: "ACTIVITY",
+        entity_id: "activity-boundary",
+        at: "2026-08-21T00:00:00.000Z"
+      },
+      stalled_since: "2026-09-04T00:00:00.000Z",
+      source_freshness: {
+        observed_at: "2026-09-01T00:00:00.000Z",
+        maximum_age_days: 90
+      }
+    })
+  };
+  assert.throws(
+    () => unwrapStalledOpportunityDetectionResponse(
+      evaluatedAtStallBoundary,
+      "opp-1",
+      receivedAt
+    ),
+    error => error?.code === "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
+  );
+
+  const nextActionBeforeStall = {
+    ...evaluatedAtStallBoundary,
+    reason_code: "NEXT_ACTION_PRESENT",
+    evidence: detectorEvidence({
+      activity_baseline: {
+        kind: "ACTIVITY",
+        entity_id: "activity-not-stalled",
+        at: "2026-08-22T00:00:00.000Z"
+      },
+      stalled_since: "2026-09-05T00:00:00.000Z",
+      source_freshness: {
+        observed_at: "2026-09-01T00:00:00.000Z",
+        maximum_age_days: 90
+      }
+    })
+  };
+  assert.throws(
+    () => unwrapStalledOpportunityDetectionResponse(
+      nextActionBeforeStall,
       "opp-1",
       receivedAt
     ),

@@ -188,12 +188,18 @@ Before rendering successful detector or case-history responses, the browser
 fails closed on malformed versioned evidence, future or contradictory source and
 detection timestamps, source age beyond the declared 90-day eligibility window,
 and audit entries that do not reproduce the bounded lifecycle in chronological
-order. Opportunity identity plus request generation prevents late intelligence,
-detection, history, or mutation responses from a prior hash route from binding to
-the current opportunity. If a snooze, resume, dismiss, or link write has an
-unconfirmed outcome because its response was lost, malformed, or outcome-unknown,
-the browser reloads authoritative case history before write controls can be used
-again. It never automatically retries those mutations.
+order. A `RECENT_MEANINGFUL_ACTIVITY` result is valid only before the exact stalled
+boundary; `NEXT_ACTION_PRESENT` is valid only at or after it. Detector response
+receipt time, or durable case detection time when present, supplies that evaluation
+boundary to browser validation.
+
+Opportunity identity plus route/request generation prevents late intelligence or
+RevenueAction mutations, detector responses, and history or action-list loads from
+a prior hash route from applying returned opportunity state or invoking the parent
+opportunity-update callback. If a snooze, resume, dismiss, or link write has an
+unconfirmed outcome because its response was lost, malformed, HTTP 408, server-side,
+or explicitly outcome-unknown, the browser reloads authoritative case history while
+write controls remain locked. It never automatically retries those mutations.
 
 ## API
 

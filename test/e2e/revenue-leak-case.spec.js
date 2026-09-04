@@ -605,7 +605,15 @@ test("ambiguous lifecycle and link writes reload durable history before controls
           wake_at: "2026-09-10T00:00:00.000Z"
         }]
       };
-      await route.abort("connectionreset");
+      await route.fulfill({
+        status: 408,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: false,
+          error: "REQUEST_TIMEOUT",
+          message: "The lifecycle response timed out after the write began."
+        })
+      });
     }
   );
   await page.route(
@@ -649,7 +657,15 @@ test("ambiguous lifecycle and link writes reload durable history before controls
           revenue_action_status: "PREPARED"
         }]
       };
-      await route.abort("connectionreset");
+      await route.fulfill({
+        status: 408,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: false,
+          error: "REQUEST_TIMEOUT",
+          message: "The link response timed out after the write began."
+        })
+      });
     }
   );
   await page.route(
@@ -688,6 +704,7 @@ test("ambiguous lifecycle and link writes reload durable history before controls
   await expect(page.getByTestId("revenue-leak-case-detail")).toContainText("OPEN");
 
   await page.getByTestId("link-revenue-action-to-case").click();
+  await expect(page.getByRole("button", { name: "Linking…" })).toBeDisabled();
   await expect(page.getByTestId("linked-revenue-action")).toContainText(
     "action-ambiguous-recovery · status at link PREPARED"
   );
@@ -697,6 +714,203 @@ test("ambiguous lifecycle and link writes reload durable history before controls
   await expect(page.getByTestId("revenue-leak-case-detail")).toContainText("DISMISSED");
   await expect(page.getByTestId("revenue-leak-lifecycle-controls")).toHaveCount(0);
   expect(postCounts).toEqual({ snooze: 1, resume: 1, link: 1, dismiss: 1 });
+});
+
+test("late intelligence mutation cannot reselect route A after navigation to route B", async ({ page }) => {
+  let intelligenceLoads = 0;
+  let intelligenceMutationRequests = 0;
+  let releaseIntelligenceMutation;
+  const intelligenceMutationGate = new Promise(resolve => {
+    releaseIntelligenceMutation = resolve;
+  });
+  const routeAOpportunity = {
+    id: "e2e-opp-command",
+    business_name: "E2E Command Plumbing",
+    service: "Commercial Plumbing",
+    location: "Melbourne",
+    stage: "QUALIFIED",
+    value: 15000,
+    next_action: "Identify the decision maker"
+  };
+  const routeAIntelligence = {
+    resolved: {
+      business_name: routeAOpportunity.business_name,
+      service: routeAOpportunity.service,
+      location: routeAOpportunity.location,
+      contact_name: "Unknown"
+    },
+    score: {},
+    health: { status: "UNKNOWN", risks: [] },
+    evidence: {},
+    activity: {},
+    tasks: {},
+    next_best_action: {
+      type: "RESEARCH",
+      title: "Identify the decision maker",
+      reason: "No decision maker is recorded."
+    }
+  };
+
+  await page.route(
+    `${apiBaseUrl}/api/opportunities/e2e-opp-command/intelligence`,
+    route => {
+      intelligenceLoads += 1;
+      return route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            opportunity: routeAOpportunity,
+            intelligence: routeAIntelligence
+          }
+        })
+      });
+    }
+  );
+  await page.route(
+    `${apiBaseUrl}/api/opportunities/e2e-opp-command/intelligence/contact`,
+    async route => {
+      intelligenceMutationRequests += 1;
+      await intelligenceMutationGate;
+      const updatedOpportunity = {
+        ...routeAOpportunity,
+        business_name: "LATE INTELLIGENCE MUTATION MUST NOT RENDER",
+        contact_name: "Late route A contact"
+      };
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          opportunity: updatedOpportunity,
+          intelligence: routeAIntelligence,
+          state: {
+            opportunity: updatedOpportunity,
+            intelligence: routeAIntelligence
+          },
+          pipeline_metrics: {}
+        })
+      });
+    }
+  );
+
+  await page.goto("/#opportunities/e2e-opp-command");
+  await page.getByTestId("contact-name-input").fill("Route A contact");
+  await page.getByTestId("add-contact").click();
+  await expect.poll(() => intelligenceMutationRequests).toBe(1);
+  await page.evaluate(() => {
+    window.location.hash = "opportunities/e2e-opp-revenue";
+  });
+  await expect(page.getByRole("heading", { name: "E2E Revenue Electrical" })).toBeVisible();
+  await page.evaluate(() => {
+    window.__lateIntelligenceMutationRendered = false;
+    window.__lateIntelligenceMutationObserver = new MutationObserver(() => {
+      if (document.body.textContent?.includes("LATE INTELLIGENCE MUTATION MUST NOT RENDER")) {
+        window.__lateIntelligenceMutationRendered = true;
+      }
+    });
+    window.__lateIntelligenceMutationObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/opportunities`, async route => {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    await route.continue();
+  });
+  releaseIntelligenceMutation();
+  await page.waitForTimeout(700);
+  expect(await page.evaluate(() => window.__lateIntelligenceMutationRendered)).toBe(false);
+  await expect(page.getByTestId("action-success")).toHaveCount(0);
+  expect(intelligenceLoads).toBe(1);
+  await expect(page.getByText("LATE INTELLIGENCE MUTATION MUST NOT RENDER")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "E2E Revenue Electrical" })).toBeVisible();
+  await expect(page).toHaveURL(/#opportunities\/e2e-opp-revenue$/);
+});
+
+test("late RevenueAction mutation cannot reselect route A after navigation to route B", async ({ page }) => {
+  let revenueActionMutationRequests = 0;
+  let releaseRevenueActionMutation;
+  const revenueActionMutationGate = new Promise(resolve => {
+    releaseRevenueActionMutation = resolve;
+  });
+  const routeAAction = {
+    id: "route-a-revenue-action",
+    opportunity_id: "e2e-opp-command",
+    status: "PREPARED",
+    title: "Route A prepared action",
+    action_type: "RESEARCH",
+    priority: "HIGH",
+    reason: "A human-controlled route A action",
+    created_at: "2026-09-01T00:00:00.000Z",
+    updated_at: "2026-09-02T00:00:00.000Z"
+  };
+
+  await page.route(`${apiBaseUrl}/api/revenue-actions?*`, route => {
+    const opportunityId = new URL(route.request().url()).searchParams.get("opportunity_id");
+    const data = opportunityId === "e2e-opp-command" ? [routeAAction] : [];
+    return route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, data, count: data.length })
+    });
+  });
+  await page.route(
+    `${apiBaseUrl}/api/revenue-actions/route-a-revenue-action/approve`,
+    async route => {
+      revenueActionMutationRequests += 1;
+      await revenueActionMutationGate;
+      const staleOpportunity = {
+        id: "e2e-opp-command",
+        business_name: "LATE REVENUE ACTION MUTATION MUST NOT RENDER",
+        stage: "QUALIFIED",
+        value: 15000
+      };
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          data: { ...routeAAction, status: "APPROVED" },
+          duplicate: false,
+          refreshed: {
+            opportunity: staleOpportunity,
+            opportunity_intelligence: {}
+          }
+        })
+      });
+    }
+  );
+
+  await page.goto("/#opportunities/e2e-opp-command");
+  await expect(page.getByTestId("approve-revenue-action")).toBeVisible();
+  await page.getByTestId("approve-revenue-action").click();
+  await expect.poll(() => revenueActionMutationRequests).toBe(1);
+  await page.evaluate(() => {
+    window.location.hash = "opportunities/e2e-opp-revenue";
+  });
+  await expect(page.getByRole("heading", { name: "E2E Revenue Electrical" })).toBeVisible();
+  await page.evaluate(() => {
+    window.__lateRevenueActionMutationRendered = false;
+    window.__lateRevenueActionMutationObserver = new MutationObserver(() => {
+      if (document.body.textContent?.includes("LATE REVENUE ACTION MUTATION MUST NOT RENDER")) {
+        window.__lateRevenueActionMutationRendered = true;
+      }
+    });
+    window.__lateRevenueActionMutationObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/opportunities`, async route => {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    await route.continue();
+  });
+  releaseRevenueActionMutation();
+  await page.waitForTimeout(150);
+  expect(await page.evaluate(() => window.__lateRevenueActionMutationRendered)).toBe(false);
+  await expect(page.getByText("LATE REVENUE ACTION MUTATION MUST NOT RENDER")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "E2E Revenue Electrical" })).toBeVisible();
+  await expect(page).toHaveURL(/#opportunities\/e2e-opp-revenue$/);
 });
 
 test("delayed RevenueAction history cannot cross an opportunity route change", async ({ page }) => {

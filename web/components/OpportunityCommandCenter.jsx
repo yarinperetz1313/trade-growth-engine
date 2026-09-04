@@ -145,11 +145,33 @@ export default function OpportunityCommandCenter({
   const revenueActionOpportunityId = useRef(opportunity.id);
   const revenueActionGeneration = useRef(0);
   const revenueActionRequest = useRef(0);
+  const revenueActionMutationRequest = useRef(0);
   const intelligenceOpportunityId = useRef(opportunity.id);
   const intelligenceGeneration = useRef(0);
   const intelligenceRequest = useRef(0);
+  const intelligenceMutationRequest = useRef(0);
   revenueActionOpportunityId.current = opportunity.id;
   intelligenceOpportunityId.current = opportunity.id;
+
+  function isCurrentRevenueActionMutation({
+    targetOpportunityId,
+    generation,
+    requestId
+  }) {
+    return generation === revenueActionGeneration.current
+      && requestId === revenueActionMutationRequest.current
+      && targetOpportunityId === revenueActionOpportunityId.current;
+  }
+
+  function isCurrentIntelligenceMutation({
+    targetOpportunityId,
+    generation,
+    requestId
+  }) {
+    return generation === intelligenceGeneration.current
+      && requestId === intelligenceMutationRequest.current
+      && targetOpportunityId === intelligenceOpportunityId.current;
+  }
 
   async function loadRevenueActions(
     targetOpportunityId = opportunity.id,
@@ -232,6 +254,9 @@ export default function OpportunityCommandCenter({
     setExecutionLoading(null);
     setExecutionError(null);
     setExecutionMessage(null);
+    setActionLoading(null);
+    setActionError(null);
+    setActionMessage(null);
     loadIntelligence({
       targetOpportunityId: opportunity.id,
       generation: intelligenceLoadGeneration
@@ -240,8 +265,10 @@ export default function OpportunityCommandCenter({
     return () => {
       revenueActionGeneration.current += 1;
       revenueActionRequest.current += 1;
+      revenueActionMutationRequest.current += 1;
       intelligenceGeneration.current += 1;
       intelligenceRequest.current += 1;
+      intelligenceMutationRequest.current += 1;
     };
   }, [opportunity.id]);
 
@@ -311,21 +338,32 @@ export default function OpportunityCommandCenter({
   const canPrepareRevenueAction =
     SUPPORTED_REVENUE_ACTION_TYPES.has(nextAction?.type);
 
-  async function applyRevenueActionResult(result) {
+  async function applyRevenueActionResult(result, requestIdentity) {
+    if (!isCurrentRevenueActionMutation(requestIdentity)) return false;
     const refreshed = result?.refreshed;
 
     if (
       refreshed?.opportunity &&
       refreshed?.opportunity_intelligence
     ) {
+      if (refreshed.opportunity.id !== requestIdentity.targetOpportunityId) {
+        throw new Error("RevenueAction returned state for a different opportunity.");
+      }
+      if (!isCurrentRevenueActionMutation(requestIdentity)) return false;
       setPayload({
         opportunity: refreshed.opportunity,
         intelligence: refreshed.opportunity_intelligence
       });
+      if (!isCurrentRevenueActionMutation(requestIdentity)) return false;
       await onOpportunityUpdated?.(refreshed.opportunity);
+      if (!isCurrentRevenueActionMutation(requestIdentity)) return false;
     }
 
-    await loadRevenueActions();
+    await loadRevenueActions(
+      requestIdentity.targetOpportunityId,
+      requestIdentity.generation
+    );
+    return isCurrentRevenueActionMutation(requestIdentity);
   }
 
   async function copyCommunicationDraft() {
@@ -352,6 +390,12 @@ export default function OpportunityCommandCenter({
     body = {}
   ) {
     if (!activeRevenueAction) return;
+    const requestIdentity = {
+      targetOpportunityId: opportunity.id,
+      generation: revenueActionGeneration.current,
+      requestId: ++revenueActionMutationRequest.current
+    };
+    const targetRevenueAction = activeRevenueAction;
 
     setExecutionLoading(key);
     setExecutionError(null);
@@ -359,51 +403,87 @@ export default function OpportunityCommandCenter({
 
     try {
       const result = await transitionRevenueAction(
-        activeRevenueAction.id,
+        targetRevenueAction.id,
         transition,
         body
       );
-      await applyRevenueActionResult(result);
+      if (!isCurrentRevenueActionMutation(requestIdentity)) return;
+      if (result?.data?.opportunity_id !== requestIdentity.targetOpportunityId) {
+        throw new Error("RevenueAction returned for a different opportunity.");
+      }
+      if (!await applyRevenueActionResult(result, requestIdentity)) return;
       setExecutionMessage(
         result.duplicate
           ? "Execution state was already applied."
           : "Execution state updated."
       );
     } catch (err) {
+      if (!isCurrentRevenueActionMutation(requestIdentity)) return;
       setExecutionError(err.message);
-      await loadRevenueActions();
-      await loadIntelligence();
+      await loadRevenueActions(
+        requestIdentity.targetOpportunityId,
+        requestIdentity.generation
+      );
+      await loadIntelligence({
+        targetOpportunityId: requestIdentity.targetOpportunityId,
+        generation: intelligenceGeneration.current
+      });
     } finally {
-      setExecutionLoading(null);
+      if (isCurrentRevenueActionMutation(requestIdentity)) {
+        setExecutionLoading(null);
+      }
     }
   }
 
   async function prepareCurrentRevenueAction() {
+    const requestIdentity = {
+      targetOpportunityId: opportunity.id,
+      generation: revenueActionGeneration.current,
+      requestId: ++revenueActionMutationRequest.current
+    };
+    const targetRevenueAction = activeRevenueAction;
     setExecutionLoading("prepare");
     setExecutionError(null);
     setExecutionMessage(null);
 
     try {
-      const created = activeRevenueAction
-        ? { data: activeRevenueAction }
-        : await createRevenueAction(currentOpportunity.id);
+      const created = targetRevenueAction
+        ? { data: targetRevenueAction }
+        : await createRevenueAction(requestIdentity.targetOpportunityId);
+      if (!isCurrentRevenueActionMutation(requestIdentity)) return;
+      if (created?.data?.opportunity_id !== requestIdentity.targetOpportunityId) {
+        throw new Error("RevenueAction returned for a different opportunity.");
+      }
       const prepared = await transitionRevenueAction(
         created.data.id,
         "prepare",
         {}
       );
-      await applyRevenueActionResult(prepared);
+      if (!isCurrentRevenueActionMutation(requestIdentity)) return;
+      if (prepared?.data?.opportunity_id !== requestIdentity.targetOpportunityId) {
+        throw new Error("RevenueAction returned for a different opportunity.");
+      }
+      if (!await applyRevenueActionResult(prepared, requestIdentity)) return;
       setExecutionMessage(
         prepared.duplicate
           ? "Prepared execution already exists."
           : "Execution prepared for review."
       );
     } catch (err) {
+      if (!isCurrentRevenueActionMutation(requestIdentity)) return;
       setExecutionError(err.message);
-      await loadRevenueActions();
-      await loadIntelligence();
+      await loadRevenueActions(
+        requestIdentity.targetOpportunityId,
+        requestIdentity.generation
+      );
+      await loadIntelligence({
+        targetOpportunityId: requestIdentity.targetOpportunityId,
+        generation: intelligenceGeneration.current
+      });
     } finally {
-      setExecutionLoading(null);
+      if (isCurrentRevenueActionMutation(requestIdentity)) {
+        setExecutionLoading(null);
+      }
     }
   }
 
@@ -412,6 +492,11 @@ export default function OpportunityCommandCenter({
     action,
     body
   ) {
+    const requestIdentity = {
+      targetOpportunityId: opportunity.id,
+      generation: intelligenceGeneration.current,
+      requestId: ++intelligenceMutationRequest.current
+    };
     setActionLoading(key);
     setActionMessage(null);
     setActionError(null);
@@ -419,22 +504,32 @@ export default function OpportunityCommandCenter({
     try {
       const data =
         await runOpportunityIntelligenceAction(
-          currentOpportunity.id,
+          requestIdentity.targetOpportunityId,
           action,
           body || {}
         );
 
+      if (!isCurrentIntelligenceMutation(requestIdentity)) return;
       if (data.opportunity) {
+        if (data.opportunity.id !== requestIdentity.targetOpportunityId) {
+          throw new Error("Intelligence action returned for a different opportunity.");
+        }
         const freshPayload =
           data.state || {
             opportunity: data.opportunity,
             intelligence: data.intelligence
           };
 
+        if (freshPayload.opportunity?.id !== requestIdentity.targetOpportunityId) {
+          throw new Error("Intelligence action returned state for a different opportunity.");
+        }
+        if (!isCurrentIntelligenceMutation(requestIdentity)) return;
         setPayload(freshPayload);
+        if (!isCurrentIntelligenceMutation(requestIdentity)) return;
         await onOpportunityUpdated?.(
           data.opportunity
         );
+        if (!isCurrentIntelligenceMutation(requestIdentity)) return;
       }
 
       setActionMessage(
@@ -447,12 +542,18 @@ export default function OpportunityCommandCenter({
       setValue("");
 
       await loadIntelligence({
-        notifyOpportunityUpdated: false
+        notifyOpportunityUpdated: false,
+        targetOpportunityId: requestIdentity.targetOpportunityId,
+        generation: requestIdentity.generation
       });
     } catch (err) {
-      setActionError(err.message);
+      if (isCurrentIntelligenceMutation(requestIdentity)) {
+        setActionError(err.message);
+      }
     } finally {
-      setActionLoading(null);
+      if (isCurrentIntelligenceMutation(requestIdentity)) {
+        setActionLoading(null);
+      }
     }
   }
 

@@ -174,6 +174,7 @@ export function classifyRevenueLeakCaseError(error) {
 export function isAmbiguousRevenueLeakCaseMutationError(error) {
   if (String(error?.code || "").startsWith("BROWSER_AUTH")) return false;
   return !Number.isInteger(error?.status)
+    || error.status === 408
     || error.status >= 500
     || error.code === "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN";
 }
@@ -442,10 +443,14 @@ function validateDetectorEvidence(
   }
 
   validateCommercialValueBasis(commercialBasis, commercialValue, allowNotApplicable);
+  const stalledSinceMs = Date.parse(evidence.stalled_since);
   if (
     reasonCode === "OPPORTUNITY_CLOSED" && !CLOSED_OPPORTUNITY_STAGES.has(stage)
     || reasonCode !== "OPPORTUNITY_CLOSED" && !ACTIVE_OPPORTUNITY_STAGES.has(stage)
+    || reasonCode === "RECENT_MEANINGFUL_ACTIVITY"
+      && evaluationAtMs >= stalledSinceMs
     || reasonCode === "NEXT_ACTION_PRESENT" && nextAction.present !== true
+    || reasonCode === "NEXT_ACTION_PRESENT" && evaluationAtMs < stalledSinceMs
     || reasonCode === "STALE_WITHOUT_NEXT_ACTION" && nextAction.present !== false
   ) {
     invalidResponse();

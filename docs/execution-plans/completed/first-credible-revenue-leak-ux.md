@@ -146,3 +146,35 @@ while a transition reconciles, and the final focused run passed 5/5.
   `git diff --check` passed. Listener-based tests required the approved execution
   profile after the restricted sandbox returned `listen EPERM`; no database gate
   was run because no database boundary changed.
+
+### Fresh final-review P1 remediation checkpoint
+
+- Temporal/408 red evidence: the focused browser contract passed 5/7. HTTP 408
+  returned `false` from the ambiguous-mutation classifier, and the exact stalled
+  boundary admitted a contradictory `RECENT_MEANINGFUL_ACTIVITY` result with
+  `Missing expected exception`. The contract now also rejects
+  `NEXT_ACTION_PRESENT` before the stalled boundary, using detector response
+  receipt time or durable case detection time as the applicable evaluation time.
+- Route-mutation red evidence: the managed RevenueAction race rendered
+  `LATE REVENUE ACTION MUTATION MUST NOT RENDER` after route B was selected. The
+  isolated intelligence-mutation race made three route-A intelligence loads where
+  only the initial load was permitted, proving the stale update callback/reselection
+  loop ran after navigation. Separate opportunity, generation, and mutation-request
+  identities now gate intelligence actions and every RevenueAction mutation before
+  returned opportunity state or `onOpportunityUpdated` can be applied.
+- HTTP 408 browser red evidence: the lifecycle/link scenario remained `OPEN` after
+  a committed snooze returned 408 instead of reconciling to authoritative
+  `SNOOZED` history. HTTP 408 now follows the existing unknown-outcome path for
+  lifecycle and link writes; controls stay locked during the authoritative history
+  reload and no write is retried automatically.
+- Green evidence: focused browser contracts passed 7/7; affected detector,
+  intelligence API, RevenueAction API, RevenueLeakCase API, browser-contract, and
+  managed-store tests passed 64/64; the three targeted managed Chromium regressions
+  passed 3/3; the complete affected Opportunity Command Center and revenue-leak
+  browser specs passed 17/17; the single `verify:fast` passed the harness and
+  272/272 integration tests; and Vite 8.2.2 built 30 modules. The first sandboxed
+  E2E attempt exited before its web server started and the first affected Node run
+  hit `listen EPERM`; the identical approved runs passed. No server, domain,
+  persistence, schema, migration, auth, CI, or GitHub file changed, and no database
+  gate was run for this browser/client-only remediation. `git diff --check` and
+  the aggregate `origin/main` scope review passed with no open P0-P3 finding.
