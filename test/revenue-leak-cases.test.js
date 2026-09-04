@@ -361,7 +361,7 @@ test("JSON case truth fails closed before list, read, replay, mutation, and link
   }
 });
 
-test("persisted JSON RevenueAction links require exact current referential truth", async t => {
+test("persisted JSON RevenueAction links preserve snapshots while validating current referential truth", async t => {
   const linked = await linkedCaseSeed();
   const relationships = [
     ["valid", actions => actions, false],
@@ -373,8 +373,11 @@ test("persisted JSON RevenueAction links require exact current referential truth
     ["wrong fingerprint", actions => actions.map(action => action.id === "action-1"
       ? { ...action, basis_fingerprint: "f".repeat(64) }
       : action), true],
-    ["wrong status", actions => actions.map(action => action.id === "action-1"
+    ["current status evolved", actions => actions.map(action => action.id === "action-1"
       ? { ...action, status: "PREPARED" }
+      : action), false],
+    ["unrecognized status", actions => actions.map(action => action.id === "action-1"
+      ? { ...action, status: "SENT" }
       : action), true]
   ];
   const operations = [

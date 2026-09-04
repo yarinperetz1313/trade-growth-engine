@@ -14,8 +14,14 @@ const {
   LOCAL_REVENUE_LEAK_TENANT_ID
 } = require("./jsonRevenueLeakCaseRepository");
 const {
+  OUTCOMES,
   evaluateStalledOpportunity
 } = require("./stalledOpportunityDetector");
+const {
+  OPERATING_QUEUE_LIMIT,
+  PORTFOLIO_SCAN_LIMIT,
+  buildRevenueLeakOperatingQueue
+} = require("./revenueLeakOperatingQueue");
 
 const ERROR_STATUS = Object.freeze({
   REVENUE_LEAK_CASE_INPUT_INVALID: 400,
@@ -25,6 +31,10 @@ const ERROR_STATUS = Object.freeze({
   REVENUE_LEAK_CASE_TRANSITION_INVALID: 409,
   REVENUE_LEAK_CASE_ACTION_LINK_CONFLICT: 409,
   REVENUE_LEAK_CASE_INTEGRITY_CONFLICT: 409,
+  REVENUE_LEAK_SCAN_LIMIT_EXCEEDED: 409,
+  REVENUE_LEAK_SCAN_SOURCE_INVALID: 409,
+  REVENUE_LEAK_QUEUE_LIMIT_EXCEEDED: 409,
+  REVENUE_LEAK_QUEUE_INTEGRITY_CONFLICT: 409,
   POSTGRES_TRANSACTION_OUTCOME_UNKNOWN: 500
 });
 
@@ -193,6 +203,185 @@ function createTenantService(
     };
   }
 
+  function scanFailure(code, message, totalOpportunities, extras = {}) {
+    return failure(code, message, 409, {
+      complete: false,
+      limit: PORTFOLIO_SCAN_LIMIT,
+      total_opportunities: totalOpportunities,
+      evaluated_count: 0,
+      unevaluated_count: totalOpportunities,
+      overflow_count: Math.max(0, totalOpportunities - PORTFOLIO_SCAN_LIMIT),
+      invalid_record_count: 0,
+      excluded_count: 0,
+      ...extras
+    });
+  }
+
+  async function scanWithRepositories(scoped, evaluatedAt) {
+    const candidates = await scoped.opportunities.listForStalledScan({
+      limit: PORTFOLIO_SCAN_LIMIT
+    });
+    const total = candidates?.totalCount;
+    const records = candidates?.records;
+    if (!Number.isSafeInteger(total) || total < 0 || !Array.isArray(records)) {
+      const observedCount = Array.isArray(records) ? records.length : 0;
+      const reportedTotal = Number.isSafeInteger(total) && total >= 0
+        ? total
+        : observedCount;
+      return scanFailure(
+        "REVENUE_LEAK_SCAN_SOURCE_INVALID",
+        "Canonical opportunity enumeration is invalid.",
+        reportedTotal,
+        { invalid_record_count: Math.max(reportedTotal, observedCount) }
+      );
+    }
+    if (total > PORTFOLIO_SCAN_LIMIT) {
+      return scanFailure(
+        "REVENUE_LEAK_SCAN_LIMIT_EXCEEDED",
+        "The tenant opportunity portfolio exceeds the safe scan limit.",
+        total
+      );
+    }
+    if (records.length !== total) {
+      return scanFailure(
+        "REVENUE_LEAK_SCAN_SOURCE_INVALID",
+        "Canonical opportunity enumeration is incomplete.",
+        total,
+        { invalid_record_count: total }
+      );
+    }
+
+    const ids = records.map(record =>
+      typeof record?.id === "string" && record.id.trim() !== ""
+        ? record.id.trim()
+        : null
+    );
+    const frequencies = new Map();
+    for (const id of ids) {
+      if (id !== null) frequencies.set(id, (frequencies.get(id) || 0) + 1);
+    }
+    const invalidCount = ids.filter(id =>
+      id === null || frequencies.get(id) !== 1
+    ).length;
+    if (invalidCount > 0) {
+      return scanFailure(
+        "REVENUE_LEAK_SCAN_SOURCE_INVALID",
+        "Canonical opportunity identities are invalid or duplicated.",
+        total,
+        { invalid_record_count: invalidCount }
+      );
+    }
+
+    const ordered = [...records].sort((left, right) =>
+      left.id.localeCompare(right.id)
+    );
+    const evaluations = [];
+    const detections = [];
+    for (const opportunity of ordered) {
+      const activities = await scoped.activities.list({
+        opportunityId: opportunity.id
+      });
+      const tasks = await scoped.tasks.list({ opportunityId: opportunity.id });
+      const evaluation = evaluateStalledOpportunity({
+        opportunity,
+        activities,
+        tasks,
+        evaluatedAt
+      });
+      const item = {
+        opportunity_id: opportunity.id,
+        outcome: evaluation.outcome,
+        reason_code: evaluation.reason_code,
+        disposition: "READ_ONLY",
+        case_id: null,
+        superseded_case_id: null
+      };
+      evaluations.push({ item, evaluation });
+      if (evaluation.detection) {
+        detections.push(buildRevenueLeakCaseDetection(evaluation.detection, {
+          id: createId(),
+          detectedAt: evaluatedAt,
+          subjectId: context.subjectId
+        }));
+      }
+    }
+
+    const reconciliations = await scoped.revenueLeakCases.reconcileBatch(
+      detections
+    );
+    let reconciliationIndex = 0;
+    for (const result of evaluations) {
+      if (!result.evaluation.detection) continue;
+      const reconciliation = reconciliations[reconciliationIndex++];
+      result.item.case_id = reconciliation.record.id;
+      result.item.superseded_case_id = reconciliation.superseded_case_id || null;
+      result.item.disposition = reconciliation.duplicate
+        ? "REPLAYED"
+        : reconciliation.superseded_case_id
+          ? "SUPERSEDED"
+          : "CREATED";
+    }
+    const results = evaluations.map(result => result.item);
+    return {
+      ok: true,
+      evaluated_at: evaluatedAt,
+      detector: { id: "stalled-opportunity", version: "1" },
+      scope: "TENANT_VISIBLE_CANONICAL_OPPORTUNITIES",
+      summary: summarizeScan(results, total),
+      results
+    };
+  }
+
+  function summarizeScan(results, total) {
+    const outcomes = Object.fromEntries(Object.values(OUTCOMES).map(name => [
+      name,
+      { count: 0, reasons: {} }
+    ]));
+    const reconciliation = {
+      detected_count: 0,
+      created_count: 0,
+      replayed_count: 0,
+      superseded_count: 0
+    };
+    for (const result of results) {
+      const summary = outcomes[result.outcome];
+      summary.count += 1;
+      summary.reasons[result.reason_code] =
+        (summary.reasons[result.reason_code] || 0) + 1;
+      if (result.outcome === OUTCOMES.LEAK) {
+        reconciliation.detected_count += 1;
+        if (result.disposition === "CREATED") reconciliation.created_count += 1;
+        if (result.disposition === "REPLAYED") reconciliation.replayed_count += 1;
+        if (result.disposition === "SUPERSEDED") {
+          reconciliation.superseded_count += 1;
+        }
+      }
+    }
+    return {
+      complete: true,
+      limit: PORTFOLIO_SCAN_LIMIT,
+      total_opportunities: total,
+      evaluated_count: results.length,
+      unevaluated_count: 0,
+      overflow_count: 0,
+      invalid_record_count: 0,
+      excluded_count: 0,
+      reconciliation,
+      outcomes
+    };
+  }
+
+  async function queueWithRepository(scoped, generatedAt) {
+    const loaded = await scoped.revenueLeakCases.listOperatingQueueContexts({
+      limit: OPERATING_QUEUE_LIMIT
+    });
+    return buildRevenueLeakOperatingQueue({
+      contexts: loaded.contexts,
+      totalCount: loaded.totalCount,
+      generatedAt
+    });
+  }
+
   return Object.freeze({
     listRevenueLeakCases(filters = {}) {
       return repository.list(filters);
@@ -249,6 +438,44 @@ function createTenantService(
           revenueLeakCases: repository
         };
         return detectWithRepositories(scoped, opportunityId.trim(), evaluatedAt);
+      });
+    },
+
+    scanStalledOpportunities() {
+      return run(async () => {
+        const evaluatedAt = now();
+        if (persistence.adapter === "postgres") {
+          return persistence.repositories.transaction(
+            context,
+            scoped => scanWithRepositories(scoped, evaluatedAt)
+          );
+        }
+        if (context.tenantId !== LOCAL_REVENUE_LEAK_TENANT_ID) {
+          return sourceUnavailable();
+        }
+        const scoped = {
+          opportunities: persistence.repositories.opportunities,
+          activities: persistence.repositories.activities,
+          tasks: persistence.repositories.tasks,
+          revenueLeakCases: repository
+        };
+        return scanWithRepositories(scoped, evaluatedAt);
+      });
+    },
+
+    getRevenueLeakOperatingQueue() {
+      return run(async () => {
+        const generatedAt = now();
+        const data = persistence.adapter === "postgres"
+          ? await persistence.repositories.transaction(
+            context,
+            scoped => queueWithRepository(scoped, generatedAt)
+          )
+          : await queueWithRepository(
+            { revenueLeakCases: repository },
+            generatedAt
+          );
+        return { ok: true, data };
       });
     },
 

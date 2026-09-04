@@ -39,7 +39,7 @@ function createJsonRepositories({ store = localStore } = {}) {
     } : {})
   });
 
-  return {
+  const repositories = {
     prospects: collection("prospects"),
     opportunities: collection("opportunities", {
       filters: { prospectId: "prospect_id", stage: "stage" }
@@ -58,6 +58,24 @@ function createJsonRepositories({ store = localStore } = {}) {
     }),
     revenueLeakCases: createJsonRevenueLeakCaseRepository({ store })
   };
+  repositories.opportunities.listForStalledScan = async ({ limit } = {}) => {
+    if (!Number.isSafeInteger(limit) || limit < 1) {
+      throw new TypeError("A positive stalled-opportunity scan limit is required.");
+    }
+    const records = store.readCollection("opportunities")
+      .map((record, ordinal) => ({ record, ordinal }))
+      .sort((left, right) => {
+        const leftId = typeof left.record?.id === "string" ? left.record.id : "\uffff";
+        const rightId = typeof right.record?.id === "string" ? right.record.id : "\uffff";
+        return leftId.localeCompare(rightId) || left.ordinal - right.ordinal;
+      })
+      .map(item => item.record);
+    return {
+      records: records.slice(0, limit),
+      totalCount: records.length
+    };
+  };
+  return repositories;
 }
 
 module.exports = {

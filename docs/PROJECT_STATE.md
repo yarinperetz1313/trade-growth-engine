@@ -121,6 +121,20 @@ lifecycle state across hash-route changes. Lifecycle and RevenueAction-link writ
 with an unconfirmed response are never retried automatically; authoritative
 durable case history must reload before the write controls re-enable.
 
+The approved Issue #9 PR-1 operating-loop slice adds an explicit authenticated
+tenant-wide stalled-opportunity scan and a read-only active RevenueLeakCase
+operating queue. Both are server-capped at 100 and fail rather than report a
+partial portfolio as complete. PostgreSQL candidate locking, evaluation, and
+reconciliation share one trusted tenant transaction; JSON preserves its
+local-only/single-process limits and applies detected scan results in one case
+collection replacement. Scan summaries retain all five version-1 outcomes and
+closed reasons, including read-only suppression/no-leak results, semantic replay,
+and evidence supersession. Queue value truth separates known positive, known zero,
+unknown, and not applicable, groups exact totals by currency, and publishes
+deterministic ordering without FX, probability, expected/recovered revenue, or
+attribution. No migration, scheduler, import hook, new leak type, browser V2,
+RevenueAction materialization/execution change, or analytics event is included.
+
 Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 
 The Product Truth audit/fix work unit is complete: [PR #17](https://github.com/yarinperetz1313/trade-growth-engine/pull/17) merged at `5231838` and closed [Issue #7](https://github.com/yarinperetz1313/trade-growth-engine/issues/7). This did not provision Auth0, SMTP, production persistence, import execution, or cutover, and it did not begin Pilot Readiness PR-5 or later slices.
@@ -156,7 +170,9 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - Active plan: [**Pilot Readiness**](execution-plans/active/pilot-readiness.md).
   The [**RevenueLeakCase foundation**](execution-plans/completed/revenue-leak-case-foundation.md)
   and [**deterministic stalled-opportunity detector**](execution-plans/completed/stalled-opportunity-detector.md)
-  are complete in their bounded Issue #8 slices.
+  are complete in their bounded Issue #8 slices. The completed
+  [**Revenue leak portfolio scan and operating queue**](execution-plans/completed/revenue-leak-operating-queue.md)
+  records Issue #9 PR-1 implementation and verification evidence.
 - Pilot Readiness **PR-0 is complete**: its architecture, operations, and harness consistency contracts are documented. This does **not** mean production infrastructure, authentication, authorization, tenancy, backups, imports, or deployment have been provisioned or implemented.
 - **PR-1 is complete**: it characterized legacy JSON compatibility, including deterministic fixtures, observable ordering/value semantics, RevenueAction lifecycle/effect links, and the migration manifest/handoff. It did not implement production persistence or tenancy.
 - **PR-2 is complete**: schema/security/migrations `001`–`004`, tests, and CI are present, and GitHub Actions run `33304131266` passed the full PostgreSQL 16.15 gate. This completion does not imply production repositories, Auth0 middleware, provisioning, import execution, or JSON cutover. Vendor decisions still gate provisioning and release.
@@ -170,3 +186,7 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
   and the authorized-user Opportunity Command Center review/lifecycle UI without
   another migration.** Scheduling, autonomous recovery, additional leak types, and
   attribution remain unimplemented.
+- **Issue #9 PR-1 implements the explicit bounded tenant portfolio scan and the
+  deterministic truthful active-case operating-queue server contract without a
+  migration.** Command Center V2/action handoff and onboarding/pilot evidence are
+  later merge-gated PR-2/PR-3 work and are not started here.

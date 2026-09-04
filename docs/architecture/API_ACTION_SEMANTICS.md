@@ -42,6 +42,13 @@ Communication execution requires `executionMode: "MANUAL_CONFIRMED"`; it records
   empty object, loads tenant-visible canonical opportunity/activity/task evidence,
   returns one of the five versioned detector outcomes, and reconciles only
   `ELIGIBLE_LEAK_DETECTED` through the existing case service.
+- `POST /api/revenue-leak-cases/scan-stalled-opportunities` accepts only an empty
+  object and no query parameters, explicitly evaluates the complete admitted
+  tenant portfolio through detector version 1, and returns one result per
+  opportunity plus closed outcome/reason and reconciliation summaries.
+- `GET /api/revenue-leak-cases/operating-queue` accepts no query parameters and
+  returns the bounded deterministic active-case queue with canonical business and
+  safely linked RevenueAction status context.
 - `POST /api/revenue-leak-cases/:id/snooze`, `/resume`, and `/dismiss` apply the
   bounded audited human lifecycle.
 - `POST /api/revenue-leak-cases/:id/link-revenue-action` links one existing
@@ -53,3 +60,13 @@ source/action relationships are also non-oracular. Detector thresholds, time,
 tenant, evidence, economics, and lifecycle are never caller-authored. Detection
 does not materialize or execute a RevenueAction and makes no recovery or
 attribution claim.
+
+Both portfolio endpoints have a server-owned cap of 100. Over-cap scans fail
+before any reconciliation as `REVENUE_LEAK_SCAN_LIMIT_EXCEEDED`; invalid or
+incomplete canonical opportunity enumeration fails as
+`REVENUE_LEAK_SCAN_SOURCE_INVALID`. Over-cap queue reads fail as
+`REVENUE_LEAK_QUEUE_LIMIT_EXCEEDED`; incoherent projection context fails as
+`REVENUE_LEAK_QUEUE_INTEGRITY_CONFLICT`. These errors never return a successful
+or partial `complete: true` envelope. Scan result rows intentionally exclude raw
+opportunity evidence; detected case evidence remains available through the
+existing case boundary.

@@ -6,6 +6,7 @@
 
 ## Completed plans
 
+- [`completed/revenue-leak-operating-queue.md`](completed/revenue-leak-operating-queue.md) — **Issue #9 PR-1 implements the explicit bounded tenant-wide stalled-opportunity scan and truthful active RevenueLeakCase operating queue; later Command Center/action-handoff and onboarding/evidence PRs remain unstarted.**
 - [`completed/pr-5b-import-mapping.md`](completed/pr-5b-import-mapping.md)
 - [`completed/pr-5c-canonical-import-commit.md`](completed/pr-5c-canonical-import-commit.md)
 - [`completed/pr-5d-browser-import.md`](completed/pr-5d-browser-import.md)

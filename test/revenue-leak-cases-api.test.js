@@ -431,3 +431,85 @@ test("API exposes a bounded per-opportunity detector seam and rejects caller-aut
     assert.equal(readCollection("revenue_leak_cases").length, 1);
   });
 });
+
+test("API exposes only empty-body portfolio scans and rejects caller-controlled scan inputs", async () => {
+  seedStore();
+  writeCollection("activities", []);
+  writeCollection("tasks", []);
+  const service = createRevenueLeakCaseService({
+    persistence: createPersistence({ adapter: "json" }),
+    createId: () => "portfolio-scan-case",
+    clock: () => new Date("2026-09-01T00:00:00.000Z")
+  });
+  const localContext = createTenantContext({
+    tenantId: LOCAL_REVENUE_LEAK_TENANT_ID,
+    subjectId: "api-portfolio-scan"
+  });
+  const express = require("express");
+  const scanApp = express();
+  scanApp.use(express.json());
+  scanApp.use(createRevenueLeakCasesRouter({
+    service,
+    resolveTenantContext: () => localContext
+  }));
+
+  await withServer(scanApp, async baseUrl => {
+    const scan = await request(
+      baseUrl,
+      "POST",
+      "/api/revenue-leak-cases/scan-stalled-opportunities",
+      {}
+    );
+    assert.equal(scan.status, 200);
+    assert.equal(scan.data.ok, true);
+    assert.equal(scan.data.summary.complete, true);
+
+    const authoredScope = await request(
+      baseUrl,
+      "POST",
+      "/api/revenue-leak-cases/scan-stalled-opportunities",
+      { limit: 1, tenant_id: "forged", evaluated_at: "2020-01-01T00:00:00Z" }
+    );
+    assert.equal(authoredScope.status, 400);
+    assert.equal(authoredScope.data.error, "REVENUE_LEAK_SCAN_REQUEST_INVALID");
+
+    const authoredQuery = await request(
+      baseUrl,
+      "POST",
+      "/api/revenue-leak-cases/scan-stalled-opportunities?limit=1",
+      {}
+    );
+    assert.equal(authoredQuery.status, 400);
+    assert.equal(authoredQuery.data.error, "REVENUE_LEAK_SCAN_REQUEST_INVALID");
+  });
+});
+
+test("operating-queue API is read-only and rejects unbounded caller query shapes", async () => {
+  seedStore();
+  await withServer(app, async baseUrl => {
+    const queue = await request(
+      baseUrl,
+      "GET",
+      "/api/revenue-leak-cases/operating-queue"
+    );
+    assert.equal(queue.status, 200);
+    assert.equal(queue.data.ok, true);
+    assert.equal(queue.data.data.complete, true);
+
+    const callerLimit = await request(
+      baseUrl,
+      "GET",
+      "/api/revenue-leak-cases/operating-queue?limit=1000"
+    );
+    assert.equal(callerLimit.status, 400);
+    assert.equal(callerLimit.data.error, "REVENUE_LEAK_QUEUE_REQUEST_INVALID");
+
+    const mutation = await request(
+      baseUrl,
+      "POST",
+      "/api/revenue-leak-cases/operating-queue",
+      {}
+    );
+    assert.equal(mutation.status, 404);
+  });
+});

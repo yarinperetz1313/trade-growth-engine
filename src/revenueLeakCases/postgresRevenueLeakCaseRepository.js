@@ -265,6 +265,76 @@ function createPostgresRevenueLeakCaseRepository(client, tenantId, subjectId) {
     };
   }
 
+  async function reconcileBatch(detections) {
+    if (!Array.isArray(detections)) {
+      throw new TypeError("Revenue leak case batch detections must be an array.");
+    }
+    const results = [];
+    for (const detection of detections) {
+      results.push(await reconcile(detection));
+    }
+    return results;
+  }
+
+  async function listOperatingQueueContexts({ limit } = {}) {
+    if (!Number.isSafeInteger(limit) || limit < 1) {
+      throw new TypeError("A positive operating queue limit is required.");
+    }
+    const result = await client.query(
+      `select cases.*,
+         count(*) over()::int as queue_total_count,
+         opportunity.id as context_opportunity_id,
+         opportunity.prospect_id as context_prospect_id,
+         opportunity.business_name as context_opportunity_business_name,
+         business.id as context_business_id,
+         business.business_name as context_business_name,
+         action.id as context_action_id,
+         action.opportunity_id as context_action_opportunity_id,
+         action.basis_fingerprint as context_action_basis_fingerprint,
+         action.status as context_action_status
+       from tge.revenue_leak_cases cases
+       left join tge.opportunities opportunity
+         on opportunity.tenant_id = $1
+        and opportunity.tenant_id = cases.tenant_id
+        and opportunity.id = cases.opportunity_id
+       left join tge.prospects business
+         on business.tenant_id = $1
+        and business.tenant_id = cases.tenant_id
+        and business.id = opportunity.prospect_id
+       left join tge.revenue_actions action
+         on action.tenant_id = $1
+        and action.tenant_id = cases.tenant_id
+        and action.id = cases.revenue_action_id
+        and action.opportunity_id = cases.opportunity_id
+       where cases.tenant_id = $1
+         and cases.state in ('OPEN', 'SNOOZED')
+       order by cases.id
+       limit $2`,
+      [tenantId, limit]
+    );
+    return {
+      totalCount: result.rows[0]?.queue_total_count ?? 0,
+      contexts: result.rows.map(row => ({
+        case: revenueLeakCaseFromRow(row),
+        opportunity: row.context_opportunity_id === null ? null : {
+          id: row.context_opportunity_id,
+          prospect_id: row.context_prospect_id,
+          business_name: row.context_opportunity_business_name
+        },
+        business: row.context_business_id === null ? null : {
+          id: row.context_business_id,
+          business_name: row.context_business_name
+        },
+        revenue_action: row.context_action_id === null ? null : {
+          id: row.context_action_id,
+          opportunity_id: row.context_action_opportunity_id,
+          basis_fingerprint: row.context_action_basis_fingerprint,
+          status: row.context_action_status
+        }
+      }))
+    };
+  }
+
   async function transition(id, request) {
     const current = await findById(id, { lock: true });
     if (!current) return null;
@@ -442,6 +512,8 @@ function createPostgresRevenueLeakCaseRepository(client, tenantId, subjectId) {
     },
     findById,
     reconcile,
+    reconcileBatch,
+    listOperatingQueueContexts,
     transition,
     linkRevenueAction
   });
