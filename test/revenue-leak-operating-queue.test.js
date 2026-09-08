@@ -431,6 +431,7 @@ test("operating queue preserves money truth, canonical context, linked action st
   const linked = queue.entries[0];
   assert.deepEqual(linked.opportunity, {
     id: "case-aud-a",
+    prospect_id: "prospect-case-aud-a",
     business_name: "Opportunity case-aud-a"
   });
   assert.deepEqual(linked.business, {

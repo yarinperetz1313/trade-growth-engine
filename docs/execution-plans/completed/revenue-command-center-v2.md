@@ -162,6 +162,33 @@
   already **62/62**. A second full `npm run verify` would duplicate these
   equivalent exact-candidate gates plus that unchanged backend gate, so it was
   not run.
+- Fresh final-review product-red: the new browser-contract regressions passed
+  **5/9**. Exactly four assertions failed: aggregate totals beyond one case's
+  numeric envelope had no exact formatter, an unrelated business identity was
+  accepted, unknown top-level response/queue fields were accepted, and a handoff
+  link earlier than its RevenueAction creation time was accepted.
+- Fresh final-review green: the browser contract passes **9/9**. The queue
+  projection retains current `prospect_id`; strict browser validation exact-checks
+  response and queue fields, binds any business ID to that current opportunity,
+  and checks handoff link chronology. The aggregate formatter accepts only a
+  canonical bounded decimal total, proves its exact per-case upper bound with
+  `BigInt`, and keeps each currency separate without floating point.
+- Focused and browser evidence: the queue/API/handoff/browser command passes
+  **48/48** with local listener permission. Its first two attempts were
+  environment-only failures: the untouched worktree had no dependencies, then
+  the restricted sandbox denied ephemeral listeners. The first managed browser
+  attempt was stopped because a reused dependency tree lacked
+  `@auth0/auth0-spa-js`; a lockfile-faithful worktree-local `npm ci` resolved the
+  environment. `npm run test:e2e -- test/e2e/revenue-command-center-v2.spec.js`
+  then passed managed Chromium **7/7**, including exact rendering of
+  `AUD 199,999,999,999,999.999998` for two valid maximum-value cases.
+- Fresh final-review delivery evidence: `npm run verify:fast` passed the
+  engineering harness and integration **308/308**. `npm run build` passed with
+  **30 modules transformed in 398 ms** and the existing non-fatal bundle-size
+  advisory. PostgreSQL and full Verify were not rerun because this bounded patch
+  changes only pure queue projection, browser validation/formatting/rendering,
+  tests, and documentation; it makes no transaction, repository, migration, or
+  persistence change.
 
 ## Checkpoints
 - Planning checkpoint: `deca790` (`docs: plan revenue command center v2`).
@@ -171,6 +198,8 @@
   branch history after the plan moves to `completed/`.
 - Backend review remediation checkpoint: `ba0ba15` (`fix: harden revenue leak action handoff`).
 - Missing-context recovery checkpoint: this evidence-reconciliation commit; see
+  the branch history.
+- Fresh final-review remediation checkpoint: this single bounded checkpoint; see
   the branch history.
 
 ## Review and handoff
@@ -186,6 +215,12 @@
   six-file projection/contract/UI regression patch, and its stale-evidence P3 is
   resolved in this plan and `PROJECT_STATE.md`. No additional reviewer was
   started during recovery.
+- Fresh final-review findings/resolution: same-currency aggregate totals now use
+  an exact bounded aggregate formatter rather than the single-case envelope;
+  successful queue responses and queue bodies reject unknown top-level fields;
+  business context is accepted only when its ID matches the current
+  opportunity's projected prospect identity; and handoff validation requires the
+  case link time to be at or after the RevenueAction creation time.
 - Final recovery self-review: the complete `origin/main...candidate` diff and the
   final remediation were inspected against the bounded handoff, immutable truth,
   human-control, and no-PR-3 constraints. No remaining product defect or scope

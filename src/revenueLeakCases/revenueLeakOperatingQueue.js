@@ -226,6 +226,7 @@ function buildEntry(context, generatedAt) {
       ? null
       : {
           id: opportunity.id,
+          prospect_id: opportunity.prospect_id,
           business_name: opportunity.business_name
         },
     business,

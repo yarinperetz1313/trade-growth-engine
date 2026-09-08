@@ -142,6 +142,33 @@ export function formatPotentialRevenueAtRisk(commercialValue) {
   };
 }
 
+export function formatPotentialRevenueAggregate(total) {
+  const valid = isPlainObject(total)
+    && hasExactKeys(total, ["currency", "amount", "case_count"])
+    && /^[A-Z]{3}$/.test(total.currency || "")
+    && Number.isSafeInteger(total.case_count)
+    && total.case_count > 0
+    && total.case_count <= 100
+    && isCanonicalAggregateAmount(total.amount)
+    && decimalUnits(total.amount) > 0n
+    && decimalUnits(total.amount)
+      <= BigInt(total.case_count) * decimalUnits("99999999999999.999999");
+  if (!valid) {
+    return {
+      label: "Potential revenue at risk",
+      value: "Unavailable",
+      detail: "Aggregate commercial value evidence is unavailable"
+    };
+  }
+  const [integer, fraction] = total.amount.split(".");
+  const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return {
+    label: "Potential revenue at risk",
+    value: `${total.currency} ${fraction === undefined ? grouped : `${grouped}.${fraction}`}`,
+    detail: "Known aggregate value"
+  };
+}
+
 export function allowedRevenueLeakCaseActions(state) {
   if (state === "OPEN") {
     return ["SNOOZE", "DISMISS", "LINK_REVENUE_ACTION"];
@@ -233,8 +260,14 @@ export function unwrapRevenueLeakOperatingQueueResponse(
   const queue = response?.data;
   if (
     !isPlainObject(response)
+    || !hasExactKeys(response, ["ok", "data"])
     || response.ok !== true
     || !isPlainObject(queue)
+    || !hasExactKeys(queue, [
+      "generated_at", "complete", "limit", "total_cases", "projected_count",
+      "omitted_count", "scope", "value_semantics", "value_summary",
+      "ordering", "entries"
+    ])
     || queue.complete !== true
     || queue.limit !== 100
     || !Number.isSafeInteger(queue.total_cases)
@@ -302,12 +335,16 @@ export function unwrapRevenueLeakActionHandoffResponse(
     || !REVENUE_ACTION_STATUSES.has(action.status)
     || !isBoundedText(action.id, 255)
     || !/^[0-9a-f]{64}$/.test(action.basis_fingerprint || "")
+    || !isTimestampString(action.created_at)
+    || Date.parse(action.created_at) > referenceTime(receivedAt)
   ) invalidResponse();
   validateCase(record, opportunityId, referenceTime(receivedAt));
   if (
     record.id !== caseId
     || record.revenue_action_id !== action.id
     || record.revenue_action_fingerprint !== action.basis_fingerprint
+    || !isTimestampString(record.revenue_action_linked_at)
+    || Date.parse(record.revenue_action_linked_at) < Date.parse(action.created_at)
   ) invalidResponse();
   return response;
 }
@@ -868,6 +905,11 @@ function isCanonicalCommercialAmount(value) {
     && /^(?:0|[1-9]\d{0,13})(?:\.\d{0,5}[1-9])?$/.test(value);
 }
 
+function isCanonicalAggregateAmount(value) {
+  return typeof value === "string"
+    && /^(?:0|[1-9]\d{0,15})(?:\.\d{0,5}[1-9])?$/.test(value);
+}
+
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -1017,8 +1059,10 @@ function validateQueueEntry(entry, generatedAt) {
     || !isBoundedText(entry.historical_opportunity_id, 512)
     || entry.opportunity !== null
       && (!isPlainObject(entry.opportunity)
-        || !hasExactKeys(entry.opportunity, ["id", "business_name"])
+        || !hasExactKeys(entry.opportunity, ["id", "prospect_id", "business_name"])
         || entry.opportunity.id !== entry.historical_opportunity_id
+        || entry.opportunity.prospect_id !== null
+          && !isNonEmptyString(entry.opportunity.prospect_id)
         || entry.opportunity.business_name !== null
           && !isNonEmptyString(entry.opportunity.business_name))
     || !isPlainObject(potential)
@@ -1078,6 +1122,7 @@ function validateQueueEntry(entry, generatedAt) {
     && (entry.opportunity === null
       || !hasExactKeys(entry.business, ["id", "name"])
       || !isNonEmptyString(entry.business.id)
+      || entry.opportunity.prospect_id !== entry.business.id
       || entry.business.name !== null && !isNonEmptyString(entry.business.name))
   ) invalidResponse();
   validateQueueAction(

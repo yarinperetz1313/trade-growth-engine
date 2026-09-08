@@ -172,6 +172,10 @@ not-applicable cases separately. Exact known-positive decimal amounts are summed
 only inside three-letter currency groups. Known-zero counts are also grouped by
 currency. There is no cross-currency total, exchange rate, probability, expected
 value, recovered revenue, influenced revenue, or attribution.
+Because the queue may contain up to 100 cases, a valid exact currency-group sum
+may exceed the single-case `NUMERIC(20,6)` envelope. The aggregate remains a
+canonical decimal string derived and rendered without floating point; each
+contributing case must still satisfy the single-case envelope.
 
 Leak age is derived only from `detected_at` and the server projection time.
 Urgency is derived only from recorded `due_at`, lifecycle state, and
@@ -294,6 +298,9 @@ canonical opportunity/business identity when available, linked RevenueAction
 state, and the exact immutable “why TGE surfaced this” evidence. Missing context,
 empty results, incomplete/integrity/limit failures, authorization, persistence,
 generic API failures, and stale validated results remain distinct states.
+Successful response and queue objects accept only their published top-level
+fields. Any business identity is renderable only when current opportunity context
+is present and its canonical prospect ID matches that business ID.
 
 The portfolio can explicitly scan and can request the composed case handoff, but
 after any unconfirmed mutation it reloads the strict durable queue before write

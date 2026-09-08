@@ -173,6 +173,22 @@ projection, browser validation/rendering, tests, and documentation; exact
 run. These are local results, not merge, CI, recovered-revenue, external-action,
 or PR-3 evidence.
 
+Fresh PR-2 final-review remediation preserves exact same-currency portfolio
+totals when the bounded sum exceeds one case's `NUMERIC(20,6)` envelope: the
+browser formats the canonical aggregate decimal string directly and never uses
+floating point or combines currencies. The strict queue boundary now rejects
+unknown response and queue fields, projects the current opportunity's canonical
+prospect identity so any displayed business must match it, and rejects a handoff
+whose recorded link time predates the RevenueAction's creation. Product-red
+browser-contract evidence was **5/9** with exactly those four adversarial checks
+failing; the corrected contract is **9/9**, the focused queue/API/handoff/browser
+set is **48/48**, and managed PR-2 Chromium is **7/7**. Near-delivery
+`npm run verify:fast` passed the harness and integration **308/308**, and the
+production build passed with **30 modules transformed in 398 ms**. PostgreSQL and
+full Verify were not rerun because no transaction, repository, migration, or
+persistence behavior changed. These remain local candidate results, not CI or
+merge evidence.
+
 Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 
 The Product Truth audit/fix work unit is complete: [PR #17](https://github.com/yarinperetz1313/trade-growth-engine/pull/17) merged at `5231838` and closed [Issue #7](https://github.com/yarinperetz1313/trade-growth-engine/issues/7). This did not provision Auth0, SMTP, production persistence, import execution, or cutover, and it did not begin Pilot Readiness PR-5 or later slices.

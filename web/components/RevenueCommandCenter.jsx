@@ -8,6 +8,7 @@ import { formatCommercialValue } from "../lib/commercialValue";
 import {
   classifyRevenueLeakOperatingQueueError,
   filterRevenueLeakOperatingQueue,
+  formatPotentialRevenueAggregate,
   formatPotentialRevenueAtRisk,
   isAmbiguousRevenueLeakCaseMutationError
 } from "../lib/revenueLeakCaseContracts.mjs";
@@ -21,14 +22,6 @@ function countLabel(summary) {
 function summaryMoney(summary) {
   if (!summary || Number(summary.known_count) === 0) return "Unknown";
   return formatCommercialValue(summary.known_total);
-}
-
-function exactMoney(currency, amount) {
-  return formatPotentialRevenueAtRisk({
-    classification: "KNOWN",
-    amount,
-    currency
-  }).value;
 }
 
 function queueErrorCopy(error) {
@@ -91,7 +84,7 @@ function QueueSummary({ summary }) {
           <strong>No known positive totals</strong>
         ) : totals.map(total => (
           <strong key={total.currency}>
-            {exactMoney(total.currency, total.amount)}
+            {formatPotentialRevenueAggregate(total).value}
             <small>{total.case_count} {total.case_count === 1 ? "case" : "cases"}</small>
           </strong>
         ))}

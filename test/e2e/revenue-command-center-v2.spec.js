@@ -269,6 +269,28 @@ test("renders the server-ordered truthful operating queue with evidence and auth
   }))).toEqual({ body: 390, viewport: 390 });
 });
 
+test("renders exact same-currency aggregate totals beyond one case's numeric envelope", async ({ page }) => {
+  const reference = Date.now();
+  const contexts = ["aggregate-a", "aggregate-b"].map(id => caseContext({
+    id,
+    opportunityId: `e2e-opp-${id}`,
+    businessName: `E2E ${id}`,
+    amount: "99999999999999.999999",
+    currency: "AUD",
+    reference
+  }));
+  await page.route(`${apiBaseUrl}/api/revenue-leak-cases/operating-queue`, route =>
+    json(route, 200, queueResponse(contexts, reference))
+  );
+
+  await page.goto("/#opportunities");
+
+  const summary = page.getByLabel("Known potential revenue at risk summary");
+  await expect(summary).toContainText("AUD 199,999,999,999,999.999998");
+  await expect(summary).toContainText("2 cases");
+  await expect(summary).not.toContainText("Unavailable");
+});
+
 test("keeps loading, empty, partial context, and limit/integrity/persistence failures distinct", async ({ page }) => {
   const reference = Date.now();
   let releaseInitial;

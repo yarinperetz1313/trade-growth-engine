@@ -215,6 +215,54 @@ test("browser accepts the complete queue without changing authoritative server o
   assert.equal(entries.value_summary.not_applicable.case_count, 1);
 });
 
+test("browser formats exact same-currency totals beyond one case's numeric envelope", async () => {
+  const {
+    formatPotentialRevenueAggregate,
+    unwrapRevenueLeakOperatingQueueResponse
+  } = await browserContracts;
+  const records = ["aggregate-a", "aggregate-b"].map(id => caseRecord({
+    id,
+    amount: "99999999999999.999999",
+    currency: "AUD"
+  }));
+  const response = {
+    ok: true,
+    data: buildRevenueLeakOperatingQueue({
+      contexts: records.map(record => ({
+        case: record,
+        opportunity: {
+          id: record.opportunity_id,
+          prospect_id: `prospect-${record.id}`,
+          business_name: `Opportunity ${record.id}`
+        },
+        business: {
+          id: `prospect-${record.id}`,
+          business_name: `Business ${record.id}`
+        },
+        revenue_action: null
+      })),
+      totalCount: records.length,
+      generatedAt: GENERATED_AT
+    })
+  };
+
+  const queue = unwrapRevenueLeakOperatingQueueResponse(
+    response,
+    new Date(GENERATED_AT)
+  );
+  assert.deepEqual(queue.value_summary.known_positive.totals_by_currency, [{
+    currency: "AUD",
+    amount: "199999999999999.999998",
+    case_count: 2
+  }]);
+  assert.equal(
+    formatPotentialRevenueAggregate(
+      queue.value_summary.known_positive.totals_by_currency[0]
+    ).value,
+    "AUD 199,999,999,999,999.999998"
+  );
+});
+
 test("browser accepts missing current opportunity context only with historical source identity", async () => {
   const { unwrapRevenueLeakOperatingQueueResponse } = await browserContracts;
   const response = structuredClone(queueResponse());
@@ -266,6 +314,16 @@ test("browser accepts missing current opportunity context only with historical s
     ),
     error => error?.code === "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
   );
+
+  const unrelatedBusiness = structuredClone(queueResponse());
+  unrelatedBusiness.data.entries[0].business.id = "unrelated-business";
+  assert.throws(
+    () => unwrapRevenueLeakOperatingQueueResponse(
+      unrelatedBusiness,
+      new Date(GENERATED_AT)
+    ),
+    error => error?.code === "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
+  );
 });
 
 test("browser rejects partial, malformed, re-ranked, or cross-currency-coerced queue truth", async () => {
@@ -304,6 +362,17 @@ test("browser rejects partial, malformed, re-ranked, or cross-currency-coerced q
   assertInvalid(queue => {
     queue.entries[0].ordering_factors.leak_age_milliseconds = "86400000";
   });
+
+  const responseWithUnknownField = structuredClone(queueResponse());
+  responseWithUnknownField.invented = true;
+  assert.throws(
+    () => unwrapRevenueLeakOperatingQueueResponse(
+      responseWithUnknownField,
+      new Date(GENERATED_AT)
+    ),
+    error => error?.code === "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
+  );
+  assertInvalid(queue => { queue.invented = true; });
 });
 
 test("browser accepts alphabetical currency summaries when urgency places USD first", async () => {
@@ -377,7 +446,8 @@ test("browser validates exact handoff identity and classifies queue failures", a
     opportunity_id: "opp-handoff",
     action_type: "CREATE_TASK",
     status: "RECOMMENDED",
-    basis_fingerprint: "a".repeat(64)
+    basis_fingerprint: "a".repeat(64),
+    created_at: "2026-09-07T12:00:00.000Z"
   };
   const linkedCase = {
     ...sourceCase,
@@ -419,6 +489,21 @@ test("browser validates exact handoff identity and classifies queue failures", a
   assert.throws(
     () => unwrapRevenueLeakActionHandoffResponse(
       wrongOpportunity,
+      "case-handoff",
+      "opp-handoff",
+      new Date(GENERATED_AT)
+    ),
+    error => error?.code === "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
+  );
+
+  const linkBeforeAction = structuredClone(response);
+  const earlyLinkAt = "2026-09-07T06:00:00.000Z";
+  linkBeforeAction.data.case.revenue_action_linked_at = earlyLinkAt;
+  linkBeforeAction.data.case.updated_at = earlyLinkAt;
+  linkBeforeAction.data.case.audit.at(-1).at = earlyLinkAt;
+  assert.throws(
+    () => unwrapRevenueLeakActionHandoffResponse(
+      linkBeforeAction,
       "case-handoff",
       "opp-handoff",
       new Date(GENERATED_AT)
