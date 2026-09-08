@@ -42,7 +42,7 @@
   compatible/incompatible, same-opportunity/tenant, idempotent replay, JSON partial
   recovery, transaction rollback/outcome-unknown, restart, and audit identity;
   compose existing authority to green and checkpoint.
-- [ ] Command Center V2: red browser-contract/E2E tests for strict queue truth,
+- [x] Command Center V2: red browser-contract/E2E tests for strict queue truth,
   unchanged ordering, filters, evidence disclosure, loading/empty/partial/error,
   explicit scan summaries, route races, ambiguous handoff reconciliation,
   keyboard/a11y, and ~390 px layout; implement to green and checkpoint.
@@ -91,10 +91,29 @@
   loopback-only listener. `TGE_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/postgres npm run test:db`
   passed **60/60**, including the new concurrent handoff, cross-tenant not-found,
   and injected post-materialization rollback assertions.
+- Browser product-red: the new browser contract command passed **7/12** before
+  implementation; the five V2 tests failed because queue/filter/error/handoff
+  exports were absent. After the contract/API seams existed but before the
+  component implementation, the managed V2 Playwright file failed **0/5** on
+  the missing queue-first experience.
+- Browser green: strict browser contracts passed **13/13** across the V2 and
+  existing leak-case files. The focused managed Command Center V2 Playwright
+  suite passed **6/6**, including server order, known/zero/unknown/not-applicable
+  value truth, evidence, filters, loading/empty/limit/integrity/API/persistence/
+  unauthorized states, explicit scan counts, ambiguous handoff reconciliation,
+  route races, keyboard activation, and 390 px layout. The full managed browser
+  suite passed **48/48**, and full integration passed **293/293**.
+- Browser self-review remediation: strict-projection additions first produced a
+  failing missing-exception assertion for duplicate case identity, while a new
+  urgency/currency regression also exposed that the test fixture was still
+  deep-frozen. After cloning the fixture, the validator now rejects extra or
+  incoherent queue/scan fields and recomputes summary currencies alphabetically,
+  independent of server queue encounter order. The focused browser contracts
+  returned to **13/13** and the managed scan scenario remained green.
 
 ## Checkpoints
 - Planning checkpoint: `deca790` (`docs: plan revenue command center v2`).
-- Handoff checkpoint: pending commit after focused review.
+- Handoff checkpoint: `0f493de` (`feat: add safe revenue leak action handoff`).
 - Browser checkpoint: pending.
 - Final integration/docs checkpoint: pending.
 

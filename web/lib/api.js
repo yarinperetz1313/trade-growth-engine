@@ -8,7 +8,10 @@ import {
 } from "./browserApiRequest.mjs";
 import {
   unwrapRevenueLeakCaseListResponse,
+  unwrapRevenueLeakActionHandoffResponse,
   unwrapRevenueLeakCaseMutationResponse,
+  unwrapRevenueLeakOperatingQueueResponse,
+  unwrapStalledOpportunityScanResponse,
   unwrapStalledOpportunityDetectionResponse
 } from "./revenueLeakCaseContracts.mjs";
 
@@ -310,6 +313,43 @@ export async function linkRevenueLeakCaseToAction(
   );
   unwrapRevenueLeakCaseMutationResponse(response, opportunityId);
   return response;
+}
+
+export async function getRevenueLeakOperatingQueue() {
+  const response = await request(
+    "/api/revenue-leak-cases/operating-queue"
+  );
+  unwrapRevenueLeakOperatingQueueResponse(response);
+  return response;
+}
+
+export async function scanStalledOpportunities() {
+  const response = await request(
+    "/api/revenue-leak-cases/scan-stalled-opportunities",
+    {
+      method: "POST",
+      body: JSON.stringify({})
+    }
+  );
+  return unwrapStalledOpportunityScanResponse(response);
+}
+
+export async function createRevenueActionForLeakCase(
+  caseId,
+  opportunityId
+) {
+  const response = await request(
+    `/api/revenue-leak-cases/${encodeURIComponent(caseId)}/revenue-action`,
+    {
+      method: "POST",
+      body: JSON.stringify({})
+    }
+  );
+  return unwrapRevenueLeakActionHandoffResponse(
+    response,
+    caseId,
+    opportunityId
+  );
 }
 
 export async function createImportPreview(
