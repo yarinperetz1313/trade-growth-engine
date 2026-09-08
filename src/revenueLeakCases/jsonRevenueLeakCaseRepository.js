@@ -376,7 +376,6 @@ function validateCaseCollection(records, tenantId, revenueActions) {
       assertIntegrity(
         action
         && action.basis_fingerprint === record.revenue_action_fingerprint
-        && action.status === record.revenue_action_status_at_link
       );
     }
     if (record.supersedes_case_id !== null) {
@@ -456,6 +455,87 @@ function createJsonRevenueLeakCaseRepository({
   const trusted = context => requireTenantContext(context);
   const isLocal = context => trusted(context).tenantId === tenantId;
 
+  function reconcileRecord(records, request, detection) {
+    requireCanonicalCommercialValue(detection?.commercial_value);
+    const opportunity = store.readCollection("opportunities").find(record =>
+      record.id === detection?.opportunity_id
+    );
+    if (!opportunity) {
+      fail(
+        "REVENUE_LEAK_SOURCE_UNAVAILABLE",
+        "The requested source is unavailable."
+      );
+    }
+    const series = records
+      .filter(record =>
+        record.tenant_id === request.tenantId
+        && record.series_key === detection.series_key
+      )
+      .sort((left, right) =>
+        String(right.detected_at).localeCompare(String(left.detected_at))
+      );
+    const active = series.filter(record => ACTIVE_STATES.has(record.state));
+    if (active.length > 1) {
+      fail(
+        "REVENUE_LEAK_CASE_INTEGRITY_CONFLICT",
+        "Revenue leak case active identity is inconsistent."
+      );
+    }
+    if (active[0]?.semantic_key === detection.semantic_key) {
+      return {
+        record: publicRecord(active[0]),
+        created: false,
+        duplicate: true,
+        superseded_case_id: null
+      };
+    }
+    if (!active[0] && series[0]?.semantic_key === detection.semantic_key) {
+      return {
+        record: publicRecord(series[0]),
+        created: false,
+        duplicate: true,
+        terminal: true,
+        superseded_case_id: null
+      };
+    }
+
+    const predecessor = active[0] || series[0] || null;
+    const next = {
+      ...clone(detection),
+      tenant_id: request.tenantId,
+      supersedes_case_id: predecessor?.id || null
+    };
+    let supersededCaseId = null;
+    if (active[0]) {
+      const index = records.indexOf(active[0]);
+      const at = detection.detected_at;
+      records[index] = {
+        ...active[0],
+        state: "SUPERSEDED",
+        superseded_by_case_id: detection.id,
+        superseded_at: at,
+        supersession_reason: "CANONICAL_EVIDENCE_CHANGED",
+        updated_at: at,
+        audit: [...active[0].audit, {
+          transition: "SUPERSEDED",
+          at,
+          subject_id: request.subjectId,
+          reason_code: "CANONICAL_EVIDENCE_CHANGED",
+          superseded_by_case_id: detection.id,
+          replacement_semantic_key: detection.semantic_key
+        }]
+      };
+      supersededCaseId = active[0].id;
+    }
+    records.push(next);
+    return {
+      record: publicRecord(next),
+      created: true,
+      duplicate: false,
+      superseded_case_id: supersededCaseId
+    };
+  }
+
   function findIndex(records, context, id) {
     return records.findIndex(record =>
       record.tenant_id === context.tenantId && record.id === id
@@ -494,85 +574,70 @@ function createJsonRevenueLeakCaseRepository({
           "The requested source is unavailable."
         );
       }
-      requireCanonicalCommercialValue(detection?.commercial_value);
       const records = readCases();
-      const opportunity = store.readCollection("opportunities").find(record =>
-        record.id === detection?.opportunity_id
-      );
-      if (!opportunity) {
+      const result = reconcileRecord(records, request, detection);
+      writeCases(records);
+      return result;
+    },
+
+    async reconcileBatch(context, detections) {
+      const request = trusted(context);
+      if (!isLocal(request)) {
         fail(
           "REVENUE_LEAK_SOURCE_UNAVAILABLE",
           "The requested source is unavailable."
         );
       }
-      const series = records
+      if (!Array.isArray(detections)) {
+        throw new TypeError("Revenue leak case batch detections must be an array.");
+      }
+      const records = readCases();
+      const results = detections.map(detection =>
+        reconcileRecord(records, request, detection)
+      );
+      if (results.some(result => result.created)) writeCases(records);
+      return results;
+    },
+
+    async listOperatingQueueContexts(context, { limit } = {}) {
+      const request = trusted(context);
+      if (request.tenantId !== tenantId) {
+        return { contexts: [], totalCount: 0 };
+      }
+      if (!Number.isSafeInteger(limit) || limit < 1) {
+        throw new TypeError("A positive operating queue limit is required.");
+      }
+      const active = readCases()
         .filter(record =>
           record.tenant_id === request.tenantId
-          && record.series_key === detection.series_key
+          && ACTIVE_STATES.has(record.state)
         )
-        .sort((left, right) =>
-          String(right.detected_at).localeCompare(String(left.detected_at))
-        );
-      const active = series.filter(record => ACTIVE_STATES.has(record.state));
-      if (active.length > 1) {
-        fail(
-          "REVENUE_LEAK_CASE_INTEGRITY_CONFLICT",
-          "Revenue leak case active identity is inconsistent."
-        );
-      }
-      if (active[0]?.semantic_key === detection.semantic_key) {
-        return {
-          record: publicRecord(active[0]),
-          created: false,
-          duplicate: true,
-          superseded_case_id: null
-        };
-      }
-      if (!active[0] && series[0]?.semantic_key === detection.semantic_key) {
-        return {
-          record: publicRecord(series[0]),
-          created: false,
-          duplicate: true,
-          terminal: true,
-          superseded_case_id: null
-        };
-      }
-
-      const predecessor = active[0] || series[0] || null;
-      const next = {
-        ...clone(detection),
-        tenant_id: request.tenantId,
-        supersedes_case_id: predecessor?.id || null
-      };
-      let supersededCaseId = null;
-      if (active[0]) {
-        const index = records.indexOf(active[0]);
-        const at = detection.detected_at;
-        records[index] = {
-          ...active[0],
-          state: "SUPERSEDED",
-          superseded_by_case_id: detection.id,
-          superseded_at: at,
-          supersession_reason: "CANONICAL_EVIDENCE_CHANGED",
-          updated_at: at,
-          audit: [...active[0].audit, {
-            transition: "SUPERSEDED",
-            at,
-            subject_id: request.subjectId,
-            reason_code: "CANONICAL_EVIDENCE_CHANGED",
-            superseded_by_case_id: detection.id,
-            replacement_semantic_key: detection.semantic_key
-          }]
-        };
-        supersededCaseId = active[0].id;
-      }
-      records.push(next);
-      writeCases(records);
+        .sort((left, right) => left.id.localeCompare(right.id));
+      const opportunities = store.readCollection("opportunities");
+      const prospects = store.readCollection("prospects");
+      const actions = store.readCollection("revenue_actions");
       return {
-        record: publicRecord(next),
-        created: true,
-        duplicate: false,
-        superseded_case_id: supersededCaseId
+        totalCount: active.length,
+        contexts: active.slice(0, limit).map(record => {
+          const opportunity = opportunities.find(item =>
+            item?.id === record.opportunity_id
+          ) || null;
+          const business = opportunity?.prospect_id
+            ? prospects.find(item => item?.id === opportunity.prospect_id) || null
+            : null;
+          const revenueAction = record.revenue_action_id
+            ? actions.find(item =>
+              item?.id === record.revenue_action_id
+              && item?.opportunity_id === record.opportunity_id
+            ) || null
+            : null;
+          return {
+            case: publicRecord(record),
+            opportunity: clone(opportunity),
+            business: clone(business),
+            revenue_action: clone(revenueAction)
+          };
+        })
       };
     },
 

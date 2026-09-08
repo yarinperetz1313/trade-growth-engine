@@ -28,6 +28,21 @@ lossless non-negative canonical amount (including zero) and three-letter currenc
 are authoritative; otherwise valid missing evidence remains `UNKNOWN`. The rule
 does not consume probability, expected value, recovered revenue, or attribution.
 
+The explicit tenant-wide scan admits at most 100 canonical opportunities and
+returns every admitted version-1 outcome in stable opportunity-ID order. It
+fails before reconciliation when the tenant count exceeds the cap or canonical
+identity enumeration is invalid. A successful summary is complete, includes
+zero excluded/unevaluated records, retains every closed outcome/reason count, and
+distinguishes new detection, semantic replay, and evidence supersession.
+
+The active RevenueLeakCase operating queue admits at most 100 `OPEN`/`SNOOZED`
+cases and fails rather than truncates. Exact known-positive amounts are totaled
+only per currency; known zero, unknown, and not applicable remain separately
+counted truths. Ordering uses recorded urgency, value-evidence tier, alphabetical
+currency grouping with amount comparison only inside a currency, recorded leak
+age, and case ID. It uses no probability, FX, expected value, recovered value, or
+attribution.
+
 
 ## Revenue portfolio
 The revenue portfolio is a deterministic read model over active opportunities and their existing deal intelligence. Commercial value is known only when it is a positive finite value. Missing, `null`, zero, blank, and non-numeric values are unknown and excluded from known totals; each ranked action exposes `value.known` so the UI never turns unknown into `$0`. This accounting does not change deal-intelligence scoring or the positive-value mutation rule. `STRONG`, `AT_RISK`, `STALE`, `NO_NEXT_ACTION`, and `VALUE_UNKNOWN` remain structured classifications rather than close-probability claims. Classifications can overlap; attention is a deduplicated per-opportunity union of actionable gaps, including `VALUE_UNKNOWN`. `STRONG` is health evidence, not an exemption from actionability. Ranked actions carry the opportunity ID, recorded evidence, and existing action metadata; ties end with the opportunity ID so ordering is stable.

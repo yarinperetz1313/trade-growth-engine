@@ -7,11 +7,12 @@ leak evidence and later human-controlled recovery work. It is not an
 opportunity, task, prediction, message, recovered-revenue claim, or replacement
 for `RevenueAction`.
 
-This boundary supports only `STALLED_OPPORTUNITY`. It includes one explicit,
-per-opportunity detector invocation, the existing reconciliation contract, and
-an explicit browser consumer in the Opportunity Command Center. It does not
-schedule detection, hook detection to imports, recover a quote, or calculate
-attribution.
+This boundary supports only `STALLED_OPPORTUNITY`. It includes explicit
+per-opportunity and bounded tenant-portfolio detector invocations, the existing
+reconciliation contract, a deterministic active-case operating-queue read
+model, and an explicit browser consumer in the Opportunity Command Center. It
+does not schedule detection, hook detection to imports, recover a quote, or
+calculate attribution.
 
 ## Detection contract
 
@@ -98,6 +99,92 @@ currency. Known zero remains `KNOWN` zero. Missing, null, blank, recognized-unkn
 value evidence—or a valid amount without currency—remains `UNKNOWN`. Malformed or
 unrepresentable supplied value/currency evidence suppresses detection. The detector
 never uses opportunity probability or invents expected revenue.
+
+## Explicit tenant-portfolio scan
+
+An authenticated user may explicitly invoke one tenant-wide
+`STALLED_OPPORTUNITY` scan. The command accepts no fields or query parameters,
+derives one evaluation timestamp on the server, and admits at most **100**
+tenant-visible canonical opportunities. It is never scheduled and is not called
+by import staging, analysis, or commit.
+
+PostgreSQL obtains the exact tenant candidate count and the stable ID-ordered
+bounded candidate set in one statement, locks the admitted opportunity rows in
+that order, and evaluates and reconciles them in the same trusted tenant
+transaction. Every query retains an explicit tenant predicate in addition to
+forced RLS. Existing per-series advisory locking remains the reconciliation
+concurrency authority. A concurrent identical scan therefore creates at most
+one case per semantic identity and reports the other as a replay; changed
+detected evidence follows existing supersession.
+
+JSON sorts its local opportunity collection by stable ID, rejects any non-local
+tenant context, evaluates all admitted evidence, and applies all detected
+reconciliations through one case-collection replacement. This narrows local
+partial-write risk but does not turn JSON files into transactional or
+cross-process persistence; the documented local-only, single-process limit
+remains.
+
+An over-cap portfolio is rejected before evaluation or case mutation with
+`REVENUE_LEAK_SCAN_LIMIT_EXCEEDED`. The response declares `complete: false`, the
+100-record limit, exact total/overflow/unevaluated counts, and zero evaluated,
+invalid, and excluded records. Missing, duplicate, whitespace-padded, or
+over-512-byte canonical opportunity IDs, an incomplete repository set, or invalid
+enumeration truth similarly fail before mutation as
+`REVENUE_LEAK_SCAN_SOURCE_INVALID`; identity is preserved exactly rather than
+trimmed during admission, unaddressable records are counted as invalid, and every
+candidate is counted as unevaluated. Detector-level malformed evidence is not
+silently excluded: it is evaluated as the existing
+`DATA_HEALTH_SUPPRESSED` outcome and summarized by its closed version-1 reason.
+
+A successful response is complete and includes one bounded result per canonical
+opportunity in ID order. Each result exposes only opportunity ID, outcome, stable
+reason, reconciliation disposition (`READ_ONLY`, `CREATED`, `REPLAYED`, or
+`SUPERSEDED`), case ID when detected, and predecessor ID when superseding. The
+summary retains all five outcome classes and reason counts, plus detected,
+created, replayed, and superseded counts. Closed opportunities are evaluated as
+no-leak; no record is excluded. Non-detected outcomes never reconcile or mutate a
+case. An unexpected or transaction-unknown failure never returns a successful
+`complete: true` envelope.
+
+## Active operating queue projection
+
+The read-only operating queue projects only tenant-visible `OPEN` and `SNOOZED`
+RevenueLeakCases. It is capped at **100 active cases**. The repository returns an
+exact active-case count; over-cap state returns
+`REVENUE_LEAK_QUEUE_LIMIT_EXCEEDED` with `complete: false`, total, projected-zero,
+and omitted counts instead of truncating. A count/context mismatch or incoherent
+joined identity returns `REVENUE_LEAK_QUEUE_INTEGRITY_CONFLICT`. Neither failure
+is presented as a partial queue.
+
+Each entry exposes bounded case identity, leak type, lifecycle state, stable
+reason, detector identity/version, immutable source facts and evidence snapshot,
+recommended action type, canonical opportunity/business identity when present,
+and no contact fields. Potential value retains the case's exact `KNOWN`,
+`UNKNOWN`, or `NOT_APPLICABLE` classification and adds a display/sort kind that
+distinguishes `KNOWN_POSITIVE` from `KNOWN_ZERO`. Linked RevenueAction context is
+limited to its ID, link-time fingerprint/status/time snapshot, and current status
+when the exact same-tenant, same-opportunity, same-fingerprint row is safely
+available. Status evolution does not rewrite the link-time snapshot or transfer
+execution ownership to the case.
+
+Portfolio value aggregates count known-positive, known-zero, unknown, and
+not-applicable cases separately. Exact known-positive decimal amounts are summed
+only inside three-letter currency groups. Known-zero counts are also grouped by
+currency. There is no cross-currency total, exchange rate, probability, expected
+value, recovered revenue, influenced revenue, or attribution.
+
+Leak age is derived only from `detected_at` and the server projection time.
+Urgency is derived only from recorded `due_at`, lifecycle state, and
+`snoozed_until`. Ordering is deterministic and published in every response:
+
+1. urgency tier: overdue, snooze wake due, open with no overdue deadline, then
+   snoozed until a future time;
+2. value-evidence tier: known positive, known zero, unknown, then not applicable;
+3. for known-positive entries, alphabetical currency grouping and amount
+   descending only within the same currency (amounts in different currencies are
+   never compared);
+4. older leak age first; and
+5. case ID ascending as the stable final tie-breaker.
 
 ## Identity and reconciliation
 
@@ -207,6 +294,8 @@ write controls remain locked. It never automatically retries those mutations.
 - `GET /api/revenue-leak-cases/:id`
 - `POST /api/revenue-leak-cases/reconcile`
 - `POST /api/opportunities/:id/revenue-leak-cases/detect-stalled`
+- `POST /api/revenue-leak-cases/scan-stalled-opportunities`
+- `GET /api/revenue-leak-cases/operating-queue`
 - `POST /api/revenue-leak-cases/:id/{snooze,resume,dismiss}`
 - `POST /api/revenue-leak-cases/:id/link-revenue-action`
 
@@ -214,3 +303,8 @@ The detector endpoint accepts only an empty object, derives time and evidence on
 the server, and returns one of the five outcomes. Only a detected outcome enters
 the existing reconciliation path. Neither endpoint schedules work or executes an
 external action.
+
+The portfolio scan likewise accepts only an empty object and no query parameters.
+The operating queue accepts no query parameters and performs no writes. Both use
+the same authenticated, server-derived `TenantContext` boundary as the existing
+case APIs.

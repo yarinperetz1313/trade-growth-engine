@@ -211,6 +211,11 @@ function createPostgresRepositories({
     run(context, scoped => scoped.revenueActions.transition(id, transition));
   publicRepositories.revenueActions.executeAtomic = (context, id, plan) =>
     executeRevenueActionAtomic(context, id, plan);
+  publicRepositories.opportunities.listForStalledScan = (context, options) =>
+    run(
+      context,
+      scoped => scoped.opportunities.listForStalledScan(options)
+    );
   publicRepositories.imports = {
     stagePreview: (context, draft) => run(
       context,
@@ -245,6 +250,14 @@ function createPostgresRepositories({
     reconcile: (context, detection) => run(
       context,
       scoped => scoped.revenueLeakCases.reconcile(detection)
+    ),
+    reconcileBatch: (context, detections) => run(
+      context,
+      scoped => scoped.revenueLeakCases.reconcileBatch(detections)
+    ),
+    listOperatingQueueContexts: (context, options) => run(
+      context,
+      scoped => scoped.revenueLeakCases.listOperatingQueueContexts(options)
     ),
     transition: (context, id, transition) => run(
       context,
@@ -407,7 +420,8 @@ function createPostgresRepositories({
           transaction.client,
           transaction.tenantId,
           action,
-          opportunity
+          opportunity,
+          now()
         );
         if (!basisValidation.valid) {
           const supersededAt = now();
@@ -687,6 +701,13 @@ function createPostgresRepositories({
       transaction.tenantId,
       transaction.subjectId
     );
+    scoped.opportunities.listForStalledScan = options =>
+      listOpportunitiesForStalledScan(
+        transaction.client,
+        transaction.tenantId,
+        ENTITY_CONFIGS.opportunities,
+        options
+      );
     return scoped;
   }
 
@@ -698,6 +719,40 @@ function createPostgresRepositories({
       }
       return run(context, scoped => operation(scoped));
     }
+  };
+}
+
+async function listOpportunitiesForStalledScan(
+  client,
+  tenantId,
+  config,
+  { limit } = {}
+) {
+  if (!Number.isSafeInteger(limit) || limit < 1) {
+    throw new TypeError("A positive stalled-opportunity scan limit is required.");
+  }
+  const result = await client.query(
+    `with scan_total as (
+       select count(*)::int as total_count
+       from tge.opportunities
+       where tenant_id = $1
+     ), candidates as (
+       select *
+       from tge.opportunities
+       where tenant_id = $1
+       order by id
+       limit $2
+       for update
+     )
+     select candidates.*, scan_total.total_count as scan_total_count
+     from candidates
+     cross join scan_total
+     order by candidates.id`,
+    [tenantId, limit]
+  );
+  return {
+    records: result.rows.map(config.fromRow),
+    totalCount: result.rows[0]?.scan_total_count ?? 0
   };
 }
 
@@ -1402,7 +1457,8 @@ async function transitionRevenueAction(
       client,
       tenantId,
       action,
-      opportunity
+      opportunity,
+      now()
     );
     if (!basisValidation.valid) {
       const supersededAt = now();
@@ -1704,7 +1760,8 @@ async function validateRevenueActionBasis(
   client,
   tenantId,
   action,
-  opportunity
+  opportunity,
+  generatedAt
 ) {
   const integrity = validateStoredRevenueActionIntegrity(action);
   if (!integrity.valid) return integrity;
@@ -1756,7 +1813,8 @@ async function validateRevenueActionBasis(
     intelligence: buildDealIntelligenceFromData(opportunity, {
       prospects: prospects.rows.map(prospectFromRow),
       tasks: tasks.rows.map(taskFromRow),
-      activities: activities.rows.map(activityFromRow)
+      activities: activities.rows.map(activityFromRow),
+      generatedAt
     })
   };
   const current = calculateRevenueActionBasis(state);

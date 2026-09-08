@@ -4433,6 +4433,238 @@ function registerPostgresRepositoryContractTests({
     );
   });
 
+  test("PostgreSQL portfolio scans and operating queues are bounded, tenant-isolated, and concurrency-safe", async () => {
+    const evaluatedAt = "2026-09-01T00:00:00.000Z";
+    const pool = createPool({ max: 4 });
+    const persistence = createPersistence({
+      adapter: "postgres",
+      pool,
+      clock: () => new Date(evaluatedAt)
+    });
+    const tenantA = await createTenant("portfolio-scan-a");
+    const tenantB = await createTenant("portfolio-scan-b");
+    const tenantOverflow = await createTenant("portfolio-scan-overflow");
+    const tenantFailure = await createTenant("portfolio-scan-failure");
+    const opportunityId = "shared-portfolio-opportunity";
+    await persistence.repositories.opportunities.insert(tenantA.context, {
+      id: opportunityId,
+      business_name: "Tenant A portfolio business",
+      stage: "PROPOSAL",
+      next_action: "",
+      value: "42000.500000",
+      currency: "AUD",
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-08-31T00:00:00.000Z"
+    });
+
+    let nextCaseId = 0;
+    const service = createRevenueLeakCaseService({
+      persistence,
+      createId: () => `portfolio-scan-case-${++nextCaseId}`,
+      clock: () => new Date(evaluatedAt)
+    });
+    const tenantAService = service.forTenant(tenantA.context);
+    const concurrent = await Promise.all([
+      tenantAService.scanStalledOpportunities(),
+      tenantAService.scanStalledOpportunities()
+    ]);
+    assert.deepEqual(
+      concurrent.map(result => result.summary.reconciliation).sort((left, right) =>
+        right.created_count - left.created_count
+      ),
+      [{
+        detected_count: 1,
+        created_count: 1,
+        replayed_count: 0,
+        superseded_count: 0
+      }, {
+        detected_count: 1,
+        created_count: 0,
+        replayed_count: 1,
+        superseded_count: 0
+      }]
+    );
+    const cases = await persistence.repositories.revenueLeakCases.list(
+      tenantA.context
+    );
+    assert.equal(cases.length, 1);
+
+    const action = (await persistence.repositories.revenueActions.materialize(
+      tenantA.context,
+      { id: "portfolio-linked-action", opportunity_id: opportunityId }
+    )).record;
+    await persistence.repositories.revenueLeakCases.linkRevenueAction(
+      tenantA.context,
+      cases[0].id,
+      {
+        revenue_action_id: action.id,
+        at: "2026-09-01T00:01:00.000Z"
+      }
+    );
+    const queue = await tenantAService.getRevenueLeakOperatingQueue();
+    assert.equal(queue.ok, true);
+    assert.equal(queue.data.complete, true);
+    assert.equal(queue.data.total_cases, 1);
+    assert.deepEqual(queue.data.value_summary.known_positive, {
+      case_count: 1,
+      totals_by_currency: [{
+        currency: "AUD",
+        amount: "42000.5",
+        case_count: 1
+      }]
+    });
+    assert.equal(
+      queue.data.entries[0].linked_revenue_action.current.status,
+      action.status
+    );
+
+    const tenantBScan = await service.forTenant(tenantB.context)
+      .scanStalledOpportunities();
+    const tenantBQueue = await service.forTenant(tenantB.context)
+      .getRevenueLeakOperatingQueue();
+    assert.equal(tenantBScan.summary.total_opportunities, 0);
+    assert.equal(tenantBQueue.data.total_cases, 0);
+    assert.equal(
+      await persistence.repositories.revenueLeakCases.findById(
+        tenantB.context,
+        cases[0].id
+      ),
+      null
+    );
+
+    await persistence.repositories.opportunities.update(
+      tenantA.context,
+      opportunityId,
+      { stage: "MEETING" }
+    );
+    const changed = await tenantAService.scanStalledOpportunities();
+    assert.deepEqual(changed.summary.reconciliation, {
+      detected_count: 1,
+      created_count: 0,
+      replayed_count: 0,
+      superseded_count: 1
+    });
+    assert.equal(
+      (await persistence.repositories.revenueLeakCases.findById(
+        tenantA.context,
+        cases[0].id
+      )).state,
+      "SUPERSEDED"
+    );
+
+    await persistence.repositories.transaction(
+      tenantOverflow.context,
+      async scoped => {
+        for (let index = 0; index < 101; index += 1) {
+          await scoped.opportunities.insert({
+            id: `overflow-${String(index).padStart(3, "0")}`,
+            business_name: `Overflow ${index}`,
+            stage: "PROPOSAL",
+            next_action: "",
+            created_at: "2026-07-01T00:00:00.000Z",
+            updated_at: "2026-08-31T00:00:00.000Z"
+          });
+        }
+      }
+    );
+    const overflow = await service.forTenant(tenantOverflow.context)
+      .scanStalledOpportunities();
+    assert.equal(overflow.ok, false);
+    assert.equal(overflow.error, "REVENUE_LEAK_SCAN_LIMIT_EXCEEDED");
+    assert.equal(overflow.details.total_opportunities, 101);
+    assert.equal(overflow.details.evaluated_count, 0);
+    assert.equal(overflow.details.unevaluated_count, 101);
+    assert.equal(overflow.details.overflow_count, 1);
+    assert.equal(
+      (await persistence.repositories.revenueLeakCases.list(
+        tenantOverflow.context
+      )).length,
+      0
+    );
+
+    await persistence.repositories.transaction(
+      tenantFailure.context,
+      async scoped => {
+        for (const id of ["rollback-a", "rollback-b"]) {
+          await scoped.opportunities.insert({
+            id,
+            business_name: `Rollback ${id}`,
+            stage: "PROPOSAL",
+            next_action: "",
+            created_at: "2026-07-01T00:00:00.000Z",
+            updated_at: "2026-08-31T00:00:00.000Z"
+          });
+        }
+      }
+    );
+    const failingService = createRevenueLeakCaseService({
+      persistence,
+      createId: () => "duplicate-generated-case-id",
+      clock: () => new Date(evaluatedAt)
+    }).forTenant(tenantFailure.context);
+    await assert.rejects(
+      failingService.scanStalledOpportunities(),
+      error => error.code === "23505"
+    );
+    assert.equal(
+      (await persistence.repositories.revenueLeakCases.list(
+        tenantFailure.context
+      )).length,
+      0
+    );
+  });
+
+  for (const [label, invalidId] of [
+    ["whitespace-padded", " padded-postgres-opportunity "],
+    ["overlength", "p".repeat(513)]
+  ]) {
+    test(`PostgreSQL scan rejects ${label} canonical opportunity IDs before mutation`, async () => {
+      const evaluatedAt = "2026-09-01T00:00:00.000Z";
+      const tenant = await createTenant(`invalid-scan-identity-${label}`);
+      const persistence = createPersistence({
+        adapter: "postgres",
+        pool: createPool(),
+        clock: () => new Date(evaluatedAt)
+      });
+      await persistence.repositories.opportunities.insert(tenant.context, {
+        id: invalidId,
+        business_name: `Invalid scan identity ${label}`,
+        stage: "PROPOSAL",
+        next_action: "",
+        created_at: "2026-07-01T00:00:00.000Z",
+        updated_at: "2026-08-31T00:00:00.000Z"
+      });
+      const service = createRevenueLeakCaseService({
+        persistence,
+        createId: () => `invalid-scan-case-${label}`,
+        clock: () => new Date(evaluatedAt)
+      }).forTenant(tenant.context);
+
+      const result = await service.scanStalledOpportunities();
+
+      assert.equal(result.ok, false);
+      assert.equal(result.error, "REVENUE_LEAK_SCAN_SOURCE_INVALID");
+      assert.equal(
+        result.message,
+        "Canonical opportunity identities are invalid or duplicated."
+      );
+      assert.deepEqual(result.details, {
+        complete: false,
+        limit: 100,
+        total_opportunities: 1,
+        evaluated_count: 0,
+        unevaluated_count: 1,
+        overflow_count: 0,
+        invalid_record_count: 1,
+        excluded_count: 0
+      });
+      assert.equal(
+        (await persistence.repositories.revenueLeakCases.list(tenant.context)).length,
+        0
+      );
+    });
+  }
+
   async function stageCsvBatch(
     repositories,
     context,

@@ -41,7 +41,7 @@ function validateBody(req, res) {
   return req.body;
 }
 
-function validateDetectorBody(req, res) {
+function validateEmptyBody(req, res, { error, message }) {
   if (
     req.body === undefined
     || (
@@ -55,8 +55,8 @@ function validateDetectorBody(req, res) {
   }
   res.status(400).json({
     ok: false,
-    error: "REVENUE_LEAK_DETECTOR_REQUEST_INVALID",
-    message: "Stalled-opportunity detection accepts only an empty JSON object.",
+    error,
+    message,
     details: { field: "body" }
   });
   return false;
@@ -92,6 +92,42 @@ function createRevenueLeakCasesRouter({ service, resolveTenantContext } = {}) {
   }
 
   const router = express.Router();
+
+  router.post(
+    "/api/revenue-leak-cases/scan-stalled-opportunities",
+    route(async (req, res, resolveService) => {
+      if (Object.keys(req.query || {}).length > 0) {
+        return res.status(400).json({
+          ok: false,
+          error: "REVENUE_LEAK_SCAN_REQUEST_INVALID",
+          message: "The stalled-opportunity portfolio scan does not accept query parameters.",
+          details: { field: "query" }
+        });
+      }
+      if (!validateEmptyBody(req, res, {
+        error: "REVENUE_LEAK_SCAN_REQUEST_INVALID",
+        message: "The stalled-opportunity portfolio scan accepts only an empty JSON object."
+      })) return;
+      const requestBound = await resolveService(req);
+      return sendResult(res, await requestBound.scanStalledOpportunities());
+    })
+  );
+
+  router.get(
+    "/api/revenue-leak-cases/operating-queue",
+    route(async (req, res, resolveService) => {
+      if (Object.keys(req.query || {}).length > 0) {
+        return res.status(400).json({
+          ok: false,
+          error: "REVENUE_LEAK_QUEUE_REQUEST_INVALID",
+          message: "The operating queue does not accept query parameters.",
+          details: { field: "query" }
+        });
+      }
+      const requestBound = await resolveService(req);
+      return sendResult(res, await requestBound.getRevenueLeakOperatingQueue());
+    })
+  );
 
   router.get("/api/revenue-leak-cases", route(async (req, res, resolveService) => {
     const requestBound = await resolveService(req);
@@ -130,7 +166,10 @@ function createRevenueLeakCasesRouter({ service, resolveTenantContext } = {}) {
   router.post(
     "/api/opportunities/:id/revenue-leak-cases/detect-stalled",
     route(async (req, res, resolveService) => {
-      if (!validateDetectorBody(req, res)) return;
+      if (!validateEmptyBody(req, res, {
+        error: "REVENUE_LEAK_DETECTOR_REQUEST_INVALID",
+        message: "Stalled-opportunity detection accepts only an empty JSON object."
+      })) return;
       const requestBound = await resolveService(req);
       const result = await requestBound.detectStalledOpportunity(req.params.id);
       return sendResult(
