@@ -971,8 +971,9 @@ function validateQueueEntry(entry, generatedAt) {
   if (
     !isPlainObject(entry)
     || !hasExactKeys(entry, [
-      "case", "opportunity", "business", "potential_value", "leak_age",
-      "urgency", "linked_revenue_action", "ordering_factors"
+      "case", "historical_opportunity_id", "opportunity", "business",
+      "potential_value", "leak_age", "urgency", "linked_revenue_action",
+      "ordering_factors"
     ])
     || !isPlainObject(record)
     || !hasExactKeys(record, [
@@ -993,7 +994,7 @@ function validateQueueEntry(entry, generatedAt) {
     ])
     || source.system !== "TGE"
     || source.entity_type !== "OPPORTUNITY"
-    || source.entity_id !== entry.opportunity?.id
+    || source.entity_id !== entry.historical_opportunity_id
     || !isTimestampString(source.observed_at)
     || !isNonEmptyString(source.observed_version)
     || !isTimestampString(record.detected_at)
@@ -1013,11 +1014,13 @@ function validateQueueEntry(entry, generatedAt) {
     || record.evidence_snapshot.source_observation?.observed_at !== source.observed_at
     || record.evidence_snapshot.source_observation?.observed_version
       !== source.observed_version
-    || !isPlainObject(entry.opportunity)
-    || !hasExactKeys(entry.opportunity, ["id", "business_name"])
-    || entry.opportunity.id !== source.entity_id
-    || entry.opportunity.business_name !== null
-      && !isNonEmptyString(entry.opportunity.business_name)
+    || !isBoundedText(entry.historical_opportunity_id, 512)
+    || entry.opportunity !== null
+      && (!isPlainObject(entry.opportunity)
+        || !hasExactKeys(entry.opportunity, ["id", "business_name"])
+        || entry.opportunity.id !== entry.historical_opportunity_id
+        || entry.opportunity.business_name !== null
+          && !isNonEmptyString(entry.opportunity.business_name))
     || !isPlainObject(potential)
     || !hasExactKeys(potential, ["kind", "classification", "amount", "currency"])
     || !Object.hasOwn(QUEUE_VALUE, potential.kind)
@@ -1072,11 +1075,15 @@ function validateQueueEntry(entry, generatedAt) {
   validateQueueUrgency(entry, generatedAt);
   if (
     entry.business !== null
-    && (!hasExactKeys(entry.business, ["id", "name"])
+    && (entry.opportunity === null
+      || !hasExactKeys(entry.business, ["id", "name"])
       || !isNonEmptyString(entry.business.id)
       || entry.business.name !== null && !isNonEmptyString(entry.business.name))
   ) invalidResponse();
-  validateQueueAction(entry.linked_revenue_action, source.entity_id);
+  validateQueueAction(
+    entry.linked_revenue_action,
+    entry.historical_opportunity_id
+  );
 }
 
 function validateQueueUrgency(entry, generatedAt) {

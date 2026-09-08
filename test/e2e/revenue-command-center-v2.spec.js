@@ -232,6 +232,12 @@ test("renders the server-ordered truthful operating queue with evidence and auth
   await expect(commandCenter).toContainText("STALE_WITHOUT_NEXT_ACTION");
   await expect(commandCenter).toContainText("Meaningful activity baseline");
   await expect(commandCenter).toContainText("approval required");
+  await expect(commandCenter.getByRole("button", {
+    name: "Create recovery action"
+  })).toBeEnabled();
+  await expect(commandCenter.getByRole("button", {
+    name: "Open opportunity"
+  })).toBeEnabled();
 
   await commandCenter.getByLabel("Value", { exact: true }).selectOption("UNKNOWN");
   await expect(commandCenter.locator("[data-case-id]")).toHaveCount(1);
@@ -240,6 +246,22 @@ test("renders the server-ordered truthful operating queue with evidence and auth
   await commandCenter.getByLabel("Lifecycle", { exact: true }).selectOption("SNOOZED");
   await expect(commandCenter.locator("[data-case-id]")).toHaveCount(1);
   await expect(commandCenter).toContainText("Business identity unavailable");
+  await commandCenter.getByRole("button", {
+    name: /Why TGE surfaced this.*Business identity unavailable/i
+  }).click();
+  await expect(commandCenter).toContainText(
+    "Historical opportunity e2e-opp-execution-failure"
+  );
+  await expect(commandCenter).toContainText("Current opportunity context unavailable");
+  await expect(commandCenter.getByRole("button", {
+    name: "Create recovery action"
+  })).toHaveCount(0);
+  await expect(commandCenter.getByRole("button", {
+    name: "Open opportunity"
+  })).toHaveCount(0);
+  await expect(commandCenter.getByRole("button", {
+    name: "Continue in Opportunity Command Center"
+  })).toHaveCount(0);
 
   await expect.poll(() => page.evaluate(() => ({
     body: document.body.scrollWidth,

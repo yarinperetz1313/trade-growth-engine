@@ -221,10 +221,13 @@ function buildEntry(context, generatedAt) {
         ? null
         : normalizeTimestamp(record.due_at, "case.due_at")
     },
-    opportunity: {
-      id: opportunityId,
-      business_name: opportunity?.business_name || null
-    },
+    historical_opportunity_id: opportunityId,
+    opportunity: opportunity === null
+      ? null
+      : {
+          id: opportunity.id,
+          business_name: opportunity.business_name
+        },
     business,
     potential_value: {
       kind: valueKind,

@@ -143,7 +143,10 @@ function QueueCase({
             {entry.urgency.classification.replaceAll("_", " ")}
           </span>
           <strong>{businessName}</strong>
-          <small>Opportunity {entry.opportunity.id} · Case {entry.case.id}</small>
+          <small>
+            {canNavigate ? "Opportunity" : "Historical opportunity"}{" "}
+            {entry.historical_opportunity_id} · Case {entry.case.id}
+          </small>
         </span>
         <span className="rcc2-case-value">
           <span>Potential revenue at risk</span>
@@ -183,9 +186,9 @@ function QueueCase({
             <div>
               <h5>What should I do?</h5>
               <p>
-                Create one durable recovery action, then review and prepare it in
-                Opportunity Command Center. Human approval required; nothing is sent
-                from this portfolio view.
+                {canNavigate
+                  ? "Create one durable recovery action, then review and prepare it in Opportunity Command Center. Human approval required; nothing is sent from this portfolio view."
+                  : "Current opportunity context unavailable. Recovery action and navigation are unavailable; the historical source identity remains visible for review."}
               </p>
               {linkedAction && (
                 <strong data-testid={`rcc2-action-state-${entry.case.id}`}>
@@ -204,16 +207,18 @@ function QueueCase({
                   {mutating ? "Reconciling durable truth…" : "Create recovery action"}
                 </button>
               )}
-              <button
-                type="button"
-                className="oc-secondary-button"
-                disabled={!canNavigate || disabled}
-                onClick={() => onOpenOpportunity(entry.opportunity.id)}
-              >
-                {linkedAction
-                  ? "Continue in Opportunity Command Center"
-                  : "Open opportunity"}
-              </button>
+              {canNavigate && (
+                <button
+                  type="button"
+                  className="oc-secondary-button"
+                  disabled={disabled}
+                  onClick={() => onOpenOpportunity(entry.opportunity.id)}
+                >
+                  {linkedAction
+                    ? "Continue in Opportunity Command Center"
+                    : "Open opportunity"}
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -19,7 +19,7 @@
 | Idempotency and recovery | A linked case is reconciled first from durable case/action identity and returned as a replay. An unlinked retry reuses RevenueAction's existing active semantic identity and then replays/repairs the one-time case link. Browser ambiguous outcomes always reload authoritative queue truth before controls unlock and never automatically repeat the POST. | Existing RevenueAction materialization uniqueness/recovery; existing case one-time link; browser leak mutation pattern |
 | PostgreSQL atomicity | Load/lock current case and canonical opportunity evidence, validate, materialize the existing action, and link it through scoped repositories in one trusted tenant transaction. Cross-tenant/missing case, opportunity, and action relationships remain generic/non-oracular. | PR-3 transaction scope, forced RLS, explicit tenant predicates, composite case/action FK |
 | JSON atomicity | Use the existing local RevenueAction materializer, then the existing case link. A retry repairs an action-only partial write by semantic reuse; no multi-file atomicity or concurrent-writer claim is made. If evidence changes between partial steps, the durable unlinked action can remain history and the stale case is rejected. | `JSON_PERSISTENCE.md`; local single-process adapter contract |
-| Queue/browser truth | Validate the complete versioned queue envelope before render; retain server entry order and filter only by authoritative lifecycle, value kind, and source fields. Owner filtering is omitted because the queue publishes no owner. Missing business context is shown as unavailable, not fabricated. | PR #28 queue projection and API contract |
+| Queue/browser truth | Validate the complete versioned queue envelope before render; retain server entry order and filter only by authoritative lifecycle, value kind, and source fields. Owner filtering is omitted because the queue publishes no owner. Preserve the case's immutable historical opportunity identity separately from nullable current opportunity/business joins; when current opportunity context is absent, show the historical identity but omit handoff and navigation controls. | PR #28 queue projection and API contract |
 | Portfolio scan | Keep scan explicit and user-triggered. Its returned summary is the only source for suppressed/excluded counts; the UI does not infer these from active cases. Ambiguous scan results trigger a queue reconciliation, not an automatic scan retry. | `REVENUE_LEAK_CASE.md`; scan completeness contract |
 | Product truth | Use “potential revenue at risk,” “known value,” “unknown value,” “why TGE surfaced this,” and “approval required” only where accurate. A newly materialized `RECOMMENDED` action is not called prepared. No recovery, expectation, probability, attribution, autonomy, completeness, or cross-currency claim is inferred. | Product Truth tests and canonical deterministic contracts |
 | Rollback / recovery | No migration. Reverting the endpoint and browser consumer leaves existing immutable cases/actions and links valid. Move this plan to completed only after all gates and clean checkpoints. | Existing schema contains the complete link and action identity |
@@ -114,7 +114,7 @@
   test now proves an outcome-unknown handoff is surfaced after exactly one
   transaction attempt. The focused handoff and both browser-contract files pass
   **20/20** after that review addition.
-- Full verification green: with the disposable PostgreSQL 16 loopback cluster,
+- Initial-candidate full verification green: with the disposable PostgreSQL 16 loopback cluster,
   `TGE_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/postgres npm run verify`
   passed the engineering harness, integration **296/296**, PostgreSQL **60/60**,
   managed Chromium **48/48**, and the production Vite build. The existing
@@ -124,6 +124,44 @@
   harness correctly still resolved the tracked active path. Staging the rename
   made the intended tracked-file set visible; the harness and staged diff check
   then passed. This was plan-finalization ordering, not a product failure.
+- First independent review found three backend defects: JSON could invoke the
+  RevenueAction materializer before rejecting an incompatible current action;
+  PostgreSQL handoff acquired its case lock before the opportunity lock used by
+  scan; and the case/action link timestamp could predate a newly materialized
+  action. Checkpoint `ba0ba15` (`fix: harden revenue leak action handoff`)
+  prevalidates JSON compatibility without mutation, establishes the shared
+  opportunity-before-case lock order, and takes a fresh server link time no
+  earlier than action creation.
+- Exact-`ba0ba15` remediation evidence: full `npm run verify` passed the
+  engineering harness, integration **304/304**, PostgreSQL **62/62**, managed
+  Chromium **48/48**, and the production build. This is durable evidence for
+  the backend transaction/persistence remediation; it is not GitHub CI evidence.
+- Second independent review found P2 missing-current-opportunity behavior and P3
+  stale evidence records. Before the six-file remediation, the focused product
+  command passed **22/24** with exactly the new server-projection and strict
+  browser missing-context assertions failing; the managed PR2 Chromium spec
+  passed **5/6**, with only the missing-current-context scenario failing because
+  unsafe handoff/navigation controls remained enabled.
+- Missing-context green evidence from the preserved patch: the exact focused
+  command
+  `node --test test/revenue-leak-operating-queue.test.js test/revenue-command-center-v2-browser-contract.test.js test/revenue-leak-browser-contract.test.js`
+  passes **24/24**, and
+  `npm run test:e2e -- test/e2e/revenue-command-center-v2.spec.js` passes the
+  managed PR2 Chromium spec **6/6**. The broader affected PR2 Node command passes
+  **91/91**; its first restricted-sandbox attempt failed only because local HTTP
+  listeners were denied with `EPERM`, and the approved local-listener rerun passed.
+- Final-candidate delivery evidence: `npm run verify:fast` passed the engineering
+  harness and integration **307/307**; the focused managed PR2 Chromium spec
+  remained **6/6**; and `npm run build` passed with **30 modules transformed in
+  106 ms**. The first sandboxed build attempt was environment-only `EPERM` because
+  Vite writes a temporary cache through the preserved dependency symlink; the
+  approved rerun passed with the existing non-fatal bundle-size advisory. Real
+  PostgreSQL was not rerun because the final remediation changes the queue's pure
+  projection plus browser validation/rendering, tests, and documentation—not
+  transaction or persistence code—and exact-`ba0ba15` database evidence is
+  already **62/62**. A second full `npm run verify` would duplicate these
+  equivalent exact-candidate gates plus that unchanged backend gate, so it was
+  not run.
 
 ## Checkpoints
 - Planning checkpoint: `deca790` (`docs: plan revenue command center v2`).
@@ -131,6 +169,9 @@
 - Browser checkpoint: `c100467` (`feat: make leak queue the revenue command center`).
 - Final integration/docs checkpoint: this plan's completion commit; see the
   branch history after the plan moves to `completed/`.
+- Backend review remediation checkpoint: `ba0ba15` (`fix: harden revenue leak action handoff`).
+- Missing-context recovery checkpoint: this evidence-reconciliation commit; see
+  the branch history.
 
 ## Review and handoff
 - Implementer self-check: complete across tenant/non-oracular boundaries,
@@ -138,13 +179,19 @@
   JSON action-only recovery, semantic compatibility, immutable audit linkage,
   browser strict envelopes, stale-response generations, mutation reconciliation,
   server ordering, value/currency truth, keyboard/mobile semantics, and non-goals.
-- Fresh reviewer findings/resolution: direct fresh-context self-review only, as
-  required. It found the browser summary recomputation's dependence on queue
-  encounter order and insufficient exact scan/queue projection validation; both
-  were remediated with red/green regression evidence. No unresolved P0-P3 finding
-  remains.
-- Final-review evidence: complete diff inspected against pinned `79f51d4`;
-  `git diff --check`, harness, focused contracts, full integration/database/
-  browser gates, and production build are green.
+- Reviewer findings/resolution: the initial implementation self-review corrected
+  browser summary ordering and exact scan/queue projection validation. The first
+  independent review's three backend findings were resolved at `ba0ba15`; the
+  second independent review's missing-current-context P2 is resolved by the
+  six-file projection/contract/UI regression patch, and its stale-evidence P3 is
+  resolved in this plan and `PROJECT_STATE.md`. No additional reviewer was
+  started during recovery.
+- Final recovery self-review: the complete `origin/main...candidate` diff and the
+  final remediation were inspected against the bounded handoff, immutable truth,
+  human-control, and no-PR-3 constraints. No remaining product defect or scope
+  expansion was found. The browser regression was strengthened to assert that a
+  mismatched present opportunity and fabricated business context are also
+  rejected; the focused suite remained **24/24**. Final `git diff --check` and
+  repository-harness results are recorded before checkpoint.
 - Debt/follow-up: PR 3 onboarding/pilot instrumentation remains explicitly
   unstarted.

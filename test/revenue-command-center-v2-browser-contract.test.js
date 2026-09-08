@@ -215,6 +215,59 @@ test("browser accepts the complete queue without changing authoritative server o
   assert.equal(entries.value_summary.not_applicable.case_count, 1);
 });
 
+test("browser accepts missing current opportunity context only with historical source identity", async () => {
+  const { unwrapRevenueLeakOperatingQueueResponse } = await browserContracts;
+  const response = structuredClone(queueResponse());
+  const entry = response.data.entries[0];
+  entry.historical_opportunity_id = entry.case.source.entity_id;
+  entry.opportunity = null;
+  entry.business = null;
+
+  assert.equal(
+    unwrapRevenueLeakOperatingQueueResponse(
+      response,
+      new Date(GENERATED_AT)
+    ).entries[0].opportunity,
+    null
+  );
+
+  const fabricated = structuredClone(response);
+  fabricated.data.entries[0].historical_opportunity_id = "other-opportunity";
+  assert.throws(
+    () => unwrapRevenueLeakOperatingQueueResponse(
+      fabricated,
+      new Date(GENERATED_AT)
+    ),
+    error => error?.code === "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
+  );
+
+  const mismatchedCurrent = structuredClone(response);
+  mismatchedCurrent.data.entries[0].opportunity = {
+    id: "other-opportunity",
+    business_name: null
+  };
+  assert.throws(
+    () => unwrapRevenueLeakOperatingQueueResponse(
+      mismatchedCurrent,
+      new Date(GENERATED_AT)
+    ),
+    error => error?.code === "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
+  );
+
+  const fabricatedBusiness = structuredClone(response);
+  fabricatedBusiness.data.entries[0].business = {
+    id: "fabricated-business",
+    name: "Fabricated Business"
+  };
+  assert.throws(
+    () => unwrapRevenueLeakOperatingQueueResponse(
+      fabricatedBusiness,
+      new Date(GENERATED_AT)
+    ),
+    error => error?.code === "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
+  );
+});
+
 test("browser rejects partial, malformed, re-ranked, or cross-currency-coerced queue truth", async () => {
   const { unwrapRevenueLeakOperatingQueueResponse } = await browserContracts;
   const assertInvalid = mutate => {
