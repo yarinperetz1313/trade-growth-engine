@@ -2,6 +2,7 @@
 
 ## Active plan
 
+- [`active/revenue-command-center-v2.md`](active/revenue-command-center-v2.md) — **Issue #9 PR 2 is active: RevenueLeakCase operating queue as the primary commercial surface plus a safe composed RevenueAction handoff.**
 - [`active/pilot-readiness.md`](active/pilot-readiness.md) — **PR-0 through PR-2 are COMPLETE; PR-3 and PR-4 are integrated in code and complete; PR-5A through PR-5D are complete in their bounded slices. Raw-evidence retention/deletion acceptance remains a separate reviewed follow-up.**
 
 ## Completed plans
