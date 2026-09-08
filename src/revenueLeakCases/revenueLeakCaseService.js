@@ -19,10 +19,27 @@ const {
   evaluateStalledOpportunity
 } = require("./stalledOpportunityDetector");
 const {
+  buildDealIntelligenceFromData
+} = require("../intelligence/dealIntelligence");
+const {
   OPERATING_QUEUE_LIMIT,
   PORTFOLIO_SCAN_LIMIT,
   buildRevenueLeakOperatingQueue
 } = require("./revenueLeakOperatingQueue");
+const legacyRevenueActionService = require(
+  "../revenueActions/revenueActionService"
+);
+
+const REVENUE_ACTION_STATUSES = new Set([
+  "RECOMMENDED",
+  "PREPARED",
+  "APPROVED",
+  "EXECUTING",
+  "EXECUTED",
+  "REJECTED",
+  "CANCELLED",
+  "FAILED"
+]);
 
 const ERROR_STATUS = Object.freeze({
   REVENUE_LEAK_CASE_INPUT_INVALID: 400,
@@ -31,11 +48,24 @@ const ERROR_STATUS = Object.freeze({
   REVENUE_ACTION_UNAVAILABLE: 404,
   REVENUE_LEAK_CASE_TRANSITION_INVALID: 409,
   REVENUE_LEAK_CASE_ACTION_LINK_CONFLICT: 409,
+  REVENUE_LEAK_CASE_ACTION_INCOMPATIBLE: 409,
+  REVENUE_LEAK_CASE_STALE: 409,
   REVENUE_LEAK_CASE_INTEGRITY_CONFLICT: 409,
   REVENUE_LEAK_SCAN_LIMIT_EXCEEDED: 409,
   REVENUE_LEAK_SCAN_SOURCE_INVALID: 409,
   REVENUE_LEAK_QUEUE_LIMIT_EXCEEDED: 409,
   REVENUE_LEAK_QUEUE_INTEGRITY_CONFLICT: 409,
+  REVENUE_ACTION_NOT_FOUND: 404,
+  OPPORTUNITY_NOT_FOUND: 404,
+  INVALID_REVENUE_ACTION_TRANSITION: 409,
+  REVENUE_ACTION_OPPORTUNITY_CLOSED: 409,
+  REVENUE_ACTION_STALE: 409,
+  REVENUE_ACTION_RECOVERY_REQUIRED: 409,
+  REVENUE_ACTION_EFFECT_CONFLICT: 409,
+  REVENUE_ACTION_EVIDENCE_INVALID: 409,
+  REVENUE_ACTION_EXECUTION_SEMANTICS_INVALID: 409,
+  REVENUE_ACTION_MATERIALIZATION_CONFLICT: 409,
+  RECOMMENDATION_NOT_EXECUTABLE: 422,
   POSTGRES_TRANSACTION_OUTCOME_UNKNOWN: 500
 });
 
@@ -76,7 +106,12 @@ function knownFailure(error) {
 function createRevenueLeakCaseService({
   persistence,
   createId = crypto.randomUUID,
-  clock = () => new Date()
+  createRevenueActionId = crypto.randomUUID,
+  clock = () => new Date(),
+  handoffCheckpoint = async () => {},
+  revenueActionAuthority = persistence?.adapter === "json"
+    ? legacyRevenueActionService
+    : null
 } = {}) {
   if (
     !persistence
@@ -87,8 +122,26 @@ function createRevenueLeakCaseService({
       "The RevenueLeakCase service requires an injected JSON or PostgreSQL repository."
     );
   }
-  if (typeof createId !== "function" || typeof clock !== "function") {
-    throw new TypeError("RevenueLeakCase ID and clock providers must be functions.");
+  if (
+    typeof createId !== "function"
+    || typeof createRevenueActionId !== "function"
+    || typeof clock !== "function"
+    || typeof handoffCheckpoint !== "function"
+  ) {
+    throw new TypeError(
+      "RevenueLeakCase ID, RevenueAction ID, clock, and handoff checkpoint providers must be functions."
+    );
+  }
+  if (
+    persistence.adapter === "json"
+    && (
+      typeof revenueActionAuthority?.materializeRevenueAction !== "function"
+      || typeof revenueActionAuthority?.getRevenueAction !== "function"
+    )
+  ) {
+    throw new TypeError(
+      "JSON RevenueLeakCase handoff requires the existing RevenueAction authority."
+    );
   }
 
   return Object.freeze({
@@ -102,7 +155,10 @@ function createRevenueLeakCaseService({
       }
       return createTenantService(repository, trusted, {
         createId,
+        createRevenueActionId,
         clock,
+        handoffCheckpoint,
+        revenueActionAuthority,
         persistence
       });
     }
@@ -121,7 +177,14 @@ function bindJsonRepository(repository, context) {
 function createTenantService(
   repository,
   context,
-  { createId, clock, persistence }
+  {
+    createId,
+    createRevenueActionId,
+    clock,
+    handoffCheckpoint,
+    revenueActionAuthority,
+    persistence
+  }
 ) {
   const now = () => normalizeTimestamp(clock(), "server clock");
 
@@ -381,6 +444,275 @@ function createTenantService(
     });
   }
 
+  function staleCase(caseId, details = {}) {
+    return failure(
+      "REVENUE_LEAK_CASE_STALE",
+      "The revenue leak case no longer matches current canonical evidence.",
+      409,
+      { case_id: caseId, ...details }
+    );
+  }
+
+  function incompatibleAction(caseId, actionType = null) {
+    return new RevenueLeakCaseError(
+      "REVENUE_LEAK_CASE_ACTION_INCOMPATIBLE",
+      "The current RevenueAction is not compatible with this revenue leak case.",
+      { case_id: caseId, action_type: actionType }
+    );
+  }
+
+  function integrityConflict(message, details = {}) {
+    throw new RevenueLeakCaseError(
+      "REVENUE_LEAK_CASE_INTEGRITY_CONFLICT",
+      message,
+      details
+    );
+  }
+
+  function expectedHandoffActionType(record, evaluation) {
+    if (
+      record.leak_type === "STALLED_OPPORTUNITY"
+      && record.recommended_action_type === "FOLLOW_UP"
+      && evaluation.reason_code === "STALE_WITHOUT_NEXT_ACTION"
+      && evaluation.evidence?.next_action?.present === false
+    ) {
+      return "CREATE_TASK";
+    }
+    return record.recommended_action_type;
+  }
+
+  function compatibleHandoffActionType(record) {
+    return record.leak_type === "STALLED_OPPORTUNITY"
+      && record.recommended_action_type === "FOLLOW_UP"
+      ? "CREATE_TASK"
+      : record.recommended_action_type;
+  }
+
+  function validateLinkedAction(record, action) {
+    if (
+      !action
+      || action.ok === false
+      || action.id !== record.revenue_action_id
+      || action.opportunity_id !== record.opportunity_id
+      || action.action_type !== compatibleHandoffActionType(record)
+      || action.basis_fingerprint !== record.revenue_action_fingerprint
+      || !REVENUE_ACTION_STATUSES.has(action.status)
+    ) {
+      throw new RevenueLeakCaseError(
+        "REVENUE_ACTION_UNAVAILABLE",
+        "The requested RevenueAction is unavailable."
+      );
+    }
+    return action;
+  }
+
+  async function loadExistingLinkedAction(scoped, record) {
+    const action = persistence.adapter === "postgres"
+      ? await scoped.revenueActions.findById(record.revenue_action_id)
+      : await revenueActionAuthority.getRevenueAction(record.revenue_action_id);
+    return validateLinkedAction(record, action);
+  }
+
+  async function validateCurrentCase(
+    scoped,
+    record,
+    evaluatedAt,
+    lockedOpportunity = null
+  ) {
+    const opportunity = lockedOpportunity || await scoped.opportunities.findById(
+      record.opportunity_id
+    );
+    if (!opportunity) return { failure: sourceUnavailable() };
+    const activities = await scoped.activities.list({
+      opportunityId: record.opportunity_id
+    });
+    const tasks = await scoped.tasks.list({ opportunityId: record.opportunity_id });
+    const prospect = opportunity.prospect_id && scoped.prospects
+      ? await scoped.prospects.findById(opportunity.prospect_id)
+      : null;
+    const evaluation = evaluateStalledOpportunity({
+      opportunity,
+      activities,
+      tasks,
+      evaluatedAt
+    });
+    if (!evaluation.detection) {
+      return {
+        failure: staleCase(record.id, {
+          current_outcome: evaluation.outcome,
+          current_reason_code: evaluation.reason_code
+        })
+      };
+    }
+    const current = buildRevenueLeakCaseDetection(evaluation.detection, {
+      id: createId(),
+      detectedAt: evaluatedAt,
+      subjectId: context.subjectId
+    });
+    if (current.semantic_key !== record.semantic_key) {
+      return {
+        failure: staleCase(record.id, {
+          current_outcome: evaluation.outcome,
+          current_reason_code: evaluation.reason_code
+        })
+      };
+    }
+    const expectedActionType = expectedHandoffActionType(record, evaluation);
+    const intelligence = buildDealIntelligenceFromData(opportunity, {
+      prospects: prospect ? [prospect] : [],
+      activities,
+      tasks,
+      generatedAt: evaluatedAt
+    });
+    const currentActionType = intelligence.next_best_action?.type || null;
+    if (currentActionType !== expectedActionType) {
+      throw incompatibleAction(record.id, currentActionType);
+    }
+    return {
+      evaluation,
+      expectedActionType
+    };
+  }
+
+  async function loadHandoffCase(scoped, id) {
+    if (persistence.adapter !== "postgres") {
+      return {
+        record: await scoped.revenueLeakCases.findById(id),
+        opportunity: null
+      };
+    }
+    const preview = await scoped.revenueLeakCases.findById(id);
+    if (!preview) return { record: null, opportunity: null };
+    const opportunity = await scoped.opportunities.findById(
+      preview.opportunity_id,
+      { lock: true }
+    );
+    if (!opportunity) {
+      return { record: preview, opportunity: null, failure: sourceUnavailable() };
+    }
+    const record = await scoped.revenueLeakCases.findById(id, { lock: true });
+    if (!record) return { record: null, opportunity: null };
+    if (record.opportunity_id !== preview.opportunity_id) {
+      integrityConflict(
+        "Revenue leak case identity changed while acquiring durable locks.",
+        { case_id: id }
+      );
+    }
+    return { record, opportunity };
+  }
+
+  async function materializeWithAuthority(scoped, opportunityId) {
+    if (persistence.adapter === "postgres") {
+      const result = await scoped.revenueActions.materialize({
+        id: createRevenueActionId(),
+        opportunity_id: opportunityId
+      });
+      if (!result) return sourceUnavailable();
+      if (result.conflict) {
+        return failure(
+          result.conflict.code,
+          result.conflict.message,
+          ERROR_STATUS[result.conflict.code] || 409,
+          result.conflict.details || {}
+        );
+      }
+      return {
+        ok: true,
+        data: result.record,
+        created: Boolean(result.created),
+        duplicate: Boolean(result.duplicate)
+      };
+    }
+    return revenueActionAuthority.materializeRevenueAction(opportunityId);
+  }
+
+  async function handoffWithRepositories(scoped, id, evaluatedAt) {
+    const loaded = await loadHandoffCase(scoped, id);
+    if (loaded.failure) return loaded.failure;
+    const { record } = loaded;
+    if (!record) return caseNotFound();
+    if (!["OPEN", "SNOOZED"].includes(record.state)) {
+      return failure(
+        "REVENUE_LEAK_CASE_TRANSITION_INVALID",
+        "Terminal revenue leak cases cannot create new RevenueActions.",
+        409,
+        { from: record.state }
+      );
+    }
+    if (record.revenue_action_id) {
+      const action = await loadExistingLinkedAction(scoped, record);
+      return {
+        ok: true,
+        data: { case: record, revenue_action: action },
+        handoff: {
+          action_created: false,
+          action_reused: true,
+          link_created: false,
+          reconciled: true
+        }
+      };
+    }
+
+    const validation = await validateCurrentCase(
+      scoped,
+      record,
+      evaluatedAt,
+      loaded.opportunity
+    );
+    if (validation.failure) return validation.failure;
+    const materialized = await materializeWithAuthority(
+      scoped,
+      record.opportunity_id
+    );
+    if (materialized?.ok === false) return materialized;
+    const action = materialized?.data;
+    if (
+      !action
+      || action.opportunity_id !== record.opportunity_id
+      || action.action_type !== validation.expectedActionType
+      || !REVENUE_ACTION_STATUSES.has(action.status)
+      || typeof action.basis_fingerprint !== "string"
+      || !/^[0-9a-f]{64}$/.test(action.basis_fingerprint)
+      || !action.created_at
+    ) {
+      throw incompatibleAction(record.id, action?.action_type || null);
+    }
+    let actionCreatedAt;
+    try {
+      actionCreatedAt = normalizeTimestamp(
+        action.created_at,
+        "RevenueAction.created_at"
+      );
+    } catch {
+      throw incompatibleAction(record.id, action.action_type);
+    }
+
+    await handoffCheckpoint("afterRevenueActionMaterialized", {
+      adapter: persistence.adapter,
+      caseId: record.id,
+      revenueActionId: action.id
+    });
+    const observedLinkAt = now();
+    const linkedAt = Date.parse(observedLinkAt) < Date.parse(actionCreatedAt)
+      ? actionCreatedAt
+      : observedLinkAt;
+    const linked = await scoped.revenueLeakCases.linkRevenueAction(record.id, {
+      revenue_action_id: action.id,
+      at: linkedAt
+    });
+    if (!linked) return caseNotFound();
+    return {
+      ok: true,
+      data: { case: linked.record, revenue_action: action },
+      handoff: {
+        action_created: Boolean(materialized.created),
+        action_reused: !materialized.created,
+        link_created: !linked.duplicate,
+        reconciled: Boolean(materialized.duplicate || linked.duplicate)
+      }
+    };
+  }
+
   return Object.freeze({
     listRevenueLeakCases(filters = {}) {
       return repository.list(filters);
@@ -475,6 +807,34 @@ function createTenantService(
             generatedAt
           );
         return { ok: true, data };
+      });
+    },
+
+    createRevenueActionForCase(id) {
+      return run(async () => {
+        if (
+          typeof id !== "string"
+          || id === ""
+          || id !== id.trim()
+          || Buffer.byteLength(id) > 255
+        ) return caseNotFound();
+        const evaluatedAt = now();
+        if (persistence.adapter === "postgres") {
+          return persistence.repositories.transaction(
+            context,
+            scoped => handoffWithRepositories(scoped, id, evaluatedAt)
+          );
+        }
+        if (context.tenantId !== LOCAL_REVENUE_LEAK_TENANT_ID) {
+          return caseNotFound();
+        }
+        return handoffWithRepositories({
+          prospects: persistence.repositories.prospects,
+          opportunities: persistence.repositories.opportunities,
+          activities: persistence.repositories.activities,
+          tasks: persistence.repositories.tasks,
+          revenueLeakCases: repository
+        }, id, evaluatedAt);
       });
     },
 

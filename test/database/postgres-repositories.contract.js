@@ -105,6 +105,20 @@ function registerPostgresRepositoryContractTests({
     return { status: response.status, data: await response.json() };
   }
 
+  function deferred() {
+    let resolve;
+    let reject;
+    const promise = new Promise((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+    return { promise, resolve, reject };
+  }
+
+  function delay(milliseconds, value) {
+    return new Promise(resolve => setTimeout(resolve, milliseconds, value));
+  }
+
   async function seedRevenueActionFixture(tenantId, record, sourceOrdinal) {
     await insertMappedFixture(
       getAdminClient(),
@@ -4053,7 +4067,10 @@ function registerPostgresRepositoryContractTests({
 
   test("PostgreSQL RevenueLeakCase reconciliation is tenant-safe, immutable, and action-linked", async () => {
     const pool = createPool({ max: 4 });
-    const repositories = createPostgresRepositories({ pool });
+    const repositories = createPostgresRepositories({
+      pool,
+      clock: () => new Date("2026-09-03T01:30:00.000Z")
+    });
     const tenantA = await createTenant("leak-case-a");
     const tenantB = await createTenant("leak-case-b");
     const opportunityId = "shared-stalled-opportunity";
@@ -4611,6 +4628,358 @@ function registerPostgresRepositoryContractTests({
         tenantFailure.context
       )).length,
       0
+    );
+  });
+
+  test("PostgreSQL case-to-RevenueAction handoff is atomic, tenant-safe, and replay-safe", async () => {
+    const evaluatedAt = "2026-09-08T00:00:00.000Z";
+    const pool = createPool({ max: 4 });
+    const persistence = createPersistence({
+      adapter: "postgres",
+      pool,
+      clock: () => new Date(evaluatedAt)
+    });
+    const tenantA = await createTenant("case-action-handoff-a");
+    const tenantB = await createTenant("case-action-handoff-b");
+    const tenantRollback = await createTenant("case-action-handoff-rollback");
+
+    async function seedEligible(context, id) {
+      await persistence.repositories.opportunities.insert(context, {
+        id,
+        business_name: `Handoff ${id}`,
+        stage: "PROPOSAL",
+        next_action: "",
+        value: "42000.500000",
+        currency: "AUD",
+        created_at: "2026-07-01T00:00:00.000Z",
+        updated_at: "2026-09-07T00:00:00.000Z"
+      });
+      await persistence.repositories.activities.insert(context, {
+        id: `activity-${id}`,
+        opportunity_id: id,
+        type: "FOLLOW_UP_RECORDED",
+        created_at: "2026-08-18T00:00:00.000Z",
+        updated_at: "2026-08-18T00:00:00.000Z"
+      });
+    }
+
+    await seedEligible(tenantA.context, "shared-handoff-opportunity");
+    await seedEligible(tenantB.context, "shared-handoff-opportunity");
+    await seedEligible(tenantRollback.context, "rollback-handoff-opportunity");
+
+    let caseId = 0;
+    let actionId = 0;
+    const service = createRevenueLeakCaseService({
+      persistence,
+      createId: () => `postgres-handoff-case-${++caseId}`,
+      createRevenueActionId: () => `postgres-handoff-action-${++actionId}`,
+      clock: () => new Date(evaluatedAt)
+    });
+    const tenantAService = service.forTenant(tenantA.context);
+    const tenantBService = service.forTenant(tenantB.context);
+    await tenantAService.scanStalledOpportunities();
+    await tenantBService.scanStalledOpportunities();
+    const tenantACase = (await persistence.repositories.revenueLeakCases.list(
+      tenantA.context
+    ))[0];
+
+    const concurrent = await Promise.all([
+      tenantAService.createRevenueActionForCase(tenantACase.id),
+      tenantAService.createRevenueActionForCase(tenantACase.id)
+    ]);
+    assert.equal(concurrent.every(result => result.ok), true);
+    assert.equal(
+      concurrent.filter(result => result.handoff.action_created).length,
+      1
+    );
+    assert.equal(
+      concurrent.filter(result => result.handoff.reconciled).length,
+      1
+    );
+    const actions = await persistence.repositories.revenueActions.list(
+      tenantA.context,
+      { opportunityId: "shared-handoff-opportunity" }
+    );
+    assert.equal(actions.length, 1);
+    assert.equal(actions[0].action_type, "CREATE_TASK");
+    assert.equal(actions[0].status, "RECOMMENDED");
+    const linked = await persistence.repositories.revenueLeakCases.findById(
+      tenantA.context,
+      tenantACase.id
+    );
+    assert.equal(linked.revenue_action_id, actions[0].id);
+    assert.equal(
+      linked.audit.filter(entry => entry.transition === "REVENUE_ACTION_LINKED").length,
+      1
+    );
+
+    const hidden = await tenantBService.createRevenueActionForCase(tenantACase.id);
+    assert.equal(hidden.ok, false);
+    assert.equal(hidden.error, "REVENUE_LEAK_CASE_NOT_FOUND");
+    assert.equal(hidden.statusCode, 404);
+    assert.equal(
+      (await persistence.repositories.revenueActions.list(
+        tenantB.context,
+        { opportunityId: "shared-handoff-opportunity" }
+      )).length,
+      0
+    );
+
+    let rollbackCaseId = 0;
+    const rollbackService = createRevenueLeakCaseService({
+      persistence,
+      createId: () => `rollback-handoff-case-${++rollbackCaseId}`,
+      createRevenueActionId: () => "rollback-handoff-action",
+      clock: () => new Date(evaluatedAt),
+      async handoffCheckpoint(name) {
+        if (name === "afterRevenueActionMaterialized") {
+          throw new Error("injected handoff rollback");
+        }
+      }
+    }).forTenant(tenantRollback.context);
+    await rollbackService.scanStalledOpportunities();
+    const rollbackCase = (await persistence.repositories.revenueLeakCases.list(
+      tenantRollback.context
+    ))[0];
+    await assert.rejects(
+      rollbackService.createRevenueActionForCase(rollbackCase.id),
+      /injected handoff rollback/
+    );
+    assert.equal(
+      (await persistence.repositories.revenueActions.list(
+        tenantRollback.context,
+        { opportunityId: "rollback-handoff-opportunity" }
+      )).length,
+      0
+    );
+    assert.equal(
+      (await persistence.repositories.revenueLeakCases.findById(
+        tenantRollback.context,
+        rollbackCase.id
+      )).revenue_action_id,
+      null
+    );
+  });
+
+  test("PostgreSQL scan and handoff use one bounded opportunity-before-case attempt", {
+    timeout: 8000
+  }, async () => {
+    const evaluatedAt = "2026-09-08T00:00:00.000Z";
+    const pool = createPool({ max: 4 });
+    const persistence = createPersistence({
+      adapter: "postgres",
+      pool,
+      clock: () => new Date(evaluatedAt)
+    });
+    const tenant = await createTenant("scan-handoff-lock-order");
+    const opportunityId = "scan-handoff-lock-order-opportunity";
+    await persistence.repositories.opportunities.insert(tenant.context, {
+      id: opportunityId,
+      business_name: "Lock Order Roofing",
+      contact_name: "Jordan Lee",
+      service: "Commercial Roofing",
+      location: "Melbourne",
+      stage: "PROPOSAL",
+      next_action: "",
+      value: "42000.500000",
+      currency: "AUD",
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-09-07T00:00:00.000Z"
+    });
+    await persistence.repositories.activities.insert(tenant.context, {
+      id: "activity-scan-handoff-lock-order",
+      opportunity_id: opportunityId,
+      type: "FOLLOW_UP_RECORDED",
+      created_at: "2026-08-18T00:00:00.000Z",
+      updated_at: "2026-08-18T00:00:00.000Z"
+    });
+
+    let caseId = 0;
+    const baseService = createRevenueLeakCaseService({
+      persistence,
+      createId: () => `scan-handoff-lock-case-${++caseId}`,
+      clock: () => new Date(evaluatedAt)
+    }).forTenant(tenant.context);
+    await baseService.scanStalledOpportunities();
+    const detected = (await persistence.repositories.revenueLeakCases.list(
+      tenant.context
+    ))[0];
+
+    const firstHandoffLock = deferred();
+    const releaseHandoffLock = deferred();
+    const scanOpportunityLock = deferred();
+    let handoffWaited = false;
+    let handoffTransactions = 0;
+    let scanTransactions = 0;
+
+    const handoffPersistence = {
+      adapter: "postgres",
+      repositories: {
+        revenueLeakCases: persistence.repositories.revenueLeakCases,
+        transaction(context, operation) {
+          handoffTransactions += 1;
+          return persistence.repositories.transaction(context, scoped => {
+            const waitAfterFirstLock = async (kind, result, options) => {
+              if (options?.lock === true && !handoffWaited) {
+                handoffWaited = true;
+                firstHandoffLock.resolve(kind);
+                await releaseHandoffLock.promise;
+              }
+              return result;
+            };
+            return operation({
+              ...scoped,
+              opportunities: {
+                ...scoped.opportunities,
+                async findById(id, options) {
+                  const result = await scoped.opportunities.findById(id, options);
+                  return waitAfterFirstLock("opportunity", result, options);
+                }
+              },
+              revenueLeakCases: {
+                ...scoped.revenueLeakCases,
+                async findById(id, options) {
+                  const result = await scoped.revenueLeakCases.findById(id, options);
+                  return waitAfterFirstLock("case", result, options);
+                }
+              }
+            });
+          });
+        }
+      },
+      forTenant: context => persistence.forTenant(context)
+    };
+    const scanPersistence = {
+      adapter: "postgres",
+      repositories: {
+        revenueLeakCases: persistence.repositories.revenueLeakCases,
+        transaction(context, operation) {
+          scanTransactions += 1;
+          return persistence.repositories.transaction(context, scoped =>
+            operation({
+              ...scoped,
+              opportunities: {
+                ...scoped.opportunities,
+                async listForStalledScan(options) {
+                  const result = await scoped.opportunities.listForStalledScan(
+                    options
+                  );
+                  scanOpportunityLock.resolve();
+                  return result;
+                }
+              }
+            })
+          );
+        }
+      },
+      forTenant: context => persistence.forTenant(context)
+    };
+    const handoffService = createRevenueLeakCaseService({
+      persistence: handoffPersistence,
+      createId: () => "scan-handoff-validation-case",
+      createRevenueActionId: () => "scan-handoff-action",
+      clock: () => new Date(evaluatedAt)
+    }).forTenant(tenant.context);
+    const scanService = createRevenueLeakCaseService({
+      persistence: scanPersistence,
+      createId: () => "scan-handoff-concurrent-case",
+      clock: () => new Date(evaluatedAt)
+    }).forTenant(tenant.context);
+
+    const handoffPromise = handoffService.createRevenueActionForCase(detected.id);
+    const firstLock = await Promise.race([
+      firstHandoffLock.promise,
+      delay(1500, "timeout")
+    ]);
+    assert.notEqual(firstLock, "timeout");
+    const scanPromise = scanService.scanStalledOpportunities();
+    const scanLockedBeforeRelease = await Promise.race([
+      scanOpportunityLock.promise.then(() => true),
+      delay(250, false)
+    ]);
+    releaseHandoffLock.resolve();
+
+    const settled = await Promise.race([
+      Promise.allSettled([handoffPromise, scanPromise]),
+      delay(5000, null)
+    ]);
+    assert.notEqual(settled, null, "concurrent operations exceeded the bound");
+    assert.equal(firstLock, "opportunity");
+    assert.equal(scanLockedBeforeRelease, false);
+    assert.deepEqual(settled.map(result => result.status), [
+      "fulfilled",
+      "fulfilled"
+    ]);
+    assert.equal(settled[0].value.ok, true);
+    assert.equal(settled[1].value.ok, true);
+    assert.equal(handoffTransactions, 1);
+    assert.equal(scanTransactions, 1);
+  });
+
+  test("PostgreSQL handoff links at a fresh server time after action creation", async () => {
+    const evaluatedAt = "2026-09-08T00:00:00.000Z";
+    const actionCreatedAt = "2026-09-08T00:01:00.000Z";
+    const linkTime = "2026-09-08T00:02:00.000Z";
+    const pool = createPool({ max: 4 });
+    const seedPersistence = createPersistence({
+      adapter: "postgres",
+      pool,
+      clock: () => new Date(evaluatedAt)
+    });
+    const tenant = await createTenant("handoff-advancing-clock");
+    const opportunityId = "handoff-advancing-clock-opportunity";
+    await seedPersistence.repositories.opportunities.insert(tenant.context, {
+      id: opportunityId,
+      business_name: "Advancing Clock Roofing",
+      contact_name: "Jordan Lee",
+      service: "Commercial Roofing",
+      location: "Melbourne",
+      stage: "PROPOSAL",
+      next_action: "",
+      value: "42000.500000",
+      currency: "AUD",
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-09-07T00:00:00.000Z"
+    });
+    await seedPersistence.repositories.activities.insert(tenant.context, {
+      id: "activity-handoff-advancing-clock",
+      opportunity_id: opportunityId,
+      type: "FOLLOW_UP_RECORDED",
+      created_at: "2026-08-18T00:00:00.000Z",
+      updated_at: "2026-08-18T00:00:00.000Z"
+    });
+    const detectorService = createRevenueLeakCaseService({
+      persistence: seedPersistence,
+      createId: () => "handoff-advancing-clock-case",
+      clock: () => new Date(evaluatedAt)
+    }).forTenant(tenant.context);
+    await detectorService.scanStalledOpportunities();
+    const detected = (await seedPersistence.repositories.revenueLeakCases.list(
+      tenant.context
+    ))[0];
+
+    const handoffPersistence = createPersistence({
+      adapter: "postgres",
+      pool,
+      clock: () => new Date(actionCreatedAt)
+    });
+    const ticks = ["2026-09-08T00:00:30.000Z", linkTime];
+    const handoffService = createRevenueLeakCaseService({
+      persistence: handoffPersistence,
+      createId: () => "handoff-advancing-clock-validation",
+      createRevenueActionId: () => "handoff-advancing-clock-action",
+      clock: () => new Date(ticks.shift() || linkTime)
+    }).forTenant(tenant.context);
+
+    const result = await handoffService.createRevenueActionForCase(detected.id);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.data.revenue_action.created_at, actionCreatedAt);
+    assert.equal(result.data.case.revenue_action_linked_at, linkTime);
+    assert.equal(result.data.case.audit.at(-1).at, linkTime);
+    assert.ok(
+      Date.parse(result.data.case.revenue_action_linked_at) >=
+        Date.parse(result.data.revenue_action.created_at)
     );
   });
 

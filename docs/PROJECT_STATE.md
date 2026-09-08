@@ -1,6 +1,6 @@
 # Project State
 
-_Last locally audited on 2026-09-04. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+_Last locally audited on 2026-09-09. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
 ## Current verified shape
 Trade Growth Engine is a Vite React + Express local-first CRM. `src/index.js` starts the server, `src/api/` exposes thin structured HTTP boundaries, and `web/main.jsx` provides hash-routed UI. Local JSON persistence flows through `src/services/localStore.js`; tests and E2E use isolated stores. The [Legacy JSON Compatibility Contract](architecture/LEGACY_JSON_COMPATIBILITY.md) and deterministic fixtures characterize that adapter for the future persistence cutover.
@@ -135,6 +135,60 @@ deterministic ordering without FX, probability, expected/recovered revenue, or
 attribution. No migration, scheduler, import hook, new leak type, browser V2,
 RevenueAction materialization/execution change, or analytics event is included.
 
+The Issue #9 PR-2 local candidate makes that RevenueLeakCase operating queue the
+primary Revenue Command Center surface without changing PR #28 ordering. The
+browser validates complete queue and scan envelopes, retains server order, keeps
+known positive/zero/unknown/not-applicable values and currencies distinct, shows
+immutable “why TGE surfaced this” evidence, and handles stale async responses and
+unconfirmed mutations by reconciling durable queue truth. A new empty-command
+case handoff revalidates current canonical evidence, composes the existing
+RevenueAction materializer with the existing immutable same-opportunity link,
+and continues preparation, approval, and execution only in Opportunity Command
+Center. PostgreSQL performs that composition in one tenant transaction; JSON
+uses semantic reuse plus an explicit retry to repair an action-only partial
+write and makes no cross-file atomicity claim. The queue publishes the immutable
+historical opportunity identity separately from nullable current opportunity and
+business context. If the current opportunity join is absent, the browser keeps
+the case and historical identity visible but exposes no Create recovery action,
+Open opportunity, or Continue control; valid current context retains those
+controls. The strict browser contract rejects fabricated or mismatched context.
+The candidate adds no migration, scheduler, autonomous send, new detector,
+attribution, recovered-revenue claim, PR-3 onboarding, or pilot instrumentation.
+
+The first independent PR-2 review found three backend issues, remediated at
+`ba0ba15`: JSON compatibility is checked before RevenueAction mutation,
+PostgreSQL scan/handoff share opportunity-before-case lock order, and a fresh
+server link timestamp cannot predate action creation. Exact-head local full
+verification at `ba0ba15` passed harness, integration **304/304**, PostgreSQL
+**62/62**, managed Chromium **48/48**, and production build. A second independent
+review then found the missing-current-context P2 above and stale evidence P3.
+Preserved product-red evidence was **22/24** focused and **5/6** managed PR2
+Chromium; the six-file remediation is green at **24/24** focused and **6/6**
+managed PR2 Chromium. On the documentation-inclusive final candidate,
+`npm run verify:fast` passed harness and integration **307/307**, and the
+production build passed with **30 modules transformed in 106 ms**. PostgreSQL
+was not rerun because this final remediation changes only the pure queue
+projection, browser validation/rendering, tests, and documentation; exact
+`ba0ba15` database evidence remains **62/62**. A duplicate full Verify was not
+run. These are local results, not merge, CI, recovered-revenue, external-action,
+or PR-3 evidence.
+
+Fresh PR-2 final-review remediation preserves exact same-currency portfolio
+totals when the bounded sum exceeds one case's `NUMERIC(20,6)` envelope: the
+browser formats the canonical aggregate decimal string directly and never uses
+floating point or combines currencies. The strict queue boundary now rejects
+unknown response and queue fields, projects the current opportunity's canonical
+prospect identity so any displayed business must match it, and rejects a handoff
+whose recorded link time predates the RevenueAction's creation. Product-red
+browser-contract evidence was **5/9** with exactly those four adversarial checks
+failing; the corrected contract is **9/9**, the focused queue/API/handoff/browser
+set is **48/48**, and managed PR-2 Chromium is **7/7**. Near-delivery
+`npm run verify:fast` passed the harness and integration **308/308**, and the
+production build passed with **30 modules transformed in 398 ms**. PostgreSQL and
+full Verify were not rerun because no transaction, repository, migration, or
+persistence behavior changed. These remain local candidate results, not CI or
+merge evidence.
+
 Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 
 The Product Truth audit/fix work unit is complete: [PR #17](https://github.com/yarinperetz1313/trade-growth-engine/pull/17) merged at `5231838` and closed [Issue #7](https://github.com/yarinperetz1313/trade-growth-engine/issues/7). This did not provision Auth0, SMTP, production persistence, import execution, or cutover, and it did not begin Pilot Readiness PR-5 or later slices.
@@ -188,5 +242,8 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
   attribution remain unimplemented.
 - **Issue #9 PR-1 implements the explicit bounded tenant portfolio scan and the
   deterministic truthful active-case operating-queue server contract without a
-  migration.** Command Center V2/action handoff and onboarding/pilot evidence are
-  later merge-gated PR-2/PR-3 work and are not started here.
+  migration. PR-2 is a local checkpoint candidate: Command Center V2 consumes
+  that server-ordered queue and offers the safe composed case-to-action handoff
+  without duplicating RevenueAction execution authority, while missing current
+  opportunity context fails closed.** PR-3 onboarding and pilot evidence remain
+  later merge-gated work and are not started here.

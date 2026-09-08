@@ -55,7 +55,7 @@ function replaceCase(history, nextCase) {
   );
 }
 
-function EvidenceDetails({ source, evidence, evidenceClassification, evidenceState }) {
+export function EvidenceDetails({ source, evidence, evidenceClassification, evidenceState }) {
   if (!evidence) {
     const message = evidenceState === "STALE"
       ? "Evidence unavailable / stale — the canonical source cannot authorize a case."
@@ -135,7 +135,7 @@ function EvidenceDetails({ source, evidence, evidenceClassification, evidenceSta
   );
 }
 
-function PotentialValue({ value }) {
+export function PotentialValue({ value }) {
   const display = formatPotentialRevenueAtRisk(value);
   return (
     <div className="rlc-value" data-testid="potential-revenue-at-risk">

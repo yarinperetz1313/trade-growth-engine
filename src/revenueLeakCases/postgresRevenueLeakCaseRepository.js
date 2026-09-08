@@ -442,7 +442,7 @@ function createPostgresRevenueLeakCaseRepository(client, tenantId, subjectId) {
       );
     }
     const actionResult = await client.query(
-      `select id, opportunity_id, basis_fingerprint, status
+      `select id, opportunity_id, basis_fingerprint, status, created_at
        from tge.revenue_actions
        where tenant_id = $1 and id = $2 and opportunity_id = $3
        for update`,
@@ -456,6 +456,13 @@ function createPostgresRevenueLeakCaseRepository(client, tenantId, subjectId) {
     }
     const action = actionResult.rows[0];
     const at = normalizeTimestamp(linkage?.at, "linkage.at");
+    const actionCreatedAt = toIso(action.created_at);
+    if (Date.parse(at) < Date.parse(actionCreatedAt)) {
+      fail(
+        "REVENUE_LEAK_CASE_INTEGRITY_CONFLICT",
+        "RevenueAction linkage cannot precede action creation."
+      );
+    }
     const audit = [...current.audit, {
       transition: "REVENUE_ACTION_LINKED",
       at,

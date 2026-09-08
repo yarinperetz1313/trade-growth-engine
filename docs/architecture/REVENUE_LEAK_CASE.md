@@ -172,6 +172,10 @@ not-applicable cases separately. Exact known-positive decimal amounts are summed
 only inside three-letter currency groups. Known-zero counts are also grouped by
 currency. There is no cross-currency total, exchange rate, probability, expected
 value, recovered revenue, influenced revenue, or attribution.
+Because the queue may contain up to 100 cases, a valid exact currency-group sum
+may exceed the single-case `NUMERIC(20,6)` envelope. The aggregate remains a
+canonical decimal string derived and rendered without floating point; each
+contributing case must still satisfy the single-case envelope.
 
 Leak age is derived only from `detected_at` and the server projection time.
 Urgency is derived only from recorded `due_at`, lifecycle state, and
@@ -232,9 +236,37 @@ different action is rejected. The case snapshots the action's immutable
 those snapshot values against the referenced row and enforces a composite
 same-tenant/same-opportunity foreign key.
 
-Linking does not materialize, prepare, approve, reject, cancel, execute, recover,
-or attribute the RevenueAction. All task/activity effects and human-controlled
-external-action rules remain exclusively in the existing RevenueAction domain.
+The explicit case handoff composes two existing authorities: current
+RevenueAction materialization followed by that immutable link. Before an
+unlinked handoff, the service re-evaluates current canonical opportunity,
+activity, and task truth and requires the resulting case semantic key to match
+the stored case. Detector version 1's `STALLED_OPPORTUNITY`/`FOLLOW_UP` recovery
+intent has one closed compatibility mapping to deal intelligence's current
+`CREATE_TASK` recommendation because the detector's authoritative condition is
+an absent next action. The service derives that current deal-intelligence
+recommendation read-only and rejects any incompatible semantics before invoking
+the mutating RevenueAction materializer. Any other stale or incompatible
+recommendation fails before linkage. A linked case instead reconciles the exact action ID,
+opportunity, type, fingerprint, and durable status and returns it as a replay.
+
+PostgreSQL performs validation, action materialization/reuse, and linkage in one
+tenant transaction. It previews the tenant-visible case only to identify its
+opportunity, locks that opportunity before re-reading and locking the durable
+case, and then validates current evidence. This matches portfolio scan lock order.
+A concurrent or repeated request therefore returns the same relationship, and a
+failure after materialization rolls the transaction back. The link and its audit
+entry use a fresh server time after materialization and cannot precede the
+RevenueAction's creation time. JSON has no
+cross-collection transaction: it materializes through the existing local
+RevenueAction authority and then links the case. If the first write commits and
+the response or link is lost, an explicit retry reuses the same active semantic
+RevenueAction and repairs the link; it does not duplicate the action. This is a
+recovery guarantee, not a multi-file atomicity or concurrent-writer guarantee.
+
+Neither direct linkage nor the composed handoff prepares, approves, rejects,
+cancels, executes, recovers revenue, or attributes the RevenueAction. All
+task/activity effects and human-controlled external-action rules remain
+exclusively in the existing RevenueAction domain.
 
 ## Tenant and adapter boundaries
 
@@ -257,8 +289,25 @@ collection replacement.
 
 ## Browser experience
 
-The Opportunity Command Center is the authorized-user surface for one explicit
-stalled-opportunity check and API-backed case history. It keeps all five detector
+Revenue Command Center V2 makes the complete bounded active-case operating queue
+the primary portfolio surface. It validates the queue envelope and deterministic
+ordering before rendering, preserves server order, groups known totals only by
+currency, keeps known zero/unknown/not-applicable distinct, and filters only
+published lifecycle, value-kind, and source fields. It shows leak age, urgency,
+canonical opportunity/business identity when available, linked RevenueAction
+state, and the exact immutable “why TGE surfaced this” evidence. Missing context,
+empty results, incomplete/integrity/limit failures, authorization, persistence,
+generic API failures, and stale validated results remain distinct states.
+Successful response and queue objects accept only their published top-level
+fields. Any business identity is renderable only when current opportunity context
+is present and its canonical prospect ID matches that business ID.
+
+The portfolio can explicitly scan and can request the composed case handoff, but
+after any unconfirmed mutation it reloads the strict durable queue before write
+controls re-enable and never repeats the POST automatically. A confirmed link
+continues into Opportunity Command Center. That detailed surface remains the
+authorized-user surface for one explicit stalled-opportunity check and API-backed
+case history. It keeps all five detector
 outcomes distinct, explains the stable reason code, and shows only the immutable
 why-now facts, source observation/version, and commercial classification returned
 by this contract. Known positive, known zero, unknown, and not-applicable values
@@ -296,6 +345,7 @@ write controls remain locked. It never automatically retries those mutations.
 - `POST /api/opportunities/:id/revenue-leak-cases/detect-stalled`
 - `POST /api/revenue-leak-cases/scan-stalled-opportunities`
 - `GET /api/revenue-leak-cases/operating-queue`
+- `POST /api/revenue-leak-cases/:id/revenue-action`
 - `POST /api/revenue-leak-cases/:id/{snooze,resume,dismiss}`
 - `POST /api/revenue-leak-cases/:id/link-revenue-action`
 
@@ -308,3 +358,8 @@ The portfolio scan likewise accepts only an empty object and no query parameters
 The operating queue accepts no query parameters and performs no writes. Both use
 the same authenticated, server-derived `TenantContext` boundary as the existing
 case APIs.
+
+The composed RevenueAction handoff also accepts only an empty object and no query
+parameters. It returns `201` only when it creates the RevenueAction and `200` for
+durable reuse/replay, with explicit action/link/reconciliation flags. Missing and
+cross-tenant identities remain the same non-oracular not-found response.

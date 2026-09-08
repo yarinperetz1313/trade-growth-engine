@@ -431,6 +431,7 @@ test("operating queue preserves money truth, canonical context, linked action st
   const linked = queue.entries[0];
   assert.deepEqual(linked.opportunity, {
     id: "case-aud-a",
+    prospect_id: "prospect-case-aud-a",
     business_name: "Opportunity case-aud-a"
   });
   assert.deepEqual(linked.business, {
@@ -452,6 +453,31 @@ test("operating queue preserves money truth, canonical context, linked action st
   assert.equal(Object.hasOwn(queue, "recovered_revenue"), false);
   assert.equal(queue.ordering.stable_final_tie_breaker, "case.id ASC");
   assert.deepEqual(contexts, original);
+});
+
+test("operating queue preserves historical source identity without fabricating current opportunity context", () => {
+  const record = queueCase({
+    id: "case-missing-current-opportunity",
+    opportunityId: "historical-opportunity-id"
+  });
+
+  const queue = buildRevenueLeakOperatingQueue({
+    contexts: [{
+      case: record,
+      opportunity: null,
+      business: null,
+      revenue_action: null
+    }],
+    totalCount: 1,
+    generatedAt: EVALUATED_AT
+  });
+
+  assert.equal(queue.entries[0].opportunity, null);
+  assert.equal(
+    queue.entries[0].historical_opportunity_id,
+    "historical-opportunity-id"
+  );
+  assert.equal(queue.entries[0].business, null);
 });
 
 test("operating queue refuses over-cap or incomplete repository projections", () => {
