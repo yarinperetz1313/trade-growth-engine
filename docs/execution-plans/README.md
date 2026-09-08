@@ -2,12 +2,12 @@
 
 ## Active plan
 
-- [`active/revenue-command-center-v2.md`](active/revenue-command-center-v2.md) — **Issue #9 PR 2 is active: RevenueLeakCase operating queue as the primary commercial surface plus a safe composed RevenueAction handoff.**
 - [`active/pilot-readiness.md`](active/pilot-readiness.md) — **PR-0 through PR-2 are COMPLETE; PR-3 and PR-4 are integrated in code and complete; PR-5A through PR-5D are complete in their bounded slices. Raw-evidence retention/deletion acceptance remains a separate reviewed follow-up.**
 
 ## Completed plans
 
-- [`completed/revenue-leak-operating-queue.md`](completed/revenue-leak-operating-queue.md) — **Issue #9 PR-1 implements the explicit bounded tenant-wide stalled-opportunity scan and truthful active RevenueLeakCase operating queue; later Command Center/action-handoff and onboarding/evidence PRs remain unstarted.**
+- [`completed/revenue-command-center-v2.md`](completed/revenue-command-center-v2.md) — **Issue #9 PR-2 makes the server-ordered RevenueLeakCase queue the primary Command Center and composes a tenant-safe, retry-safe handoff into the existing human-controlled RevenueAction lifecycle.**
+- [`completed/revenue-leak-operating-queue.md`](completed/revenue-leak-operating-queue.md) — **Issue #9 PR-1 implements the explicit bounded tenant-wide stalled-opportunity scan and truthful active RevenueLeakCase operating queue; its historical checkpoint excluded the later Command Center/action-handoff and onboarding/evidence work.**
 - [`completed/pr-5b-import-mapping.md`](completed/pr-5b-import-mapping.md)
 - [`completed/pr-5c-canonical-import-commit.md`](completed/pr-5c-canonical-import-commit.md)
 - [`completed/pr-5d-browser-import.md`](completed/pr-5d-browser-import.md)

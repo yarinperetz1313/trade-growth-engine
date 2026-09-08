@@ -267,6 +267,41 @@ test("handoff fails closed when RevenueAction authority returns incompatible sem
   assert.equal(readCollection("revenue_leak_cases")[0].revenue_action_id, null);
 });
 
+test("PostgreSQL handoff exposes an unknown transaction outcome without retrying", async () => {
+  let transactionAttempts = 0;
+  const persistence = {
+    adapter: "postgres",
+    repositories: {
+      revenueLeakCases: {},
+      async transaction() {
+        transactionAttempts += 1;
+        const error = new Error("The transaction commit outcome is unknown.");
+        error.outcomeUnknown = true;
+        error.details = { operation: "commit" };
+        throw error;
+      }
+    },
+    forTenant() {
+      return { revenueLeakCases: {} };
+    }
+  };
+  const service = createRevenueLeakCaseService({
+    persistence,
+    clock: () => new Date(FIXED_NOW)
+  }).forTenant(localContext());
+
+  const result = await service.createRevenueActionForCase("case-unknown-outcome");
+
+  assert.equal(transactionAttempts, 1);
+  assert.deepEqual(result, {
+    ok: false,
+    error: "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN",
+    message: "The transaction commit outcome is unknown.",
+    statusCode: 500,
+    details: { operation: "commit" }
+  });
+});
+
 test("handoff accepts only an empty command and keeps missing cases non-oracular", async () => {
   seedEligibleOpportunity();
   const detected = await createDetectedCase();

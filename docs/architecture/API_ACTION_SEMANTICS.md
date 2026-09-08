@@ -53,6 +53,11 @@ Communication execution requires `executionMode: "MANUAL_CONFIRMED"`; it records
   bounded audited human lifecycle.
 - `POST /api/revenue-leak-cases/:id/link-revenue-action` links one existing
   same-opportunity RevenueAction without changing its lifecycle or effects.
+- `POST /api/revenue-leak-cases/:id/revenue-action` accepts only an empty object
+  and no query parameters, revalidates the active case against current canonical
+  evidence, materializes or semantically reuses the compatible existing
+  RevenueAction, and applies the existing immutable same-opportunity link. It
+  returns `201` only for a created action and `200` for reuse/replay.
 
 Caller-authored tenant/lifecycle fields and unsupported leak types are rejected.
 Cross-tenant and nonexistent case IDs use the same not-found response; unavailable
@@ -60,6 +65,14 @@ source/action relationships are also non-oracular. Detector thresholds, time,
 tenant, evidence, economics, and lifecycle are never caller-authored. Detection
 does not materialize or execute a RevenueAction and makes no recovery or
 attribution claim.
+
+The composed handoff does materialize a `RECOMMENDED` RevenueAction, but does not
+call it prepared and does not prepare, approve, execute, or send anything. Stale
+case evidence is `REVENUE_LEAK_CASE_STALE`; incompatible current action semantics
+are `REVENUE_LEAK_CASE_ACTION_INCOMPATIBLE`. Linked replays validate durable case/
+action identity first. PostgreSQL provides one transaction; JSON relies on
+semantic action reuse plus idempotent linkage to repair an action-only partial
+write on an explicit retry.
 
 Both portfolio endpoints have a server-owned cap of 100. Over-cap scans fail
 before any reconciliation as `REVENUE_LEAK_SCAN_LIMIT_EXCEEDED`; invalid or

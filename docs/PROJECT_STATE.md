@@ -135,6 +135,21 @@ deterministic ordering without FX, probability, expected/recovered revenue, or
 attribution. No migration, scheduler, import hook, new leak type, browser V2,
 RevenueAction materialization/execution change, or analytics event is included.
 
+The Issue #9 PR-2 local candidate makes that RevenueLeakCase operating queue the
+primary Revenue Command Center surface without changing PR #28 ordering. The
+browser validates complete queue and scan envelopes, retains server order, keeps
+known positive/zero/unknown/not-applicable values and currencies distinct, shows
+immutable “why TGE surfaced this” evidence, and handles stale async responses and
+unconfirmed mutations by reconciling durable queue truth. A new empty-command
+case handoff revalidates current canonical evidence, composes the existing
+RevenueAction materializer with the existing immutable same-opportunity link,
+and continues preparation, approval, and execution only in Opportunity Command
+Center. PostgreSQL performs that composition in one tenant transaction; JSON
+uses semantic reuse plus an explicit retry to repair an action-only partial
+write and makes no cross-file atomicity claim. The candidate adds no migration,
+scheduler, autonomous send, new detector, attribution, recovered-revenue claim,
+PR-3 onboarding, or pilot instrumentation.
+
 Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 
 The Product Truth audit/fix work unit is complete: [PR #17](https://github.com/yarinperetz1313/trade-growth-engine/pull/17) merged at `5231838` and closed [Issue #7](https://github.com/yarinperetz1313/trade-growth-engine/issues/7). This did not provision Auth0, SMTP, production persistence, import execution, or cutover, and it did not begin Pilot Readiness PR-5 or later slices.
@@ -188,5 +203,7 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
   attribution remain unimplemented.
 - **Issue #9 PR-1 implements the explicit bounded tenant portfolio scan and the
   deterministic truthful active-case operating-queue server contract without a
-  migration.** Command Center V2/action handoff and onboarding/pilot evidence are
-  later merge-gated PR-2/PR-3 work and are not started here.
+  migration. PR-2 is now a clean locally verified candidate: Command Center V2
+  consumes that server-ordered queue and offers the safe composed case-to-action
+  handoff without duplicating RevenueAction execution authority.** PR-3 onboarding
+  and pilot evidence remain later merge-gated work and are not started here.

@@ -38,3 +38,12 @@ the fixed local tenant ID and every repository call requires its branded local
 once with both the terminal predecessor update and new case. This preserves
 local/test operation but does not make JSON multi-process or cross-collection
 transactional; PostgreSQL remains the production tenant-isolation authority.
+
+The case-to-action handoff is necessarily sequential in JSON mode: the existing
+RevenueAction materializer writes `revenue_actions.json`, then the case repository
+writes the immutable snapshot link to `revenue_leak_cases.json`. A process failure
+between those writes may leave an unlinked active action. A later explicit retry
+re-evaluates current case truth, reuses only the exact active semantic action, and
+repairs the idempotent link. This prevents automatic duplication in the supported
+single-process recovery path, but it does not make the two files atomic, roll back
+an action-only partial write, or add cross-process locking/uniqueness.

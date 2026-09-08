@@ -19,8 +19,10 @@ Trade Growth Engine is a local-first sales intelligence application.
 - Intelligence actions mutate CRM state and return refreshed state to close the loop.
 - RevenueLeakCase stores immutable, tenant-scoped leak evidence and deterministic
   reconciliation history before any future recovery consumer acts on it. The
-  initial `STALLED_OPPORTUNITY` detector is an explicit server-side invocation
-  consumed by an explicit Opportunity Command Center review panel; no detector
+  initial `STALLED_OPPORTUNITY` detector is an explicit server-side invocation.
+  Revenue Command Center V2 consumes its complete bounded operating queue and
+  composes a safe handoff into the existing RevenueAction authority; Opportunity
+  Command Center remains the detailed review/execution surface. No detector
   scheduler or automatic invocation exists.
 
 ## Boundary rule
@@ -37,6 +39,7 @@ optional same-opportunity RevenueAction linkage. It also owns the pure versioned
 stalled-opportunity rule and its tenant-transaction orchestration.
 `src/api/revenueLeakCases.js` is the thin tenant-bound HTTP seam. See
 [RevenueLeakCase and stalled-opportunity detector](REVENUE_LEAK_CASE.md).
-The browser uses that seam only through `web/lib/api.js`; the Opportunity Command
-Center renders detector outcomes and durable case history while its existing
-RevenueAction panel remains the sole execution UI.
+The browser uses that seam only through `web/lib/api.js`; Revenue Command Center
+validates and renders the server-ordered queue, while Opportunity Command Center
+renders per-opportunity detector outcomes and durable case history and its
+existing RevenueAction panel remains the sole execution UI.

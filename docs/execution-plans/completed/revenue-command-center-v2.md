@@ -46,7 +46,7 @@
   unchanged ordering, filters, evidence disclosure, loading/empty/partial/error,
   explicit scan summaries, route races, ambiguous handoff reconciliation,
   keyboard/a11y, and ~390 px layout; implement to green and checkpoint.
-- [ ] Integration/docs/remediation: update canonical contracts/current state,
+- [x] Integration/docs/remediation: update canonical contracts/current state,
   run affected domain/API/database/browser suites, self-review complete diff,
   remediate findings, run full Verify once, record final evidence, complete plan,
   checkpoint, and prove clean worktree.
@@ -110,18 +110,41 @@
   incoherent queue/scan fields and recomputes summary currencies alphabetically,
   independent of server queue encounter order. The focused browser contracts
   returned to **13/13** and the managed scan scenario remained green.
+- Server self-review remediation: an explicit injected PostgreSQL transaction
+  test now proves an outcome-unknown handoff is surfaced after exactly one
+  transaction attempt. The focused handoff and both browser-contract files pass
+  **20/20** after that review addition.
+- Full verification green: with the disposable PostgreSQL 16 loopback cluster,
+  `TGE_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/postgres npm run verify`
+  passed the engineering harness, integration **296/296**, PostgreSQL **60/60**,
+  managed Chromium **48/48**, and the production Vite build. The existing
+  non-fatal bundle-size advisory remains unchanged in character.
+- Completion-record harness note: the first check immediately after moving this
+  plan failed because the filesystem rename had not yet been staged and the
+  harness correctly still resolved the tracked active path. Staging the rename
+  made the intended tracked-file set visible; the harness and staged diff check
+  then passed. This was plan-finalization ordering, not a product failure.
 
 ## Checkpoints
 - Planning checkpoint: `deca790` (`docs: plan revenue command center v2`).
 - Handoff checkpoint: `0f493de` (`feat: add safe revenue leak action handoff`).
-- Browser checkpoint: pending.
-- Final integration/docs checkpoint: pending.
+- Browser checkpoint: `c100467` (`feat: make leak queue the revenue command center`).
+- Final integration/docs checkpoint: this plan's completion commit; see the
+  branch history after the plan moves to `completed/`.
 
 ## Review and handoff
-- Implementer self-check: pending security, transaction/concurrency, JSON recovery,
-  product-truth, API-shape, accessibility, scope, and actual complete-diff review.
-- Fresh reviewer findings/resolution: direct fresh-context self-review only; the
-  mission prohibits delegation.
-- Final-review evidence: pending.
+- Implementer self-check: complete across tenant/non-oracular boundaries,
+  PostgreSQL lock/transaction/concurrency/rollback and unknown-outcome behavior,
+  JSON action-only recovery, semantic compatibility, immutable audit linkage,
+  browser strict envelopes, stale-response generations, mutation reconciliation,
+  server ordering, value/currency truth, keyboard/mobile semantics, and non-goals.
+- Fresh reviewer findings/resolution: direct fresh-context self-review only, as
+  required. It found the browser summary recomputation's dependence on queue
+  encounter order and insufficient exact scan/queue projection validation; both
+  were remediated with red/green regression evidence. No unresolved P0-P3 finding
+  remains.
+- Final-review evidence: complete diff inspected against pinned `79f51d4`;
+  `git diff --check`, harness, focused contracts, full integration/database/
+  browser gates, and production build are green.
 - Debt/follow-up: PR 3 onboarding/pilot instrumentation remains explicitly
   unstarted.

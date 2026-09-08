@@ -54,3 +54,19 @@ RevenueAction ID, basis fingerprint, and status at link time. The case never
 changes RevenueAction preparation, approval, execution, effect reconciliation,
 or outcome semantics. RevenueAction remains the sole execution boundary; case
 linkage is optional, immutable, and idempotent.
+
+`POST /api/revenue-leak-cases/:id/revenue-action` is a composed entry into this
+same authority, not a second lifecycle. For the supported detector-version-1
+stalled case, current canonical evidence must reproduce the case semantic key
+and deal intelligence must still select the compatible `CREATE_TASK` action.
+The service then calls the existing RevenueAction materializer and the existing
+case snapshot link. A linked replay validates the exact action identity,
+opportunity, action type, fingerprint, and current durable status.
+
+PostgreSQL encloses current-evidence validation, materialization/reuse, and link
+creation in one trusted tenant transaction. Local JSON remains sequential and
+non-atomic across its action and case files; its safe retry path relies on the
+existing semantic action identity to reuse an action-only partial write before
+repairing the idempotent link. Preparation, approval, execution, manual external
+confirmation, and effect recovery continue only through the Opportunity Command
+Center workflow.
