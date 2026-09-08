@@ -420,7 +420,8 @@ function createPostgresRepositories({
           transaction.client,
           transaction.tenantId,
           action,
-          opportunity
+          opportunity,
+          now()
         );
         if (!basisValidation.valid) {
           const supersededAt = now();
@@ -1456,7 +1457,8 @@ async function transitionRevenueAction(
       client,
       tenantId,
       action,
-      opportunity
+      opportunity,
+      now()
     );
     if (!basisValidation.valid) {
       const supersededAt = now();
@@ -1758,7 +1760,8 @@ async function validateRevenueActionBasis(
   client,
   tenantId,
   action,
-  opportunity
+  opportunity,
+  generatedAt
 ) {
   const integrity = validateStoredRevenueActionIntegrity(action);
   if (!integrity.valid) return integrity;
@@ -1810,7 +1813,8 @@ async function validateRevenueActionBasis(
     intelligence: buildDealIntelligenceFromData(opportunity, {
       prospects: prospects.rows.map(prospectFromRow),
       tasks: tasks.rows.map(taskFromRow),
-      activities: activities.rows.map(activityFromRow)
+      activities: activities.rows.map(activityFromRow),
+      generatedAt
     })
   };
   const current = calculateRevenueActionBasis(state);
