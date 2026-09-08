@@ -239,14 +239,20 @@ activity, and task truth and requires the resulting case semantic key to match
 the stored case. Detector version 1's `STALLED_OPPORTUNITY`/`FOLLOW_UP` recovery
 intent has one closed compatibility mapping to deal intelligence's current
 `CREATE_TASK` recommendation because the detector's authoritative condition is
-an absent next action. Any other stale or incompatible recommendation fails
-before linkage. A linked case instead reconciles the exact action ID,
+an absent next action. The service derives that current deal-intelligence
+recommendation read-only and rejects any incompatible semantics before invoking
+the mutating RevenueAction materializer. Any other stale or incompatible
+recommendation fails before linkage. A linked case instead reconciles the exact action ID,
 opportunity, type, fingerprint, and durable status and returns it as a replay.
 
 PostgreSQL performs validation, action materialization/reuse, and linkage in one
-tenant transaction while locking the current case and opportunity evidence. A
-concurrent or repeated request therefore returns the same relationship, and a
-failure after materialization rolls the transaction back. JSON has no
+tenant transaction. It previews the tenant-visible case only to identify its
+opportunity, locks that opportunity before re-reading and locking the durable
+case, and then validates current evidence. This matches portfolio scan lock order.
+A concurrent or repeated request therefore returns the same relationship, and a
+failure after materialization rolls the transaction back. The link and its audit
+entry use a fresh server time after materialization and cannot precede the
+RevenueAction's creation time. JSON has no
 cross-collection transaction: it materializes through the existing local
 RevenueAction authority and then links the case. If the first write commits and
 the response or link is lost, an explicit retry reuses the same active semantic

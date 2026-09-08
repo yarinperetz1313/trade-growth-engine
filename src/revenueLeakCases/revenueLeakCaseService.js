@@ -19,6 +19,9 @@ const {
   evaluateStalledOpportunity
 } = require("./stalledOpportunityDetector");
 const {
+  buildDealIntelligenceFromData
+} = require("../intelligence/dealIntelligence");
+const {
   OPERATING_QUEUE_LIMIT,
   PORTFOLIO_SCAN_LIMIT,
   buildRevenueLeakOperatingQueue
@@ -458,6 +461,14 @@ function createTenantService(
     );
   }
 
+  function integrityConflict(message, details = {}) {
+    throw new RevenueLeakCaseError(
+      "REVENUE_LEAK_CASE_INTEGRITY_CONFLICT",
+      message,
+      details
+    );
+  }
+
   function expectedHandoffActionType(record, evaluation) {
     if (
       record.leak_type === "STALLED_OPPORTUNITY"
@@ -502,16 +513,23 @@ function createTenantService(
     return validateLinkedAction(record, action);
   }
 
-  async function validateCurrentCase(scoped, record, evaluatedAt) {
-    const opportunity = await scoped.opportunities.findById(
-      record.opportunity_id,
-      persistence.adapter === "postgres" ? { lock: true } : undefined
+  async function validateCurrentCase(
+    scoped,
+    record,
+    evaluatedAt,
+    lockedOpportunity = null
+  ) {
+    const opportunity = lockedOpportunity || await scoped.opportunities.findById(
+      record.opportunity_id
     );
     if (!opportunity) return { failure: sourceUnavailable() };
     const activities = await scoped.activities.list({
       opportunityId: record.opportunity_id
     });
     const tasks = await scoped.tasks.list({ opportunityId: record.opportunity_id });
+    const prospect = opportunity.prospect_id && scoped.prospects
+      ? await scoped.prospects.findById(opportunity.prospect_id)
+      : null;
     const evaluation = evaluateStalledOpportunity({
       opportunity,
       activities,
@@ -539,10 +557,48 @@ function createTenantService(
         })
       };
     }
+    const expectedActionType = expectedHandoffActionType(record, evaluation);
+    const intelligence = buildDealIntelligenceFromData(opportunity, {
+      prospects: prospect ? [prospect] : [],
+      activities,
+      tasks,
+      generatedAt: evaluatedAt
+    });
+    const currentActionType = intelligence.next_best_action?.type || null;
+    if (currentActionType !== expectedActionType) {
+      throw incompatibleAction(record.id, currentActionType);
+    }
     return {
       evaluation,
-      expectedActionType: expectedHandoffActionType(record, evaluation)
+      expectedActionType
     };
+  }
+
+  async function loadHandoffCase(scoped, id) {
+    if (persistence.adapter !== "postgres") {
+      return {
+        record: await scoped.revenueLeakCases.findById(id),
+        opportunity: null
+      };
+    }
+    const preview = await scoped.revenueLeakCases.findById(id);
+    if (!preview) return { record: null, opportunity: null };
+    const opportunity = await scoped.opportunities.findById(
+      preview.opportunity_id,
+      { lock: true }
+    );
+    if (!opportunity) {
+      return { record: preview, opportunity: null, failure: sourceUnavailable() };
+    }
+    const record = await scoped.revenueLeakCases.findById(id, { lock: true });
+    if (!record) return { record: null, opportunity: null };
+    if (record.opportunity_id !== preview.opportunity_id) {
+      integrityConflict(
+        "Revenue leak case identity changed while acquiring durable locks.",
+        { case_id: id }
+      );
+    }
+    return { record, opportunity };
   }
 
   async function materializeWithAuthority(scoped, opportunityId) {
@@ -571,10 +627,9 @@ function createTenantService(
   }
 
   async function handoffWithRepositories(scoped, id, evaluatedAt) {
-    const record = await scoped.revenueLeakCases.findById(
-      id,
-      persistence.adapter === "postgres" ? { lock: true } : undefined
-    );
+    const loaded = await loadHandoffCase(scoped, id);
+    if (loaded.failure) return loaded.failure;
+    const { record } = loaded;
     if (!record) return caseNotFound();
     if (!["OPEN", "SNOOZED"].includes(record.state)) {
       return failure(
@@ -598,7 +653,12 @@ function createTenantService(
       };
     }
 
-    const validation = await validateCurrentCase(scoped, record, evaluatedAt);
+    const validation = await validateCurrentCase(
+      scoped,
+      record,
+      evaluatedAt,
+      loaded.opportunity
+    );
     if (validation.failure) return validation.failure;
     const materialized = await materializeWithAuthority(
       scoped,
@@ -613,8 +673,18 @@ function createTenantService(
       || !REVENUE_ACTION_STATUSES.has(action.status)
       || typeof action.basis_fingerprint !== "string"
       || !/^[0-9a-f]{64}$/.test(action.basis_fingerprint)
+      || !action.created_at
     ) {
       throw incompatibleAction(record.id, action?.action_type || null);
+    }
+    let actionCreatedAt;
+    try {
+      actionCreatedAt = normalizeTimestamp(
+        action.created_at,
+        "RevenueAction.created_at"
+      );
+    } catch {
+      throw incompatibleAction(record.id, action.action_type);
     }
 
     await handoffCheckpoint("afterRevenueActionMaterialized", {
@@ -622,9 +692,13 @@ function createTenantService(
       caseId: record.id,
       revenueActionId: action.id
     });
+    const observedLinkAt = now();
+    const linkedAt = Date.parse(observedLinkAt) < Date.parse(actionCreatedAt)
+      ? actionCreatedAt
+      : observedLinkAt;
     const linked = await scoped.revenueLeakCases.linkRevenueAction(record.id, {
       revenue_action_id: action.id,
-      at: evaluatedAt
+      at: linkedAt
     });
     if (!linked) return caseNotFound();
     return {
@@ -755,6 +829,7 @@ function createTenantService(
           return caseNotFound();
         }
         return handoffWithRepositories({
+          prospects: persistence.repositories.prospects,
           opportunities: persistence.repositories.opportunities,
           activities: persistence.repositories.activities,
           tasks: persistence.repositories.tasks,

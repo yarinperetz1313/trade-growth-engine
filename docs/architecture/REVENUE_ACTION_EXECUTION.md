@@ -59,12 +59,15 @@ linkage is optional, immutable, and idempotent.
 same authority, not a second lifecycle. For the supported detector-version-1
 stalled case, current canonical evidence must reproduce the case semantic key
 and deal intelligence must still select the compatible `CREATE_TASK` action.
-The service then calls the existing RevenueAction materializer and the existing
-case snapshot link. A linked replay validates the exact action identity,
+The service checks that recommendation read-only before calling the existing
+RevenueAction materializer, then applies the existing case snapshot link. A
+linked replay validates the exact action identity,
 opportunity, action type, fingerprint, and current durable status.
 
 PostgreSQL encloses current-evidence validation, materialization/reuse, and link
-creation in one trusted tenant transaction. Local JSON remains sequential and
+creation in one trusted tenant transaction, with opportunity-before-case locking
+and a durable case re-read. Link and audit time is derived after materialization
+and cannot precede action creation. Local JSON remains sequential and
 non-atomic across its action and case files; its safe retry path relies on the
 existing semantic action identity to reuse an action-only partial write before
 repairing the idempotent link. Preparation, approval, execution, manual external

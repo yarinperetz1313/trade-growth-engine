@@ -351,6 +351,7 @@ function findRevenueActionReference(revenueActions, record) {
     action.opportunity_id === record.opportunity_id
     && /^[0-9a-f]{64}$/.test(action.basis_fingerprint || "")
     && REVENUE_ACTION_STATUSES.has(action.status)
+    && isCanonicalTimestamp(action.created_at)
   ) ? action : null;
 }
 
@@ -376,6 +377,8 @@ function validateCaseCollection(records, tenantId, revenueActions) {
       assertIntegrity(
         action
         && action.basis_fingerprint === record.revenue_action_fingerprint
+        && Date.parse(record.revenue_action_linked_at) >=
+          Date.parse(action.created_at)
       );
     }
     if (record.supersedes_case_id !== null) {
@@ -757,6 +760,16 @@ function createJsonRevenueLeakCaseRepository({
         );
       }
       const at = normalizeTimestamp(linkage?.at, "linkage.at");
+      const actionCreatedAt = normalizeTimestamp(
+        action.created_at,
+        "RevenueAction.created_at"
+      );
+      if (Date.parse(at) < Date.parse(actionCreatedAt)) {
+        fail(
+          "REVENUE_LEAK_CASE_INTEGRITY_CONFLICT",
+          "RevenueAction linkage cannot precede action creation."
+        );
+      }
       const updated = {
         ...current,
         revenue_action_id: action.id,

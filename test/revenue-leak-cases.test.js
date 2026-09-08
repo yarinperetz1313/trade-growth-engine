@@ -87,12 +87,14 @@ function repository(seed = {}) {
       id: "action-1",
       opportunity_id: "opp-stalled",
       basis_fingerprint: "a".repeat(64),
-      status: "RECOMMENDED"
+      status: "RECOMMENDED",
+      created_at: "2026-09-02T02:30:00.000Z"
     }, {
       id: "action-other",
       opportunity_id: "opp-other",
       basis_fingerprint: "b".repeat(64),
-      status: "PREPARED"
+      status: "PREPARED",
+      created_at: "2026-09-02T02:30:00.000Z"
     }, {
       id: "action-malformed",
       opportunity_id: "opp-stalled",
@@ -376,6 +378,9 @@ test("persisted JSON RevenueAction links preserve snapshots while validating cur
     ["current status evolved", actions => actions.map(action => action.id === "action-1"
       ? { ...action, status: "PREPARED" }
       : action), false],
+    ["backdated link chronology", actions => actions.map(action => action.id === "action-1"
+      ? { ...action, created_at: "2026-09-02T03:30:00.000Z" }
+      : action), true],
     ["unrecognized status", actions => actions.map(action => action.id === "action-1"
       ? { ...action, status: "SENT" }
       : action), true]

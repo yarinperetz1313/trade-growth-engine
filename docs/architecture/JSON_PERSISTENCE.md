@@ -40,8 +40,11 @@ local/test operation but does not make JSON multi-process or cross-collection
 transactional; PostgreSQL remains the production tenant-isolation authority.
 
 The case-to-action handoff is necessarily sequential in JSON mode: the existing
-RevenueAction materializer writes `revenue_actions.json`, then the case repository
-writes the immutable snapshot link to `revenue_leak_cases.json`. A process failure
+deal-intelligence recommendation is checked read-only for compatibility before
+the RevenueAction materializer may write `revenue_actions.json`; incompatible
+handoffs therefore write neither collection. For a compatible handoff, the case
+repository then writes the immutable snapshot link to `revenue_leak_cases.json`
+using a fresh server time no earlier than action creation. A process failure
 between those writes may leave an unlinked active action. A later explicit retry
 re-evaluates current case truth, reuses only the exact active semantic action, and
 repairs the idempotent link. This prevents automatic duplication in the supported

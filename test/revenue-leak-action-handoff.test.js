@@ -63,6 +63,17 @@ function seedEligibleOpportunity() {
   writeCollection("revenue_leak_cases", []);
 }
 
+function replaceOpportunity(changes) {
+  writeCollection("opportunities", [{
+    ...readCollection("opportunities")[0],
+    ...changes
+  }]);
+}
+
+function readStoreFile(collection) {
+  return fs.readFileSync(path.join(tempDir, `${collection}.json`), "utf8");
+}
+
 function localContext() {
   return createTenantContext({
     tenantId: LOCAL_REVENUE_LEAK_TENANT_ID,
@@ -265,6 +276,139 @@ test("handoff fails closed when RevenueAction authority returns incompatible sem
   assert.equal(result.error, "REVENUE_LEAK_CASE_ACTION_INCOMPATIBLE");
   assert.equal(result.statusCode, 409);
   assert.equal(readCollection("revenue_leak_cases")[0].revenue_action_id, null);
+});
+
+for (const [literal, expectedActionType] of [
+  ["unknown", "CREATE_TASK"],
+  ["n/a", "FOLLOW_UP"],
+  ["na", "FOLLOW_UP"],
+  ["not known", "FOLLOW_UP"]
+]) {
+  test(`handoff preflights detector missing literal ${literal} before mutation`, async () => {
+    seedEligibleOpportunity();
+    replaceOpportunity({ next_action: literal });
+    let materializeCalls = 0;
+    const service = localService({
+      revenueActionAuthority: {
+        async materializeRevenueAction(opportunityId) {
+          materializeCalls += 1;
+          return legacyRevenueActionService.materializeRevenueAction(opportunityId);
+        },
+        getRevenueAction: legacyRevenueActionService.getRevenueAction
+      }
+    });
+    const detected = await createDetectedCase(service);
+
+    const result = await service.createRevenueActionForCase(detected.id);
+
+    if (expectedActionType === "CREATE_TASK") {
+      assert.equal(result.ok, true);
+      assert.equal(result.data.revenue_action.action_type, expectedActionType);
+      assert.equal(materializeCalls, 1);
+      assert.equal(readCollection("revenue_actions").length, 1);
+    } else {
+      assert.equal(result.ok, false);
+      assert.equal(result.error, "REVENUE_LEAK_CASE_ACTION_INCOMPATIBLE");
+      assert.equal(result.details.action_type, expectedActionType);
+      assert.equal(materializeCalls, 0);
+      assert.deepEqual(readCollection("revenue_actions"), []);
+      assert.equal(
+        readCollection("revenue_leak_cases")[0].revenue_action_id,
+        null
+      );
+    }
+  });
+}
+
+for (const literal of ["n/a", "na", "not known"]) {
+  test(`incompatible ${literal} retry preserves lifecycle and performs zero JSON writes`, async () => {
+    seedEligibleOpportunity();
+    const existing = legacyRevenueActionService.materializeRevenueAction(
+      "opp-handoff"
+    );
+    assert.equal(existing.ok, true);
+    const prepared = legacyRevenueActionService.prepareRevenueAction(
+      existing.data.id
+    );
+    assert.equal(prepared.ok, true);
+    assert.equal(prepared.data.status, "PREPARED");
+    replaceOpportunity({ next_action: literal });
+
+    let materializeCalls = 0;
+    const service = localService({
+      revenueActionAuthority: {
+        async materializeRevenueAction(opportunityId) {
+          materializeCalls += 1;
+          return legacyRevenueActionService.materializeRevenueAction(opportunityId);
+        },
+        getRevenueAction: legacyRevenueActionService.getRevenueAction
+      }
+    });
+    const detected = await createDetectedCase(service);
+    const actionsBefore = readStoreFile("revenue_actions");
+    const casesBefore = readStoreFile("revenue_leak_cases");
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = await service.createRevenueActionForCase(detected.id);
+      assert.equal(result.ok, false);
+      assert.equal(result.error, "REVENUE_LEAK_CASE_ACTION_INCOMPATIBLE");
+      assert.equal(result.details.action_type, "FOLLOW_UP");
+    }
+
+    assert.equal(materializeCalls, 0);
+    assert.equal(readStoreFile("revenue_actions"), actionsBefore);
+    assert.equal(readStoreFile("revenue_leak_cases"), casesBefore);
+    assert.equal(readCollection("revenue_actions").length, 1);
+    assert.equal(readCollection("revenue_actions")[0].status, "PREPARED");
+    assert.equal(
+      readCollection("revenue_actions")[0].audit.at(-1).transition,
+      "PREPARED"
+    );
+  });
+}
+
+test("JSON handoff links at a fresh server time after action creation", async () => {
+  seedEligibleOpportunity();
+  const detected = await createDetectedCase();
+  const actionCreatedAt = "2026-09-08T00:01:00.000Z";
+  const linkTime = "2026-09-08T00:02:00.000Z";
+  const ticks = [FIXED_NOW, linkTime];
+  const action = {
+    id: "advancing-clock-action",
+    opportunity_id: "opp-handoff",
+    action_type: "CREATE_TASK",
+    basis_fingerprint: "c".repeat(64),
+    status: "RECOMMENDED",
+    created_at: actionCreatedAt
+  };
+  const service = localService({
+    clock: () => new Date(ticks.shift() || linkTime),
+    revenueActionAuthority: {
+      async materializeRevenueAction() {
+        writeCollection("revenue_actions", [action]);
+        return {
+          ok: true,
+          created: true,
+          duplicate: false,
+          data: action
+        };
+      },
+      async getRevenueAction(id) {
+        return id === action.id ? action : null;
+      }
+    }
+  });
+
+  const result = await service.createRevenueActionForCase(detected.id);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.data.revenue_action.created_at, actionCreatedAt);
+  assert.equal(result.data.case.revenue_action_linked_at, linkTime);
+  assert.equal(result.data.case.audit.at(-1).at, linkTime);
+  assert.ok(
+    Date.parse(result.data.case.revenue_action_linked_at) >=
+      Date.parse(result.data.revenue_action.created_at)
+  );
 });
 
 test("PostgreSQL handoff exposes an unknown transaction outcome without retrying", async () => {

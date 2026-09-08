@@ -64,7 +64,8 @@ function seedStore() {
     id: "action-1",
     opportunity_id: "opp-stalled",
     basis_fingerprint: "a".repeat(64),
-    status: "RECOMMENDED"
+    status: "RECOMMENDED",
+    created_at: "2026-09-01T00:00:00.000Z"
   }]);
   writeCollection("revenue_leak_cases", []);
 }
