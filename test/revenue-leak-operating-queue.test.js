@@ -243,6 +243,41 @@ test("over-cap and invalid portfolio scans fail before any case mutation", async
   assert.deepEqual(invalidStore.state.revenue_leak_cases, []);
 });
 
+for (const [label, invalidId] of [
+  ["whitespace-padded", " padded-opportunity "],
+  ["overlength", "o".repeat(513)]
+]) {
+  test(`JSON scan rejects ${label} canonical opportunity IDs before mutation`, async () => {
+    const store = createMemoryStore({
+      opportunities: [opportunity(invalidId)],
+      activities: [],
+      tasks: [],
+      revenue_actions: [],
+      revenue_leak_cases: []
+    });
+
+    const result = await tenantService(store).scanStalledOpportunities();
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "REVENUE_LEAK_SCAN_SOURCE_INVALID");
+    assert.equal(
+      result.message,
+      "Canonical opportunity identities are invalid or duplicated."
+    );
+    assert.deepEqual(result.details, {
+      complete: false,
+      limit: PORTFOLIO_SCAN_LIMIT,
+      total_opportunities: 1,
+      evaluated_count: 0,
+      unevaluated_count: 1,
+      overflow_count: 0,
+      invalid_record_count: 1,
+      excluded_count: 0
+    });
+    assert.deepEqual(store.state.revenue_leak_cases, []);
+  });
+}
+
 test("JSON scan reconciliation failure never leaves a partial case batch", async () => {
   const store = createMemoryStore({
     opportunities: [opportunity("detected-a"), opportunity("detected-b")],

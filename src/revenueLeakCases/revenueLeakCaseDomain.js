@@ -19,6 +19,7 @@ const EVIDENCE_CLASSIFICATIONS = Object.freeze([
   "DERIVED",
   "MIXED"
 ]);
+const SOURCE_ENTITY_ID_MAX_BYTES = 512;
 
 class RevenueLeakCaseError extends Error {
   constructor(code, message, details = {}) {
@@ -46,6 +47,13 @@ function nonEmptyString(value, field, { max = 512, pattern } = {}) {
     invalid(`${field} is invalid.`, field);
   }
   return normalized;
+}
+
+function isCanonicalRevenueLeakSourceId(value) {
+  return typeof value === "string"
+    && value !== ""
+    && value === value.trim()
+    && Buffer.byteLength(value) <= SOURCE_ENTITY_ID_MAX_BYTES;
 }
 
 function normalizeTimestamp(value, field, { nullable = false } = {}) {
@@ -239,7 +247,7 @@ function buildRevenueLeakCaseDetection(input, {
   const source_entity_id = nonEmptyString(
     source.entity_id,
     "source.entity_id",
-    { max: 512 }
+    { max: SOURCE_ENTITY_ID_MAX_BYTES }
   );
   if (source_system !== "TGE" || source_entity_type !== "OPPORTUNITY") {
     invalid(
@@ -379,6 +387,7 @@ module.exports = {
   canonicalJson,
   deepFreeze,
   fingerprint,
+  isCanonicalRevenueLeakSourceId,
   normalizeCommercialValue,
   requireCanonicalCommercialValue,
   normalizeTimestamp

@@ -127,11 +127,13 @@ remains.
 An over-cap portfolio is rejected before evaluation or case mutation with
 `REVENUE_LEAK_SCAN_LIMIT_EXCEEDED`. The response declares `complete: false`, the
 100-record limit, exact total/overflow/unevaluated counts, and zero evaluated,
-invalid, and excluded records. Missing or duplicate canonical opportunity IDs,
-an incomplete repository set, or invalid enumeration truth similarly fail before
-mutation as `REVENUE_LEAK_SCAN_SOURCE_INVALID`; unaddressable records are counted
-as invalid and every candidate is counted as unevaluated. Detector-level malformed
-evidence is not silently excluded: it is evaluated as the existing
+invalid, and excluded records. Missing, duplicate, whitespace-padded, or
+over-512-byte canonical opportunity IDs, an incomplete repository set, or invalid
+enumeration truth similarly fail before mutation as
+`REVENUE_LEAK_SCAN_SOURCE_INVALID`; identity is preserved exactly rather than
+trimmed during admission, unaddressable records are counted as invalid, and every
+candidate is counted as unevaluated. Detector-level malformed evidence is not
+silently excluded: it is evaluated as the existing
 `DATA_HEALTH_SUPPRESSED` outcome and summarized by its closed version-1 reason.
 
 A successful response is complete and includes one bounded result per canonical

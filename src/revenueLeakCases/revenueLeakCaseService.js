@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const {
   RevenueLeakCaseError,
   buildRevenueLeakCaseDetection,
+  isCanonicalRevenueLeakSourceId,
   normalizeTimestamp
 } = require("./revenueLeakCaseDomain");
 const {
@@ -252,9 +253,7 @@ function createTenantService(
     }
 
     const ids = records.map(record =>
-      typeof record?.id === "string" && record.id.trim() !== ""
-        ? record.id.trim()
-        : null
+      isCanonicalRevenueLeakSourceId(record?.id) ? record.id : null
     );
     const frequencies = new Map();
     for (const id of ids) {

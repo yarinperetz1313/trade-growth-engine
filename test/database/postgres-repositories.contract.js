@@ -4614,6 +4614,57 @@ function registerPostgresRepositoryContractTests({
     );
   });
 
+  for (const [label, invalidId] of [
+    ["whitespace-padded", " padded-postgres-opportunity "],
+    ["overlength", "p".repeat(513)]
+  ]) {
+    test(`PostgreSQL scan rejects ${label} canonical opportunity IDs before mutation`, async () => {
+      const evaluatedAt = "2026-09-01T00:00:00.000Z";
+      const tenant = await createTenant(`invalid-scan-identity-${label}`);
+      const persistence = createPersistence({
+        adapter: "postgres",
+        pool: createPool(),
+        clock: () => new Date(evaluatedAt)
+      });
+      await persistence.repositories.opportunities.insert(tenant.context, {
+        id: invalidId,
+        business_name: `Invalid scan identity ${label}`,
+        stage: "PROPOSAL",
+        next_action: "",
+        created_at: "2026-07-01T00:00:00.000Z",
+        updated_at: "2026-08-31T00:00:00.000Z"
+      });
+      const service = createRevenueLeakCaseService({
+        persistence,
+        createId: () => `invalid-scan-case-${label}`,
+        clock: () => new Date(evaluatedAt)
+      }).forTenant(tenant.context);
+
+      const result = await service.scanStalledOpportunities();
+
+      assert.equal(result.ok, false);
+      assert.equal(result.error, "REVENUE_LEAK_SCAN_SOURCE_INVALID");
+      assert.equal(
+        result.message,
+        "Canonical opportunity identities are invalid or duplicated."
+      );
+      assert.deepEqual(result.details, {
+        complete: false,
+        limit: 100,
+        total_opportunities: 1,
+        evaluated_count: 0,
+        unevaluated_count: 1,
+        overflow_count: 0,
+        invalid_record_count: 1,
+        excluded_count: 0
+      });
+      assert.equal(
+        (await persistence.repositories.revenueLeakCases.list(tenant.context)).length,
+        0
+      );
+    });
+  }
+
   async function stageCsvBatch(
     repositories,
     context,
