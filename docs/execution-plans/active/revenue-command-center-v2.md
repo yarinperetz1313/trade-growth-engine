@@ -38,7 +38,7 @@
   late responses replace newer queue or opportunity state.
 
 ## Slices
-- [ ] Critical handoff contract: red API/service/PostgreSQL tests for active/stale,
+- [x] Critical handoff contract: red API/service/PostgreSQL tests for active/stale,
   compatible/incompatible, same-opportunity/tenant, idempotent replay, JSON partial
   recovery, transaction rollback/outcome-unknown, restart, and audit identity;
   compose existing authority to green and checkpoint.
@@ -74,12 +74,27 @@
   documented path. The approved research -> plan -> red-first TDD -> implementation
   -> review -> checkpoint sequence is therefore being executed explicitly without
   delegation, as requested.
-- Red evidence: pending.
-- Green evidence: pending.
+- Handoff environment-red: the first focused command could not load `express`
+  because this clean worktree had no `node_modules`. A local symlink to the prior
+  exact-base worktree dependency tree restored the pinned dependencies without an
+  install. The first sandboxed rerun then hit the expected localhost `listen
+  EPERM`; neither result is product-red evidence.
+- Handoff product-red: outside the restricted listener sandbox,
+  `node --test test/revenue-leak-action-handoff.test.js test/revenue-leak-cases-api.test.js`
+  exited 1 with **9/14 passing**. All existing case API tests passed; the five new
+  tests failed on the missing route/service method (404 or not-a-function).
+- Handoff green: the same focused command passed **14/14**. The affected
+  RevenueAction, RevenueLeakCase, detector, auth, persistence, API, and browser-auth
+  selection passed **133/133** tests.
+- PostgreSQL green: Docker was unavailable, so a disposable native PostgreSQL 16
+  cluster was initialized under the OS temporary directory with trust auth and a
+  loopback-only listener. `TGE_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/postgres npm run test:db`
+  passed **60/60**, including the new concurrent handoff, cross-tenant not-found,
+  and injected post-materialization rollback assertions.
 
 ## Checkpoints
-- Planning checkpoint: pending.
-- Handoff checkpoint: pending.
+- Planning checkpoint: `deca790` (`docs: plan revenue command center v2`).
+- Handoff checkpoint: pending commit after focused review.
 - Browser checkpoint: pending.
 - Final integration/docs checkpoint: pending.
 

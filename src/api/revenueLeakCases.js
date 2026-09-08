@@ -129,6 +129,31 @@ function createRevenueLeakCasesRouter({ service, resolveTenantContext } = {}) {
     })
   );
 
+  router.post(
+    "/api/revenue-leak-cases/:id/revenue-action",
+    route(async (req, res, resolveService) => {
+      if (Object.keys(req.query || {}).length > 0) {
+        return res.status(400).json({
+          ok: false,
+          error: "REVENUE_LEAK_ACTION_HANDOFF_REQUEST_INVALID",
+          message: "RevenueAction handoff does not accept query parameters.",
+          details: { field: "query" }
+        });
+      }
+      if (!validateEmptyBody(req, res, {
+        error: "REVENUE_LEAK_ACTION_HANDOFF_REQUEST_INVALID",
+        message: "RevenueAction handoff accepts only an empty JSON object."
+      })) return;
+      const requestBound = await resolveService(req);
+      const result = await requestBound.createRevenueActionForCase(req.params.id);
+      return sendResult(
+        res,
+        result,
+        result.handoff?.action_created ? 201 : 200
+      );
+    })
+  );
+
   router.get("/api/revenue-leak-cases", route(async (req, res, resolveService) => {
     const requestBound = await resolveService(req);
     const data = await requestBound.listRevenueLeakCases({

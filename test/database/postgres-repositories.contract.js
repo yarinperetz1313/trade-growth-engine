@@ -4614,6 +4614,136 @@ function registerPostgresRepositoryContractTests({
     );
   });
 
+  test("PostgreSQL case-to-RevenueAction handoff is atomic, tenant-safe, and replay-safe", async () => {
+    const evaluatedAt = "2026-09-08T00:00:00.000Z";
+    const pool = createPool({ max: 4 });
+    const persistence = createPersistence({
+      adapter: "postgres",
+      pool,
+      clock: () => new Date(evaluatedAt)
+    });
+    const tenantA = await createTenant("case-action-handoff-a");
+    const tenantB = await createTenant("case-action-handoff-b");
+    const tenantRollback = await createTenant("case-action-handoff-rollback");
+
+    async function seedEligible(context, id) {
+      await persistence.repositories.opportunities.insert(context, {
+        id,
+        business_name: `Handoff ${id}`,
+        stage: "PROPOSAL",
+        next_action: "",
+        value: "42000.500000",
+        currency: "AUD",
+        created_at: "2026-07-01T00:00:00.000Z",
+        updated_at: "2026-09-07T00:00:00.000Z"
+      });
+      await persistence.repositories.activities.insert(context, {
+        id: `activity-${id}`,
+        opportunity_id: id,
+        type: "FOLLOW_UP_RECORDED",
+        created_at: "2026-08-18T00:00:00.000Z",
+        updated_at: "2026-08-18T00:00:00.000Z"
+      });
+    }
+
+    await seedEligible(tenantA.context, "shared-handoff-opportunity");
+    await seedEligible(tenantB.context, "shared-handoff-opportunity");
+    await seedEligible(tenantRollback.context, "rollback-handoff-opportunity");
+
+    let caseId = 0;
+    let actionId = 0;
+    const service = createRevenueLeakCaseService({
+      persistence,
+      createId: () => `postgres-handoff-case-${++caseId}`,
+      createRevenueActionId: () => `postgres-handoff-action-${++actionId}`,
+      clock: () => new Date(evaluatedAt)
+    });
+    const tenantAService = service.forTenant(tenantA.context);
+    const tenantBService = service.forTenant(tenantB.context);
+    await tenantAService.scanStalledOpportunities();
+    await tenantBService.scanStalledOpportunities();
+    const tenantACase = (await persistence.repositories.revenueLeakCases.list(
+      tenantA.context
+    ))[0];
+
+    const concurrent = await Promise.all([
+      tenantAService.createRevenueActionForCase(tenantACase.id),
+      tenantAService.createRevenueActionForCase(tenantACase.id)
+    ]);
+    assert.equal(concurrent.every(result => result.ok), true);
+    assert.equal(
+      concurrent.filter(result => result.handoff.action_created).length,
+      1
+    );
+    assert.equal(
+      concurrent.filter(result => result.handoff.reconciled).length,
+      1
+    );
+    const actions = await persistence.repositories.revenueActions.list(
+      tenantA.context,
+      { opportunityId: "shared-handoff-opportunity" }
+    );
+    assert.equal(actions.length, 1);
+    assert.equal(actions[0].action_type, "CREATE_TASK");
+    assert.equal(actions[0].status, "RECOMMENDED");
+    const linked = await persistence.repositories.revenueLeakCases.findById(
+      tenantA.context,
+      tenantACase.id
+    );
+    assert.equal(linked.revenue_action_id, actions[0].id);
+    assert.equal(
+      linked.audit.filter(entry => entry.transition === "REVENUE_ACTION_LINKED").length,
+      1
+    );
+
+    const hidden = await tenantBService.createRevenueActionForCase(tenantACase.id);
+    assert.equal(hidden.ok, false);
+    assert.equal(hidden.error, "REVENUE_LEAK_CASE_NOT_FOUND");
+    assert.equal(hidden.statusCode, 404);
+    assert.equal(
+      (await persistence.repositories.revenueActions.list(
+        tenantB.context,
+        { opportunityId: "shared-handoff-opportunity" }
+      )).length,
+      0
+    );
+
+    let rollbackCaseId = 0;
+    const rollbackService = createRevenueLeakCaseService({
+      persistence,
+      createId: () => `rollback-handoff-case-${++rollbackCaseId}`,
+      createRevenueActionId: () => "rollback-handoff-action",
+      clock: () => new Date(evaluatedAt),
+      async handoffCheckpoint(name) {
+        if (name === "afterRevenueActionMaterialized") {
+          throw new Error("injected handoff rollback");
+        }
+      }
+    }).forTenant(tenantRollback.context);
+    await rollbackService.scanStalledOpportunities();
+    const rollbackCase = (await persistence.repositories.revenueLeakCases.list(
+      tenantRollback.context
+    ))[0];
+    await assert.rejects(
+      rollbackService.createRevenueActionForCase(rollbackCase.id),
+      /injected handoff rollback/
+    );
+    assert.equal(
+      (await persistence.repositories.revenueActions.list(
+        tenantRollback.context,
+        { opportunityId: "rollback-handoff-opportunity" }
+      )).length,
+      0
+    );
+    assert.equal(
+      (await persistence.repositories.revenueLeakCases.findById(
+        tenantRollback.context,
+        rollbackCase.id
+      )).revenue_action_id,
+      null
+    );
+  });
+
   for (const [label, invalidId] of [
     ["whitespace-padded", " padded-postgres-opportunity "],
     ["overlength", "p".repeat(513)]
