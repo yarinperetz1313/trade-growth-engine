@@ -704,17 +704,18 @@ function createPostgresRepositories({
     );
     scoped.revenueActions.executeAtomic = (id, plan) =>
       executeRevenueActionAtomic(null, id, plan, transaction);
-    scoped.imports = createImportRepository(
-      transaction.client,
-      transaction.tenantId,
-      (name, details) => checkpoint(name, transaction, details)
-    );
-    scoped.revenueLeakCases = createPostgresRevenueLeakCaseRepository(
+    scoped.pilotEvidence = createPostgresPilotEvidenceRepository(
       transaction.client,
       transaction.tenantId,
       transaction.subjectId
     );
-    scoped.pilotEvidence = createPostgresPilotEvidenceRepository(
+    scoped.imports = createImportRepository(
+      transaction.client,
+      transaction.tenantId,
+      (name, details) => checkpoint(name, transaction, details),
+      scoped.pilotEvidence
+    );
+    scoped.revenueLeakCases = createPostgresRevenueLeakCaseRepository(
       transaction.client,
       transaction.tenantId,
       transaction.subjectId

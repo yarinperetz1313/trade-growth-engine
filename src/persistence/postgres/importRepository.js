@@ -1,4 +1,7 @@
 const { hashImportEvidence } = require("../../imports/csvParser");
+const {
+  buildPilotEvidenceEvent
+} = require("../../pilotEvidence/pilotEvidenceDomain");
 const { TARGETS } = require("../../imports/importMapping");
 const {
   activityToRow,
@@ -40,7 +43,15 @@ const CANONICAL_TARGETS = Object.freeze({
   })
 });
 
-function createImportRepository(client, tenantId, checkpoint = async () => {}) {
+function createImportRepository(
+  client,
+  tenantId,
+  checkpoint = async () => {},
+  pilotEvidenceRepository
+) {
+  if (!pilotEvidenceRepository?.append) {
+    throw new TypeError("Canonical imports require the pilot evidence observer.");
+  }
   return {
     async stagePreview({ batch, records, auditEvent }) {
       const insertedBatch = await client.query(
@@ -186,11 +197,20 @@ function createImportRepository(client, tenantId, checkpoint = async () => {}) {
           && lockedBatch.commitMetadata?.inputFingerprint === inputFingerprint
           && lockedBatch.commitMetadata?.result
         ) {
-          return {
+          const reconciled = {
             ...structuredClone(lockedBatch.commitMetadata.result),
             batch: lockedBatch,
             reconciled: true
           };
+          await appendImportCommittedEvidence(
+            pilotEvidenceRepository,
+            tenantId,
+            request,
+            lockedBatch.commitMetadata.pilotEvidenceFacts,
+            reconciled.summary,
+            lockedBatch.committedAt || request.committedAt
+          );
+          return reconciled;
         }
         const conflict = conflictResult(lockedBatch, "BATCH_ALREADY_COMMITTED", [{
           code: "BATCH_ALREADY_COMMITTED",
@@ -503,6 +523,7 @@ function createImportRepository(client, tenantId, checkpoint = async () => {}) {
         requestFingerprint: plan.requestFingerprint,
         sourceSystem: plan.sourceSystem,
         targetCollection: plan.sourceCollection,
+        pilotEvidenceFacts: plan.pilotEvidenceFacts,
         reviewedMapping: {
           selections: request.input.selections,
           sourceIdentitySelection: request.input.sourceIdentitySelection
@@ -545,6 +566,17 @@ function createImportRepository(client, tenantId, checkpoint = async () => {}) {
       if (!finalized.rows[0]) {
         throw new Error("Canonical import lifecycle finalization failed.");
       }
+      await appendImportCommittedEvidence(
+        pilotEvidenceRepository,
+        tenantId,
+        request,
+        plan.pilotEvidenceFacts,
+        summary,
+        request.committedAt
+      );
+      await checkpoint("afterImportPilotEvidenceAppended", {
+        batchId: request.batchId
+      });
       await checkpoint("beforeImportCommit", { batchId: request.batchId });
       return {
         ...storedResult,
@@ -566,6 +598,31 @@ function createImportRepository(client, tenantId, checkpoint = async () => {}) {
       };
     }
   };
+}
+
+async function appendImportCommittedEvidence(
+  repository,
+  tenantId,
+  request,
+  baseFacts,
+  summary,
+  occurredAt
+) {
+  if (!baseFacts) return null;
+  return repository.append(buildPilotEvidenceEvent({
+    eventType: "IMPORT_COMMITTED",
+    facts: {
+      ...baseFacts,
+      total_count: summary.total,
+      committed_count: summary.committed,
+      skipped_count: summary.skipped
+    }
+  }, {
+    tenantId,
+    subjectId: request.subjectId,
+    occurredAt,
+    id: `pilot-import:${request.batchId}`
+  }));
 }
 
 async function lockImportIdentities(client, tenantId, plan, rows) {

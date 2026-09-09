@@ -64,7 +64,7 @@
 - [x] Evidence foundation: red domain/API/static/database regressions, append-only
   migration `013`, closed event builders, JSON/PostgreSQL repositories, tenant
   service/status API, strict privacy rejection, isolation, and semantic replay.
-- [ ] Canonical observers: red/green import commit + Data Health snapshot, scan +
+- [x] Canonical observers: red/green import commit + Data Health snapshot, scan +
   first credible imported-case surfacing, case inspection/feedback, action link,
   approval, and execution observers, including ambiguous outcomes and JSON repair.
 - [ ] Browser bridge: red/green strict contracts and managed E2E for post-commit
@@ -129,6 +129,24 @@
   defers write-capability validation until an evidence append; the focused
   regression passes. The complete integration suite will rerun at the next
   progressive gate.
+- Canonical-observer reds proved the intended boundaries before implementation:
+  import plans lacked a bounded Data Health evidence snapshot; committed imports
+  emitted no evidence; scan completion had no observer and later valid scans
+  conflicted with the tenant milestone; queue entries lacked provenance and a
+  lower-ranked case could be surfaced; action link/approval/execution produced no
+  evidence.
+- Canonical-observer green: `node --test test/import-commit.test.js
+  test/import-repository.test.js test/pilot-evidence.test.js
+  test/pilot-evidence-service.test.js test/revenue-leak-operating-queue.test.js
+  test/revenue-leak-operating-queue-browser.test.js
+  test/revenue-leak-action-handoff.test.js test/postgres-persistence.test.js`
+  passed 96/96. The complete PostgreSQL contract gate,
+  `TGE_TEST_DATABASE_URL=postgresql://yarinperetz@127.0.0.1:55439/tge_test
+  npm run test:db`, passed 63/63 against the isolated PostgreSQL 16.15 cluster.
+  Replays repair missing JSON observations, PostgreSQL observers share canonical
+  transactions, imported provenance is derived from committed import metadata,
+  sample/demo and existing records cannot satisfy first-value milestones, and
+  the existing queue order remains unchanged.
 
 ## Review and handoff
 

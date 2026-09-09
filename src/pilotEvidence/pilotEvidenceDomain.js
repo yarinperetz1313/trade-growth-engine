@@ -30,6 +30,10 @@ const EXECUTION_EFFECT_TYPES = new Set([
 ]);
 const EVENT_TYPE_SET = new Set(PILOT_EVENT_TYPES);
 const FEEDBACK_CODE_SET = new Set(FEEDBACK_CODES);
+const SINGLETON_MILESTONE_TYPES = new Set([
+  "PORTFOLIO_SCAN_COMPLETED",
+  "FIRST_CREDIBLE_CASE_SURFACED"
+]);
 
 const FACT_KEYS = Object.freeze({
   IMPORT_COMMITTED: [
@@ -206,6 +210,10 @@ function publicPilotEvidenceEvent(event) {
   return deepFreeze(clone);
 }
 
+function isSingletonMilestone(eventType) {
+  return SINGLETON_MILESTONE_TYPES.has(eventType);
+}
+
 function exactObject(value, keys) {
   return Boolean(
     value
@@ -271,5 +279,6 @@ module.exports = {
   PilotEvidenceError,
   buildPilotEvidenceEvent,
   conflict,
+  isSingletonMilestone,
   publicPilotEvidenceEvent
 };

@@ -131,6 +131,35 @@ test("canonical commit preserves exact commercial evidence and known numeric zer
   assert.equal(plan.rows[0].rawPayloadSha256, plan.evidence.records[0].rawPayloadSha256);
 });
 
+test("canonical commit derives privacy-minimized Data Health coverage separately from quality", () => {
+  const plan = buildCanonicalCommitPlan(stagedEvidence(
+    "source_id,id,business_name,stage,value,probability\n" +
+    "src-1,opp-1,Known Trade,PROPOSAL,2500,0.5\n" +
+    "src-2,opp-2,Missing Value,QUALIFIED,,0"
+  ), commitInput());
+
+  assert.equal(plan.outcome, "READY");
+  assert.deepEqual(plan.pilotEvidenceFacts, {
+    import_batch_id: "batch-commit",
+    source_collection: "opportunities",
+    total_count: 2,
+    committed_count: 2,
+    skipped_count: 0,
+    quality_blocked_count: 0,
+    quality_conflict_count: 0,
+    source_identity_covered_count: 2,
+    commercial_value_covered_count: 1,
+    stage_covered_count: 2,
+    created_at_covered_count: 0,
+    created_at_invalid_count: 0,
+    updated_at_covered_count: 0,
+    updated_at_invalid_count: 0,
+    contactable_count: null
+  });
+  assert.equal(JSON.stringify(plan.pilotEvidenceFacts).includes("Known Trade"), false);
+  assert.equal(JSON.stringify(plan.pilotEvidenceFacts).includes("src-1"), false);
+});
+
 test("equivalent decimal spellings share one exact canonical commercial interpretation", () => {
   const first = buildCanonicalCommitPlan(stagedEvidence(
     "source_id,id,business_name,stage,value,probability\n" +

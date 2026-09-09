@@ -1674,6 +1674,97 @@ test("PostgreSQL service performs mutation, preread, and required refresh in one
   assert.equal(result.refreshed.opportunity.id, opportunity.id);
 });
 
+test("PostgreSQL approval and execution observe a linked imported case in the canonical transaction", async () => {
+  const context = createTenantContext({
+    tenantId: "a0e8a2a0-9c44-4d84-9263-7d417ac00b8e",
+    subjectId: "auth0|pilot-operator"
+  });
+  const opportunity = {
+    id: "pilot-opportunity",
+    stage: "PROPOSAL",
+    metadata: { import: {
+      batch_id: "pilot-batch",
+      source_system: "pilot-crm",
+      source_record_id: "private-source-id",
+      raw_payload_sha256: "a".repeat(64)
+    } }
+  };
+  const linkedCase = {
+    id: "pilot-case",
+    opportunity_id: opportunity.id,
+    revenue_action_id: "pilot-action"
+  };
+  const approved = {
+    id: "pilot-action",
+    opportunity_id: opportunity.id,
+    execution_type: "INTERNAL_TASK",
+    status: "APPROVED",
+    approved_at: "2026-09-09T02:00:00.000Z"
+  };
+  const executed = {
+    ...approved,
+    status: "EXECUTED",
+    executed_at: "2026-09-09T03:00:00.000Z"
+  };
+  const events = [];
+  const scoped = {
+    prospects: { list: async () => [] },
+    opportunities: {
+      list: async () => [opportunity],
+      findById: async id => id === opportunity.id ? opportunity : null
+    },
+    tasks: { list: async () => [] },
+    activities: { list: async () => [] },
+    imports: {
+      findCommit: async () => ({
+        outcome: "COMMITTED",
+        batch: { status: "COMMITTED" },
+        rows: [{ targetId: opportunity.id }]
+      })
+    },
+    revenueLeakCases: {
+      findByRevenueActionId: async () => linkedCase
+    },
+    pilotEvidence: {
+      append: async event => {
+        events.push(event);
+        return { record: event, created: true, duplicate: false };
+      }
+    },
+    revenueActions: {
+      transition: async () => ({ record: approved, duplicate: false }),
+      findById: async () => approved,
+      executeAtomic: async () => ({
+        record: executed,
+        duplicate: false,
+        recovered: false
+      })
+    }
+  };
+  const service = createPostgresRevenueActionService({
+    persistence: {
+      adapter: "postgres",
+      forTenant: () => ({
+        revenueActions: {},
+        transaction: operation => operation(scoped)
+      })
+    },
+    clock: () => new Date("2026-09-09T04:00:00.000Z")
+  }).forTenant(context);
+
+  assert.equal((await service.approveRevenueAction(approved.id)).ok, true);
+  assert.equal((await service.executeRevenueAction(approved.id)).ok, true);
+  assert.deepEqual(events.map(event => event.event_type), [
+    "ACTION_APPROVED",
+    "ACTION_EXECUTED"
+  ]);
+  assert.deepEqual(events.map(event => event.facts.action_status), [
+    "APPROVED",
+    "EXECUTED"
+  ]);
+  assert.equal(JSON.stringify(events).includes("private-source-id"), false);
+});
+
 test("required PostgreSQL refresh failure rejects and rolls the request mutation back", async () => {
   const context = createTenantContext({
     tenantId: "a0e8a2a0-9c44-4d84-9263-7d417ac00B8E",

@@ -5,7 +5,14 @@ const crypto = require("node:crypto");
 const {
   buildPilotEvidenceEvent
 } = require("./pilotEvidenceDomain");
+const {
+  classifyOpportunityDataOrigin
+} = require("./dataOrigin");
 const { requireTenantContext } = require("../persistence/tenantContext");
+const {
+  OPERATING_QUEUE_LIMIT,
+  buildRevenueLeakOperatingQueue
+} = require("../revenueLeakCases/revenueLeakOperatingQueue");
 
 function createPilotEvidenceService({
   persistence,
@@ -134,9 +141,33 @@ function createTenantService({ context, idFactory, clock, persistence, repositor
     },
 
     recordCaseSurfaced(caseId) {
-      return recordCase("FIRST_CREDIBLE_CASE_SURFACED", caseId, {
-        value_kind: "UNKNOWN",
-        currency: null
+      if (!validId(caseId, 255)) return unavailableCase();
+      return withScoped(async scoped => {
+        const generatedAt = now();
+        const loaded = await scoped.revenueLeakCases.listOperatingQueueContexts({
+          limit: OPERATING_QUEUE_LIMIT
+        });
+        const queue = buildRevenueLeakOperatingQueue({
+          contexts: loaded.contexts,
+          totalCount: loaded.totalCount,
+          generatedAt
+        });
+        const firstImported = queue.entries.find(entry =>
+          entry.data_origin === "IMPORTED_CUSTOMER"
+        );
+        if (!firstImported || firstImported.case.id !== caseId) {
+          return unavailableCase();
+        }
+        const loadedCase = await importedCase(scoped, caseId);
+        if (!loadedCase) return unavailableCase();
+        return append(scoped, "FIRST_CREDIBLE_CASE_SURFACED", {
+          case_id: loadedCase.record.id,
+          import_batch_id: loadedCase.importBatchId,
+          value_kind: firstImported.potential_value.kind,
+          currency: ["KNOWN_POSITIVE", "KNOWN_ZERO"].includes(
+            firstImported.potential_value.kind
+          ) ? firstImported.potential_value.currency : null
+        }, generatedAt);
       });
     },
 
@@ -150,25 +181,6 @@ function createTenantService({ context, idFactory, clock, persistence, repositor
       });
     }
   });
-}
-
-function classifyOpportunityDataOrigin(opportunity) {
-  if (opportunity?.metadata?.data_origin === "SAMPLE_DEMO") {
-    return Object.freeze({ kind: "SAMPLE_DEMO", importBatchId: null });
-  }
-  const imported = opportunity?.metadata?.import;
-  if (
-    validId(imported?.batch_id, 200)
-    && validId(imported?.source_system, 128)
-    && validId(imported?.source_record_id, 512)
-    && /^[0-9a-f]{64}$/.test(imported?.raw_payload_sha256 || "")
-  ) {
-    return Object.freeze({
-      kind: "IMPORTED_CUSTOMER",
-      importBatchId: imported.batch_id
-    });
-  }
-  return Object.freeze({ kind: "EXISTING_CUSTOMER", importBatchId: null });
 }
 
 function bindJson(repository, context) {

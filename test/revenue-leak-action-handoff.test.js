@@ -35,7 +35,7 @@ function isoDaysBefore(days) {
   return new Date(Date.parse(FIXED_NOW) - days * DAY_MS).toISOString();
 }
 
-function seedEligibleOpportunity() {
+function seedEligibleOpportunity({ imported = false } = {}) {
   writeCollection("prospects", []);
   writeCollection("opportunities", [{
     id: "opp-handoff",
@@ -48,7 +48,15 @@ function seedEligibleOpportunity() {
     value: "42000.500000",
     currency: "AUD",
     created_at: isoDaysBefore(60),
-    updated_at: isoDaysBefore(1)
+    updated_at: isoDaysBefore(1),
+    ...(imported ? {
+      metadata: { import: {
+        batch_id: "batch-handoff",
+        source_system: "pilot-crm",
+        source_record_id: "private-source-record",
+        raw_payload_sha256: "a".repeat(64)
+      } }
+    } : {})
   }]);
   writeCollection("activities", [{
     id: "activity-handoff",
@@ -61,6 +69,7 @@ function seedEligibleOpportunity() {
   writeCollection("tasks", []);
   writeCollection("revenue_actions", []);
   writeCollection("revenue_leak_cases", []);
+  writeCollection("pilot_evidence_events", []);
 }
 
 function replaceOpportunity(changes) {
@@ -191,6 +200,38 @@ test("case handoff composes one existing RevenueAction and one immutable link", 
       ).length,
       1
     );
+  });
+});
+
+test("imported-customer handoff, approval, and execution append one bounded fact each", async () => {
+  seedEligibleOpportunity({ imported: true });
+  const service = localService();
+  const detected = await createDetectedCase(service);
+  const handoff = await service.createRevenueActionForCase(detected.id);
+  const actionId = handoff.data.revenue_action.id;
+
+  legacyRevenueActionService.prepareRevenueAction(actionId);
+  legacyRevenueActionService.approveRevenueAction(actionId);
+  legacyRevenueActionService.approveRevenueAction(actionId);
+  legacyRevenueActionService.executeRevenueAction(actionId);
+  legacyRevenueActionService.executeRevenueAction(actionId);
+
+  const evidence = readCollection("pilot_evidence_events");
+  assert.deepEqual(evidence.map(event => event.event_type), [
+    "PORTFOLIO_SCAN_COMPLETED",
+    "REVENUE_ACTION_MATERIALIZED_LINKED",
+    "ACTION_APPROVED",
+    "ACTION_EXECUTED"
+  ]);
+  assert.equal(new Set(evidence.map(event => event.semantic_key)).size, 4);
+  assert.equal(JSON.stringify(evidence).includes("Handoff Roofing"), false);
+  assert.equal(JSON.stringify(evidence).includes("private-source-record"), false);
+  assert.deepEqual(evidence.at(-1).facts, {
+    case_id: detected.id,
+    import_batch_id: "batch-handoff",
+    revenue_action_id: actionId,
+    action_status: "EXECUTED",
+    execution_effect_type: "INTERNAL_TASK"
   });
 });
 

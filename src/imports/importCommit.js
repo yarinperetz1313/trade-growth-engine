@@ -200,8 +200,54 @@ function buildCanonicalCommitPlan(evidence, input) {
     requestFingerprint,
     rows: prepared,
     summary: summarize(prepared),
+    pilotEvidenceFacts: buildImportPilotEvidenceFacts(
+      evidence.batch.id,
+      sourceCollection,
+      analysis.dataHealth,
+      summarize(prepared)
+    ),
     conflicts: [],
     evidence
+  };
+}
+
+function buildImportPilotEvidenceFacts(
+  importBatchId,
+  sourceCollection,
+  dataHealth,
+  summary
+) {
+  const total = dataHealth.totalRows;
+  const timestamp = field => dataHealth.timestampCoverage[field] || {
+    coveredRows: 0,
+    invalidRows: 0
+  };
+  const covered = field => total - dataHealth.missingValueCounts[field];
+  return {
+    import_batch_id: importBatchId,
+    source_collection: sourceCollection,
+    total_count: total,
+    committed_count: summary.committed,
+    skipped_count: summary.skipped,
+    quality_blocked_count: Math.max(
+      0,
+      dataHealth.rowsWithBlockingErrors - dataHealth.duplicateConflictCount
+    ),
+    quality_conflict_count: dataHealth.duplicateConflictCount,
+    source_identity_covered_count: dataHealth.sourceIdCoverage.coveredRows,
+    commercial_value_covered_count: sourceCollection === "opportunities"
+      ? covered("value")
+      : null,
+    stage_covered_count: sourceCollection === "opportunities"
+      ? covered("stage")
+      : null,
+    created_at_covered_count: timestamp("created_at").coveredRows,
+    created_at_invalid_count: timestamp("created_at").invalidRows,
+    updated_at_covered_count: timestamp("updated_at").coveredRows,
+    updated_at_invalid_count: timestamp("updated_at").invalidRows,
+    contactable_count: sourceCollection === "prospects"
+      ? dataHealth.contactabilityCoverage.coveredRows
+      : null
   };
 }
 

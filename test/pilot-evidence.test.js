@@ -212,3 +212,38 @@ test("feedback is closed, content-free, and one immutable fact per imported case
     comment: "free form"
   }), error => error.code === "PILOT_EVIDENCE_INVALID");
 });
+
+test("first scan and first surfaced milestones retain their initial fact on later valid observations", async () => {
+  const store = memoryStore();
+  const repository = createJsonPilotEvidenceRepository({
+    store,
+    localTenantId: TENANT_A
+  });
+  const scanFacts = {
+    evaluated_count: 1,
+    eligible_leak_count: 1,
+    eligible_no_leak_count: 0,
+    insufficient_evidence_count: 0,
+    stale_source_count: 0,
+    data_health_suppressed_count: 0,
+    excluded_count: 0
+  };
+  await repository.append(context(), build(
+    "PORTFOLIO_SCAN_COMPLETED",
+    scanFacts,
+    { id: "first-scan" }
+  ));
+  const later = await repository.append(context(), build(
+    "PORTFOLIO_SCAN_COMPLETED",
+    {
+      ...scanFacts,
+      eligible_leak_count: 0,
+      eligible_no_leak_count: 1
+    },
+    { id: "later-scan", occurredAt: "2026-09-10T01:00:00.000Z" }
+  ));
+
+  assert.equal(later.duplicate, true);
+  assert.deepEqual(later.record.facts, scanFacts);
+  assert.equal(store.snapshot().length, 1);
+});

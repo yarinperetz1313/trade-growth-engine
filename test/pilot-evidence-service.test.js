@@ -9,6 +9,9 @@ const {
 const {
   createTenantContext
 } = require("../src/persistence/tenantContext");
+const {
+  buildRevenueLeakCaseDetection
+} = require("../src/revenueLeakCases/revenueLeakCaseDomain");
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
 const CONTEXT = createTenantContext({
@@ -16,17 +19,43 @@ const CONTEXT = createTenantContext({
   subjectId: "auth0|operator"
 });
 
-function caseRecord(id, opportunityId) {
-  return {
-    id,
-    opportunity_id: opportunityId,
-    state: "OPEN",
+function caseRecord(id, opportunityId, amount = "2500") {
+  return buildRevenueLeakCaseDetection({
+    leak_type: "STALLED_OPPORTUNITY",
+    source: {
+      system: "TGE",
+      entity_type: "OPPORTUNITY",
+      entity_id: opportunityId,
+      observed_at: "2026-09-01T00:00:00.000Z",
+      observed_version: `version-${id}`
+    },
+    detector: { id: "stalled-opportunity", version: "1" },
+    reason_code: "STALE_WITHOUT_NEXT_ACTION",
+    evidence_classification: "MIXED",
+    evidence: {
+      activity_baseline: {
+        kind: "OPPORTUNITY_CREATED",
+        entity_id: null,
+        at: "2026-09-01T00:00:00.000Z"
+      }
+    },
     commercial_value: {
       classification: "KNOWN",
-      amount: "2500",
+      amount,
       currency: "AUD"
+    },
+    recommended_action_type: "FOLLOW_UP",
+    due_at: null,
+    supersession_condition: {
+      kind: "CANONICAL_EVIDENCE_CHANGED",
+      detector_id: "stalled-opportunity",
+      detector_version: "1"
     }
-  };
+  }, {
+    id,
+    detectedAt: "2026-09-01T00:00:00.000Z",
+    subjectId: "auth0|operator"
+  });
 }
 
 function fixture() {
@@ -34,6 +63,8 @@ function fixture() {
   const opportunities = new Map([
     ["imported-opp", {
       id: "imported-opp",
+      prospect_id: null,
+      business_name: "Imported business",
       metadata: { import: {
         batch_id: "batch-1",
         source_system: "pilot-crm",
@@ -41,14 +72,32 @@ function fixture() {
         raw_payload_sha256: "a".repeat(64)
       } }
     }],
+    ["second-imported-opp", {
+      id: "second-imported-opp",
+      prospect_id: null,
+      business_name: "Second imported business",
+      metadata: { import: {
+        batch_id: "batch-1",
+        source_system: "pilot-crm",
+        source_record_id: "another-private-source-id",
+        raw_payload_sha256: "b".repeat(64)
+      } }
+    }],
     ["sample-opp", {
       id: "sample-opp",
+      prospect_id: null,
+      business_name: "Demo business",
       metadata: { data_origin: "SAMPLE_DEMO" }
     }]
   ]);
   const cases = new Map([
     ["imported-case", caseRecord("imported-case", "imported-opp")],
-    ["sample-case", caseRecord("sample-case", "sample-opp")]
+    ["second-imported-case", caseRecord(
+      "second-imported-case",
+      "second-imported-opp",
+      "1000"
+    )],
+    ["sample-case", caseRecord("sample-case", "sample-opp", "9999")]
   ]);
   const repository = {
     async append(event) {
@@ -67,7 +116,15 @@ function fixture() {
     pilotEvidence: repository,
     revenueLeakCases: {
       findById: async id => structuredClone(cases.get(id) || null),
-      listOperatingQueueContexts: async () => ({ contexts: [], totalCount: 0 })
+      listOperatingQueueContexts: async () => ({
+        contexts: [...cases.values()].map(record => ({
+          case: structuredClone(record),
+          opportunity: structuredClone(opportunities.get(record.opportunity_id)),
+          business: null,
+          revenue_action: null
+        })),
+        totalCount: cases.size
+      })
     },
     opportunities: {
       findById: async id => structuredClone(opportunities.get(id) || null)
@@ -76,7 +133,7 @@ function fixture() {
       findCommit: async id => id === "batch-1" ? {
         outcome: "COMMITTED",
         batch: { id, status: "COMMITTED" },
-        rows: [{ targetId: "imported-opp" }],
+        rows: [{ targetId: "imported-opp" }, { targetId: "second-imported-opp" }],
         summary: { total: 1, committed: 1, skipped: 0, conflicted: 0, failed: 0 }
       } : null
     }
@@ -141,4 +198,26 @@ test("status is bounded, tenant-derived, and resumable without customer content"
   }]);
   assert.equal(Object.hasOwn(status, "tenant_id"), false);
   assert.equal(JSON.stringify(status).includes("private-source-id"), false);
+});
+
+test("surfacing records only the first server-ranked imported case with exact value truth", async () => {
+  const { records, service } = fixture();
+
+  const sample = await service.recordCaseSurfaced("sample-case");
+  const lowerRanked = await service.recordCaseSurfaced("second-imported-case");
+  const surfaced = await service.recordCaseSurfaced("imported-case");
+  const replay = await service.recordCaseSurfaced("imported-case");
+
+  assert.equal(sample.ok, false);
+  assert.equal(lowerRanked.ok, false);
+  assert.equal(surfaced.ok, true);
+  assert.equal(replay.duplicate, true);
+  assert.deepEqual(records.find(event =>
+    event.event_type === "FIRST_CREDIBLE_CASE_SURFACED"
+  ).facts, {
+    case_id: "imported-case",
+    import_batch_id: "batch-1",
+    value_kind: "KNOWN_POSITIVE",
+    currency: "AUD"
+  });
 });

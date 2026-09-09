@@ -5,6 +5,7 @@ const { isDeepStrictEqual } = require("node:util");
 const {
   PilotEvidenceError,
   conflict,
+  isSingletonMilestone,
   publicPilotEvidenceEvent
 } = require("./pilotEvidenceDomain");
 
@@ -58,7 +59,10 @@ function createPostgresPilotEvidenceRepository(client, tenantId, subjectId) {
       if (
         !existing
         || existing.event_type !== event.event_type
-        || !isDeepStrictEqual(existing.facts, event.facts)
+        || (
+          !isSingletonMilestone(event.event_type)
+          && !isDeepStrictEqual(existing.facts, event.facts)
+        )
       ) throw conflict();
       return {
         record: publicPilotEvidenceEvent(existing),

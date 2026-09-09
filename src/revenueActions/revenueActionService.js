@@ -29,6 +29,9 @@ const {
   toFailure
 } = require("./revenueActionErrors");
 const repository = require("./revenueActionRepository");
+const {
+  observeLocalRevenueAction
+} = require("../pilotEvidence/localRevenueActionObserver");
 
 const ACTIVE_STATUSES = new Set([
   "RECOMMENDED",
@@ -408,6 +411,7 @@ function approveRevenueAction(id) {
   if (action.status === "APPROVED") {
     const validationFailure = validateCurrentRevenueAction(action, "APPROVE");
     if (validationFailure) return validationFailure;
+    observeLocalRevenueAction("ACTION_APPROVED", action);
     return success(action, { duplicate: true });
   }
 
@@ -432,6 +436,7 @@ function approveRevenueAction(id) {
     audit: appendAudit(action, "APPROVED", timestamp, { approval: "HUMAN" })
   };
   repository.replaceRevenueAction(updated);
+  observeLocalRevenueAction("ACTION_APPROVED", updated);
   return success(updated, { duplicate: false });
 }
 
@@ -673,7 +678,10 @@ function effectConflict(action, reason) {
 function executeRevenueAction(id, body = {}) {
   let action = repository.findRevenueAction(id);
   if (!action) return failure("REVENUE_ACTION_NOT_FOUND", "Revenue action was not found.", 404, { id });
-  if (action.status === "EXECUTED") return success(action, { duplicate: true });
+  if (action.status === "EXECUTED") {
+    observeLocalRevenueAction("ACTION_EXECUTED", action);
+    return success(action, { duplicate: true });
+  }
 
   if (!["APPROVED", "FAILED", "EXECUTING"].includes(action.status) || !action.approved_at) {
     return failure("INVALID_REVENUE_ACTION_TRANSITION", `Cannot execute a revenue action from ${action.status}.`, 409, { from: action.status, to: "EXECUTED" });
@@ -699,7 +707,10 @@ function executeRevenueAction(id, body = {}) {
     return effectConflict(action, "EFFECTS_EXIST_BEFORE_EXECUTION_STARTED");
   }
   const reconciled = reconcileExecution(action, effects);
-  if (reconciled) return reconciled;
+  if (reconciled) {
+    observeLocalRevenueAction("ACTION_EXECUTED", reconciled.data);
+    return reconciled;
+  }
 
   const current = currentRecommendationFingerprint(
     action.opportunity_id,
@@ -731,7 +742,9 @@ function executeRevenueAction(id, body = {}) {
 
   try {
     const effects = action.execution_type === "COMMUNICATION_DRAFT" ? executeCommunication(action) : executeInternalTask(action);
-    return finalizeExecution(action, effects);
+    const executed = finalizeExecution(action, effects);
+    observeLocalRevenueAction("ACTION_EXECUTED", executed.data);
+    return executed;
   } catch (error) {
     const failedAt = now();
     const failed = {
