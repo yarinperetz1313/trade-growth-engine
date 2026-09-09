@@ -249,7 +249,9 @@ function boundedText(value, maximumBytes) {
 }
 
 function timestamp(value) {
-  return typeof value === "string" && !Number.isNaN(Date.parse(value));
+  if (typeof value !== "string") return false;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value;
 }
 
 function isObject(value) {

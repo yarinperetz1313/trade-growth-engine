@@ -60,7 +60,7 @@ function eventResponse(eventType, facts, duplicate = false) {
       actor_subject_id: "auth0|operator",
       occurred_at: "2026-09-09T01:00:00.000Z",
       semantic_key: "a".repeat(64),
-      facts
+      facts: structuredClone(facts)
     }
   };
 }
@@ -123,6 +123,7 @@ test("pilot case mutations validate exact event identity and closed feedback", a
     body => { body.data.facts.case_id = "other-case"; },
     body => { body.data.facts.comment = "free text"; },
     body => { body.data.actor_subject_id = ""; },
+    body => { body.data.occurred_at = "2026-09-09T01:00:00Z"; },
     body => { body.data.semantic_key = "not-a-hash"; },
     body => { body.tenant_id = "client-selected"; }
   ]) {
