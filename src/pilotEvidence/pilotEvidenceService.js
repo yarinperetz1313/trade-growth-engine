@@ -120,6 +120,12 @@ function createTenantService({ context, idFactory, clock, persistence, repositor
           right.occurred_at.localeCompare(left.occurred_at)
           || right.id.localeCompare(left.id)
         )[0] || null;
+      const inspectedCaseIds = uniqueIds(events
+        .filter(event => event.event_type === "CASE_INSPECTED")
+        .map(event => event.facts.case_id));
+      const linkedActionIds = uniqueIds(events
+        .filter(event => event.event_type === "REVENUE_ACTION_MATERIALIZED_LINKED")
+        .map(event => event.facts.revenue_action_id));
       return {
         milestones: {
           import_committed: eventTypes.has("IMPORT_COMMITTED"),
@@ -131,6 +137,8 @@ function createTenantService({ context, idFactory, clock, persistence, repositor
           action_executed: eventTypes.has("ACTION_EXECUTED")
         },
         latest_import: latestImport ? structuredClone(latestImport.facts) : null,
+        inspected_case_ids: inspectedCaseIds,
+        linked_action_ids: linkedActionIds,
         case_feedback: events
           .filter(event => event.event_type === "OPERATOR_FEEDBACK")
           .map(event => ({
@@ -181,6 +189,10 @@ function createTenantService({ context, idFactory, clock, persistence, repositor
       });
     }
   });
+}
+
+function uniqueIds(values) {
+  return [...new Set(values)].slice(0, OPERATING_QUEUE_LIMIT);
 }
 
 function bindJson(repository, context) {

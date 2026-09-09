@@ -1013,10 +1013,13 @@ function validateQueueEntry(entry, generatedAt) {
   if (
     !isPlainObject(entry)
     || !hasExactKeys(entry, [
-      "case", "historical_opportunity_id", "opportunity", "business",
+      "case", "historical_opportunity_id", "data_origin", "opportunity", "business",
       "potential_value", "leak_age", "urgency", "linked_revenue_action",
       "ordering_factors"
     ])
+    || !["IMPORTED_CUSTOMER", "SAMPLE_DEMO", "EXISTING_CUSTOMER"].includes(
+      entry.data_origin
+    )
     || !isPlainObject(record)
     || !hasExactKeys(record, [
       "id", "leak_type", "lifecycle_state", "reason_code", "detector",

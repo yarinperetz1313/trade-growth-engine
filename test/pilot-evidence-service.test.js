@@ -192,6 +192,8 @@ test("status is bounded, tenant-derived, and resumable without customer content"
     action_executed: false
   });
   assert.equal(status.latest_import, null);
+  assert.deepEqual(status.inspected_case_ids, ["imported-case"]);
+  assert.deepEqual(status.linked_action_ids, []);
   assert.deepEqual(status.case_feedback, [{
     case_id: "imported-case",
     feedback_code: "USEFUL"

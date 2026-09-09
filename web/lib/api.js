@@ -7,6 +7,10 @@ import {
   createBrowserApiRequest
 } from "./browserApiRequest.mjs";
 import {
+  unwrapPilotEvidenceMutationResponse,
+  unwrapPilotEvidenceStatusResponse
+} from "./pilotEvidenceContracts.mjs";
+import {
   unwrapRevenueLeakCaseListResponse,
   unwrapRevenueLeakActionHandoffResponse,
   unwrapRevenueLeakCaseMutationResponse,
@@ -350,6 +354,47 @@ export async function createRevenueActionForLeakCase(
     caseId,
     opportunityId
   );
+}
+
+export async function getPilotEvidenceStatus() {
+  return unwrapPilotEvidenceStatusResponse(await request(
+    "/api/pilot-evidence/status"
+  ));
+}
+
+export async function recordPilotCaseSurfaced(caseId) {
+  return pilotCaseMutation(caseId, "surfaced", "FIRST_CREDIBLE_CASE_SURFACED");
+}
+
+export async function recordPilotCaseInspected(caseId) {
+  return pilotCaseMutation(caseId, "inspected", "CASE_INSPECTED");
+}
+
+export async function recordPilotCaseFeedback(caseId, feedbackCode) {
+  const response = await request(
+    `/api/pilot-evidence/cases/${encodeURIComponent(caseId)}/feedback`,
+    {
+      method: "POST",
+      body: JSON.stringify({ feedback_code: feedbackCode })
+    }
+  );
+  return unwrapPilotEvidenceMutationResponse(
+    response,
+    "OPERATOR_FEEDBACK",
+    caseId,
+    feedbackCode
+  );
+}
+
+async function pilotCaseMutation(caseId, path, eventType) {
+  const response = await request(
+    `/api/pilot-evidence/cases/${encodeURIComponent(caseId)}/${path}`,
+    {
+      method: "POST",
+      body: JSON.stringify({})
+    }
+  );
+  return unwrapPilotEvidenceMutationResponse(response, eventType, caseId);
 }
 
 export async function createImportPreview(
