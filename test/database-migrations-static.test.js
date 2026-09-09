@@ -30,7 +30,8 @@ test("migration 001 remains byte-for-byte unchanged and migrations are append-on
     "009_revenue_action_cancellation_integrity.sql",
     "010_auth_membership_and_invitations.sql",
     "011_canonical_import_commit.sql",
-    "012_revenue_leak_case_foundation.sql"
+    "012_revenue_leak_case_foundation.sql",
+    "013_privacy_minimized_pilot_evidence.sql"
   ]);
   assert.equal(Buffer.byteLength(initialMigration), 2752);
   assert.equal(
@@ -612,6 +613,37 @@ test("migration 012 establishes immutable tenant-safe RevenueLeakCase history", 
   );
   assert.doesNotMatch(foundation, /security\s+definer/i);
   assert.match(foundation, /revoke execute on all functions in schema tge from public/);
+});
+
+test("migration 013 establishes closed append-only tenant-safe pilot evidence", () => {
+  const evidence = read(
+    "database/migrations/013_privacy_minimized_pilot_evidence.sql"
+  );
+  assert.match(evidence, /create table tge\.pilot_evidence_events/);
+  assert.match(evidence, /IMPORT_COMMITTED/);
+  assert.match(evidence, /PORTFOLIO_SCAN_COMPLETED/);
+  assert.match(evidence, /FIRST_CREDIBLE_CASE_SURFACED/);
+  assert.match(evidence, /OPERATOR_FEEDBACK/);
+  assert.match(evidence, /NOT_WORTH_PURSUING/);
+  assert.match(evidence, /enable row level security/);
+  assert.match(evidence, /force row level security/);
+  assert.match(evidence, /create policy tenant_scope/);
+  assert.match(evidence, /pilot_evidence_events_runtime_guard/);
+  assert.match(evidence, /grant select, insert on tge\.pilot_evidence_events to tge_runtime/);
+  assert.doesNotMatch(
+    evidence,
+    /grant[^;]*(?:update|delete)[^;]*tge\.pilot_evidence_events/i
+  );
+  for (const forbidden of [
+    "raw_payload",
+    "business_name",
+    "email",
+    "phone",
+    "description",
+    "message_content",
+    "prepared_execution",
+    "free_form"
+  ]) assert.doesNotMatch(evidence, new RegExp(forbidden, "i"));
 });
 
 test("runner, package scripts, Compose, and CI use the real pinned PostgreSQL gate", () => {

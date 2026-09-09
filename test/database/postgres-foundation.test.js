@@ -6,6 +6,13 @@ const path = require("node:path");
 const test = require("node:test");
 const { pathToFileURL } = require("node:url");
 
+const {
+  buildPilotEvidenceEvent
+} = require("../../src/pilotEvidence/pilotEvidenceDomain");
+const {
+  createPostgresPilotEvidenceRepository
+} = require("../../src/pilotEvidence/postgresPilotEvidenceRepository");
+
 const repositoryRoot = path.resolve(__dirname, "../..");
 const testDatabaseUrl = process.env.TGE_TEST_DATABASE_URL;
 
@@ -129,7 +136,8 @@ if (!testDatabaseUrl) {
         ["009", "009_revenue_action_cancellation_integrity.sql"],
         ["010", "010_auth_membership_and_invitations.sql"],
         ["011", "011_canonical_import_commit.sql"],
-        ["012", "012_revenue_leak_case_foundation.sql"]
+        ["012", "012_revenue_leak_case_foundation.sql"],
+        ["013", "013_privacy_minimized_pilot_evidence.sql"]
       ]
     );
     assert.equal(
@@ -141,7 +149,7 @@ if (!testDatabaseUrl) {
       sha256(fs.readFileSync(
         path.join(
           repositoryRoot,
-          "database/migrations/012_revenue_leak_case_foundation.sql"
+          "database/migrations/013_privacy_minimized_pilot_evidence.sql"
         )
       ))
     );
@@ -221,12 +229,12 @@ if (!testDatabaseUrl) {
           migrationsDirectory: retroactiveDirectory,
           logger: silentLogger
         }),
-        /retroactive; append-only migrations must follow 012/
+        /retroactive; append-only migrations must follow 013/
       );
 
       copyMigrations(brokenDirectory);
       fs.writeFileSync(
-        path.join(brokenDirectory, "013_broken_transaction.sql"),
+        path.join(brokenDirectory, "014_broken_transaction.sql"),
         "create table tge.must_rollback (id integer);\nselect 1 / 0;\n"
       );
       await assert.rejects(
@@ -238,13 +246,13 @@ if (!testDatabaseUrl) {
         error => {
           assert.match(
             error.message,
-            /Migration 013_broken_transaction\.sql failed \[22012\]: division by zero/
+            /Migration 014_broken_transaction\.sql failed \[22012\]: division by zero/
           );
           assert.equal(error.code, "22012");
           assert.equal(error.migrationLine, undefined);
           assert.deepEqual(error.migration, {
-            id: "013",
-            fileName: "013_broken_transaction.sql"
+            id: "014",
+            fileName: "014_broken_transaction.sql"
           });
           assert.equal(error.cause?.message, "division by zero");
           for (const unsafeField of [
@@ -276,7 +284,7 @@ if (!testDatabaseUrl) {
             to_regclass('tge.must_rollback') as relation,
             exists (
               select 1 from tge_migration.schema_migrations
-              where migration_id = '013'
+              where migration_id = '014'
             ) as ledger_row
         `
       );
@@ -287,7 +295,7 @@ if (!testDatabaseUrl) {
 
       copyMigrations(ownerDirectory);
       fs.writeFileSync(
-        path.join(ownerDirectory, "013_owner_default_probe.sql"),
+        path.join(ownerDirectory, "014_owner_default_probe.sql"),
         `
           create function tge.owner_default_probe()
           returns integer
@@ -300,7 +308,7 @@ if (!testDatabaseUrl) {
         migrationsDirectory: ownerDirectory,
         logger: silentLogger
       });
-      assert.deepEqual(ownerProbe.applied, ["013"]);
+      assert.deepEqual(ownerProbe.applied, ["014"]);
       const ownerProbeSecurity = await adminClient.query(
         `
           select
@@ -325,6 +333,94 @@ if (!testDatabaseUrl) {
       fs.rmSync(brokenDirectory, { recursive: true, force: true });
       fs.rmSync(ownerDirectory, { recursive: true, force: true });
     }
+  });
+
+  test("pilot evidence is closed, append-only, actor-bound, tenant-isolated, and replay-safe", async () => {
+    const event = buildPilotEvidenceEvent({
+      eventType: "CASE_INSPECTED",
+      facts: {
+        case_id: "case-without-customer-content",
+        import_batch_id: "batch-privacy-safe"
+      }
+    }, {
+      tenantId: tenantA,
+      subjectId: "auth0|owner-a",
+      occurredAt: "2026-09-09T01:00:00.000Z",
+      id: "pilot-evidence-case-inspected"
+    });
+
+    await runtimeClient.query("begin");
+    await runtimeClient.query("select tge.set_request_context($1, $2)", [
+      tenantA,
+      "auth0|owner-a"
+    ]);
+    const repository = createPostgresPilotEvidenceRepository(
+      runtimeClient,
+      tenantA,
+      "auth0|owner-a"
+    );
+    const created = await repository.append(event);
+    const replay = await repository.append({ ...event, id: "ignored-replay-id" });
+    const visibleA = await repository.list();
+    await runtimeClient.query("commit");
+
+    assert.equal(created.created, true);
+    assert.equal(replay.duplicate, true);
+    assert.equal(visibleA.length, 1);
+    assert.equal(Object.hasOwn(visibleA[0], "tenant_id"), false);
+    assert.equal(JSON.stringify(visibleA).includes("business_name"), false);
+
+    await runtimeClient.query("begin");
+    await runtimeClient.query("select tge.set_request_context($1, $2)", [
+      tenantB,
+      "auth0|owner-b"
+    ]);
+    const visibleB = await runtimeClient.query(
+      "select count(*)::int as count from tge.pilot_evidence_events"
+    );
+    assert.equal(visibleB.rows[0].count, 0);
+    await assertSqlState(runtimeClient.query(
+      `insert into tge.pilot_evidence_events (
+         tenant_id, id, event_type, actor_subject_id, occurred_at,
+         semantic_key, facts, created_at
+       ) values ($1, 'forged', 'CASE_INSPECTED', 'auth0|owner-a', now(),
+         $2, $3::jsonb, now())`,
+      [tenantA, "f".repeat(64), JSON.stringify(event.facts)]
+    ), "23514");
+    await runtimeClient.query("rollback");
+
+    for (const statement of [
+      "update tge.pilot_evidence_events set occurred_at = now()",
+      "delete from tge.pilot_evidence_events"
+    ]) {
+      await runtimeClient.query("begin");
+      await runtimeClient.query("select tge.set_request_context($1, $2)", [
+        tenantA,
+        "auth0|owner-a"
+      ]);
+      await assertSqlState(runtimeClient.query(statement), "42501");
+      await runtimeClient.query("rollback");
+    }
+
+    await runtimeClient.query("begin");
+    await runtimeClient.query("select tge.set_request_context($1, $2)", [
+      tenantA,
+      "auth0|owner-a"
+    ]);
+    await assertSqlState(runtimeClient.query(
+      `insert into tge.pilot_evidence_events (
+         tenant_id, id, event_type, actor_subject_id, occurred_at,
+         semantic_key, facts, created_at
+       ) values ($1, 'unknown-facts', 'CASE_INSPECTED', $2, now(),
+         $3, $4::jsonb, now())`,
+      [
+        tenantA,
+        "auth0|owner-a",
+        "e".repeat(64),
+        JSON.stringify({ ...event.facts, customer_content: "must reject" })
+      ]
+    ), "23514");
+    await runtimeClient.query("rollback");
   });
 
   test("runner refuses an implicit 001 baseline when known objects exist", async () => {

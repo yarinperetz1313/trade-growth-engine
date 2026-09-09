@@ -47,8 +47,14 @@ const revenueLeakCases =
     "./revenueLeakCases"
   );
 
+const pilotEvidence =
+  require(
+    "./pilotEvidence"
+  );
+
 function createApiRouter({
   importsRouter = null,
+  pilotEvidenceRouter = pilotEvidence,
   revenueLeakCasesRouter = revenueLeakCases,
   revenueActionsRouter = revenueActions,
   postgresCoreRouter = null
@@ -103,6 +109,12 @@ router.use(
 if (revenueLeakCasesRouter) {
   router.use(
     revenueLeakCasesRouter
+  );
+}
+
+if (pilotEvidenceRouter) {
+  router.use(
+    pilotEvidenceRouter
   );
 }
 

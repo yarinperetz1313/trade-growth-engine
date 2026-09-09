@@ -59,9 +59,9 @@
 
 ## Slices
 
-- [ ] Plan checkpoint: record the contract, baseline migration hashes, exact
+- [x] Plan checkpoint: record the contract, baseline migration hashes, exact
   preflight, and intended red/green gates before production edits.
-- [ ] Evidence foundation: red domain/API/static/database regressions, append-only
+- [x] Evidence foundation: red domain/API/static/database regressions, append-only
   migration `013`, closed event builders, JSON/PostgreSQL repositories, tenant
   service/status API, strict privacy rejection, isolation, and semantic replay.
 - [ ] Canonical observers: red/green import commit + Data Health snapshot, scan +
@@ -105,6 +105,30 @@
   `010` `fcb19ddba6c2d5bc654af0c3a3172505675dd5c4160876d717b51943b2863e03`,
   `011` `df50ee0697bb7849b3575f9f5aef40673855ec77a4ebcfcd0cf0d8d5e59ca04b`,
   `012` `0ec9ffaf16987d84b319b6dc579edea86bbedcd3cff65f8b9d881f9c4dbba6d8`.
+- Planning checkpoint: `7359158` (`docs: plan first-value pilot evidence`).
+- Foundation red: `node --test test/pilot-evidence.test.js
+  test/database-migrations-static.test.js` failed on the absent domain and
+  migration; the API test then failed on the absent router after dependencies
+  were installed; `test/pilot-evidence-service.test.js` failed on the absent
+  service. A sandbox-only `listen EPERM` was separately distinguished from the
+  product red and passed with loopback permission.
+- Foundation green: focused domain/service/static tests pass 22/22; the focused
+  API test passes 1/1; `npm run test:harness` passes; `git diff --check` passes.
+- PostgreSQL 16.15 foundation: Docker was unavailable, so an isolated native
+  16.15 cluster at `/private/tmp/tge-pr3-pg16.FroN2U` on port 55439 was used.
+  The first migration run exposed and fixed a migration-013 parser ambiguity;
+  the first database contract exposed and fixed insufficient check-function
+  privileges. `TGE_TEST_DATABASE_URL=postgresql://yarinperetz@127.0.0.1:55439/tge_test
+  node --test test/database/postgres-foundation.test.js` then passed 63/63,
+  including the new RLS/actor/strict-schema/append-only/idempotency regression.
+- Migration 013 current SHA-256 is
+  `66bd51d63dd3246ca70a919d156a75a303a32add216ff29fb3f97235c8611192`.
+  Rechecked migrations 010-012 still exactly match their recorded baselines.
+- A first affected integration run passed 316/317 and found one eager JSON-store
+  capability assumption in an existing ordering fixture. The repository now
+  defers write-capability validation until an evidence append; the focused
+  regression passes. The complete integration suite will rerun at the next
+  progressive gate.
 
 ## Review and handoff
 
