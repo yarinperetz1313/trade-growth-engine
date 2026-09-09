@@ -67,12 +67,12 @@
 - [x] Canonical observers: red/green import commit + Data Health snapshot, scan +
   first credible imported-case surfacing, case inspection/feedback, action link,
   approval, and execution observers, including ambiguous outcomes and JSON repair.
-- [ ] Browser bridge: red/green strict contracts and managed E2E for post-commit
+- [x] Browser bridge: red/green strict contracts and managed E2E for post-commit
   continuation, refresh/restart recovery, all scan outcomes/empty states,
   unchanged server-ranked first case, immutable evidence, provenance labels,
   inspection/feedback, action continuation, stale responses, 390 px, and keyboard
   critical interactions.
-- [ ] Integration and delivery: affected Node/PostgreSQL/E2E gates, one near-final
+- [x] Integration and delivery: affected Node/PostgreSQL/E2E gates, one near-final
   full Verify against disposable PostgreSQL 16.15, production build, migration
   checksum comparison, privacy grep/review, complete diff self-review, canonical
   docs/plan evidence, clean checkpoints, and clean worktree proof.
@@ -147,12 +147,71 @@
   transactions, imported provenance is derived from committed import metadata,
   sample/demo and existing records cannot satisfy first-value milestones, and
   the existing queue order remains unchanged.
+- Recovery preflight adopted the pinned worktree at `76fbdca` with only the
+  three expected browser-test-tail paths dirty. The initial focused browser-tail
+  run passed 6/15 and failed 9/15: three missing strict-contract module failures,
+  one missing exact inspected-case status projection, and five queue-contract
+  failures for the new provenance field. No completed checkpoint was rewritten.
+- Strict browser/API recovery green: exact status and mutation envelopes reject
+  unknown fields and caller authority; status exposes bounded exact surfaced,
+  inspected-case, and linked-action identifiers; queue validation accepts only
+  the three closed provenance labels. The adopted focused set passed 15/15 and
+  the real HTTP pilot API boundary passed 1/1, including rejection of query
+  tenant authority and non-empty/unknown mutation bodies.
+- Browser bridge red/green: the source contract first failed because committed
+  Data Health/continuation were absent. The managed journey then exposed two
+  test-expectation issues (rendered whitespace and multiple live regions), which
+  were narrowed without weakening the product contract. The final journey
+  restores committed Data Health, requires an explicit scan, explains all five
+  outcome classes and their returned closed reasons plus no-opportunity/no-leak
+  states, preserves server queue order and provenance, excludes sample/demo from
+  first-value evidence, inspects the first imported case, records closed
+  feedback, reconciles exact ambiguous writes, survives reload, and continues
+  through the existing Opportunity Command Center. Exact-head affected managed
+  Chromium passed 27/27, including desktop, 390 px, keyboard, refresh/restart,
+  stale-response, and ambiguous-write cases.
+- Defect-first review found and fixed three in-scope integrity gaps. First,
+  malformed persisted JSON evidence could be returned and status projections
+  retained the oldest 100 identifiers while feedback was unbounded; the product
+  red was 9/11 and the corrected domain/service set is 11/11. Second, the local
+  action observer bypassed that fail-closed validation; its isolated product red
+  failed 0/1 and the affected JSON handoff/domain/service set passed 27/27.
+  Third, the browser accepted parseable non-canonical mutation timestamps. The
+  first attempted red revealed shared mutable test facts masking later cases;
+  after isolating the fixture the real product red was 3/4, and the corrected
+  browser contract set passed 13/13. No unresolved in-scope P0-P3 finding remains.
+- Privacy review: the production pilot domain exposes only the recorded exact
+  allowlisted fact keys. A case-insensitive grep across `src/pilotEvidence`, the
+  pilot API, and migration `013` found none of the prohibited customer-content
+  field names; the only request-body references are the empty-body checks and
+  exact one-field `feedback_code` contract. Corrupted JSON sentinel regressions
+  prove reads and local observations fail with stable non-content errors.
+- Migration checksum proof: `010`
+  `fcb19ddba6c2d5bc654af0c3a3172505675dd5c4160876d717b51943b2863e03`,
+  `011` `df50ee0697bb7849b3575f9f5aef40673855ec77a4ebcfcd0cf0d8d5e59ca04b`,
+  and `012` `0ec9ffaf16987d84b319b6dc579edea86bbedcd3cff65f8b9d881f9c4dbba6d8`
+  remain byte-identical to the merge base. Migration `013` is
+  `66bd51d63dd3246ca70a919d156a75a303a32add216ff29fb3f97235c8611192`.
+- Near-delivery `npm run verify` at application checkpoint `2f1d0a3` passed:
+  harness, integration 330/330, PostgreSQL 16.15 63/63, managed Chromium 51/51,
+  and production build (31 modules, 97 ms). The final `74525d4` change affected
+  only browser response validation/tests; exact-head `npm run verify:fast`
+  passed harness plus integration 330/330, affected managed Chromium passed
+  27/27, and `npm run build` passed (31 modules, 97 ms). PostgreSQL was not
+  redundantly rerun after that browser-only change.
+- Environment notes: sandboxed process/listener probes returned permission
+  errors, so explicitly approved elevated localhost checks/runners were used.
+  The existing isolated native PostgreSQL 16.15 cluster was reachable on port
+  55439; Docker remained unnecessary. Vite reports the existing non-fatal
+  greater-than-500 kB chunk advisory. GitHub delivery was intentionally not run.
 
 ## Review and handoff
 
-- Implementer self-check: pending complete base-diff review.
-- Fresh-review readiness: sole-engineer constraint forbids delegation; perform a
-  separate defect-first reread of `origin/main...HEAD` after final gates and
-  record findings/resolution here.
-- Final-review evidence: pending.
+- Implementer self-check: complete base-diff review of production persistence,
+  API, observer, browser state/recovery, migration, and test changes.
+- Fresh-review readiness: the sole-engineer constraint forbade delegation, so a
+  separate defect-first reread of `origin/main...HEAD` was performed locally.
+- Final-review evidence: all findings and resolutions are recorded above; final
+  diff checks and repository-state proof are required after the documentation
+  checkpoint, with no further product mutation planned.
 - Debt/follow-up: only the explicit non-goals above; do not begin them in this PR.

@@ -189,6 +189,36 @@ full Verify were not rerun because no transaction, repository, migration, or
 persistence behavior changed. These remain local candidate results, not CI or
 merge evidence.
 
+The approved Issue #9/#14 PR-3 local candidate now completes the bounded
+first-value bridge without adding analytics or changing detector/action
+authority. A committed canonical import retains privacy-minimized Data Health;
+the operator explicitly continues to the existing Revenue Command Center scan,
+sees every closed outcome/reason and truthful empty state, then inspects the
+first server-ranked imported-customer case, records one closed feedback code,
+and continues through the existing case-to-RevenueAction and Opportunity
+Command Center controls. Queue ordering remains server-authored, and imported,
+existing, and sample/demo provenance are visibly distinct; sample/demo cannot
+satisfy first-value milestones.
+
+Migration `013_privacy_minimized_pilot_evidence.sql` adds a closed eight-event,
+five-feedback-code append-only evidence authority with exact JSON facts, forced
+RLS, tenant/actor insert guards, and runtime select/insert only. Browser writes
+cannot provide tenant, actor, time, event name, free text, or evidence payloads.
+Status exposes only bounded aggregate import facts and exact case/action IDs for
+lost-acknowledgement reconciliation. PostgreSQL observers share canonical
+transactions; JSON remains explicitly cross-file non-atomic and fails closed on
+malformed persisted evidence. No raw cells, filenames, customer identity/contact
+content, case evidence, draft/message content, recovered revenue, or attribution
+is recorded.
+
+Local verification for this candidate passed harness/integration **330/330**,
+PostgreSQL 16.15 **63/63**, complete managed Chromium **51/51**, and production
+build. After the final browser-only canonical-timestamp contract remediation,
+exact-head harness/integration remained **330/330**, affected managed Chromium
+passed **27/27**, and the production build passed. Migration `010`-`012`
+checksums remain unchanged and `013` is recorded in the completed plan. These
+are local results only: no push, PR, CI, merge, or issue mutation has occurred.
+
 Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 
 The Product Truth audit/fix work unit is complete: [PR #17](https://github.com/yarinperetz1313/trade-growth-engine/pull/17) merged at `5231838` and closed [Issue #7](https://github.com/yarinperetz1313/trade-growth-engine/issues/7). This did not provision Auth0, SMTP, production persistence, import execution, or cutover, and it did not begin Pilot Readiness PR-5 or later slices.
@@ -245,5 +275,7 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
   migration. PR-2 is a local checkpoint candidate: Command Center V2 consumes
   that server-ordered queue and offers the safe composed case-to-action handoff
   without duplicating RevenueAction execution authority, while missing current
-  opportunity context fails closed.** PR-3 onboarding and pilot evidence remain
-  later merge-gated work and are not started here.
+  opportunity context fails closed. PR-3 is a completed local candidate for the
+  post-import first-value bridge and closed privacy-minimized pilot evidence.**
+  GitHub delivery and later Quote Recovery/attribution work remain merge-gated
+  and unstarted.
