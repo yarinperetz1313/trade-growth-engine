@@ -26,11 +26,7 @@ function createJsonPilotEvidenceRepository({ store, localTenantId } = {}) {
     if (!Array.isArray(records)) {
       throw persistenceUnavailable();
     }
-    try {
-      return records.map(validatePersistedEvent);
-    } catch {
-      throw persistenceUnavailable();
-    }
+    return records.map(validatePersistedEvent);
   }
 
   return Object.freeze({
@@ -94,6 +90,14 @@ function createJsonPilotEvidenceRepository({ store, localTenantId } = {}) {
 }
 
 function validatePersistedEvent(record) {
+  try {
+    return rebuildPersistedEvent(record);
+  } catch {
+    throw persistenceUnavailable();
+  }
+}
+
+function rebuildPersistedEvent(record) {
   const expectedKeys = [
     "tenant_id", "id", "event_type", "actor_subject_id",
     "occurred_at", "semantic_key", "facts"
@@ -127,4 +131,7 @@ function persistenceUnavailable() {
   );
 }
 
-module.exports = { createJsonPilotEvidenceRepository };
+module.exports = {
+  createJsonPilotEvidenceRepository,
+  validatePersistedPilotEvidenceEvent: validatePersistedEvent
+};

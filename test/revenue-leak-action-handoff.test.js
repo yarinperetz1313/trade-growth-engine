@@ -235,6 +235,32 @@ test("imported-customer handoff, approval, and execution append one bounded fact
   });
 });
 
+test("local action observers reject malformed evidence without exposing customer content", async () => {
+  seedEligibleOpportunity({ imported: true });
+  const service = localService();
+  const detected = await createDetectedCase(service);
+  const handoff = await service.createRevenueActionForCase(detected.id);
+  const actionId = handoff.data.revenue_action.id;
+  legacyRevenueActionService.prepareRevenueAction(actionId);
+
+  const sentinel = "PRIVATE CUSTOMER CELL";
+  const evidence = readCollection("pilot_evidence_events");
+  evidence[0].facts.customer_content = sentinel;
+  writeCollection("pilot_evidence_events", evidence);
+
+  assert.throws(
+    () => legacyRevenueActionService.approveRevenueAction(actionId),
+    error => error.code === "PILOT_EVIDENCE_PERSISTENCE_UNAVAILABLE"
+      && !error.message.includes(sentinel)
+  );
+  assert.equal(
+    readCollection("pilot_evidence_events").some(event =>
+      event.event_type === "ACTION_APPROVED"
+    ),
+    false
+  );
+});
+
 test("JSON retry repairs an action-only partial write without duplicating the action", async () => {
   seedEligibleOpportunity();
   const firstService = localService({

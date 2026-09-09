@@ -8,6 +8,9 @@ const {
 } = require("./pilotEvidenceDomain");
 const { classifyOpportunityDataOrigin } = require("./dataOrigin");
 const {
+  validatePersistedPilotEvidenceEvent
+} = require("./jsonPilotEvidenceRepository");
+const {
   LOCAL_REVENUE_LEAK_TENANT_ID
 } = require("../revenueLeakCases/jsonRevenueLeakCaseRepository");
 const {
@@ -49,7 +52,8 @@ function observeLocalRevenueAction(eventType, action) {
     occurredAt,
     id: eventId(eventType, linkedCase.id, action.id)
   });
-  const records = readCollection("pilot_evidence_events");
+  const records = readCollection("pilot_evidence_events")
+    .map(validatePersistedPilotEvidenceEvent);
   const existing = records.find(record =>
     record.tenant_id === event.tenant_id
     && record.semantic_key === event.semantic_key
