@@ -1,7 +1,9 @@
 "use strict";
 
+const { isDeepStrictEqual } = require("node:util");
 const {
   PilotEvidenceError,
+  buildPilotEvidenceEvent,
   conflict,
   isSingletonMilestone,
   publicPilotEvidenceEvent
@@ -22,13 +24,13 @@ function createJsonPilotEvidenceRepository({ store, localTenantId } = {}) {
   function read() {
     const records = store.readCollection("pilot_evidence_events");
     if (!Array.isArray(records)) {
-      throw new PilotEvidenceError(
-        "PILOT_EVIDENCE_PERSISTENCE_UNAVAILABLE",
-        "Pilot evidence persistence is unavailable.",
-        500
-      );
+      throw persistenceUnavailable();
     }
-    return records;
+    try {
+      return records.map(validatePersistedEvent);
+    } catch {
+      throw persistenceUnavailable();
+    }
   }
 
   return Object.freeze({
@@ -89,6 +91,40 @@ function createJsonPilotEvidenceRepository({ store, localTenantId } = {}) {
         .map(record => publicPilotEvidenceEvent(record));
     }
   });
+}
+
+function validatePersistedEvent(record) {
+  const expectedKeys = [
+    "tenant_id", "id", "event_type", "actor_subject_id",
+    "occurred_at", "semantic_key", "facts"
+  ];
+  if (
+    !record
+    || typeof record !== "object"
+    || Array.isArray(record)
+    || Object.keys(record).length !== expectedKeys.length
+    || !expectedKeys.every(key => Object.hasOwn(record, key))
+  ) throw persistenceUnavailable();
+
+  const rebuilt = buildPilotEvidenceEvent({
+    eventType: record.event_type,
+    facts: record.facts
+  }, {
+    tenantId: record.tenant_id,
+    subjectId: record.actor_subject_id,
+    occurredAt: record.occurred_at,
+    id: record.id
+  });
+  if (!isDeepStrictEqual(record, rebuilt)) throw persistenceUnavailable();
+  return rebuilt;
+}
+
+function persistenceUnavailable() {
+  return new PilotEvidenceError(
+    "PILOT_EVIDENCE_PERSISTENCE_UNAVAILABLE",
+    "Pilot evidence persistence is unavailable.",
+    500
+  );
 }
 
 module.exports = { createJsonPilotEvidenceRepository };

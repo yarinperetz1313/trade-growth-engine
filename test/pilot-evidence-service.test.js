@@ -225,3 +225,34 @@ test("surfacing records only the first server-ranked imported case with exact va
   });
   assert.equal((await service.getStatus()).surfaced_case_id, "imported-case");
 });
+
+test("status bounds exact recovery identifiers to the latest operating-queue limit", async () => {
+  const { records, service } = fixture();
+  for (let index = 0; index < 101; index += 1) {
+    const caseId = `case-${String(index).padStart(3, "0")}`;
+    records.push({
+      id: `inspect-${index}`,
+      event_type: "CASE_INSPECTED",
+      actor_subject_id: "auth0|operator",
+      occurred_at: new Date(Date.parse("2026-09-01T00:00:00.000Z") + index).toISOString(),
+      semantic_key: String(index).padStart(64, "0"),
+      facts: { case_id: caseId, import_batch_id: "batch-1" }
+    });
+    records.push({
+      id: `feedback-${index}`,
+      event_type: "OPERATOR_FEEDBACK",
+      actor_subject_id: "auth0|operator",
+      occurred_at: new Date(Date.parse("2026-09-02T00:00:00.000Z") + index).toISOString(),
+      semantic_key: String(index + 101).padStart(64, "0"),
+      facts: { case_id: caseId, import_batch_id: "batch-1", feedback_code: "USEFUL" }
+    });
+  }
+
+  const status = await service.getStatus();
+  assert.equal(status.inspected_case_ids.length, 100);
+  assert.equal(status.case_feedback.length, 100);
+  assert.equal(status.inspected_case_ids.includes("case-000"), false);
+  assert.equal(status.inspected_case_ids.includes("case-100"), true);
+  assert.equal(status.case_feedback.some(item => item.case_id === "case-000"), false);
+  assert.equal(status.case_feedback.some(item => item.case_id === "case-100"), true);
+});

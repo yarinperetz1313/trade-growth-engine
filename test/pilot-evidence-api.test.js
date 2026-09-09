@@ -58,6 +58,11 @@ test("pilot evidence API exposes only status, surfaced, inspected, and closed fe
 
   await withServer(router, async baseUrl => {
     assert.equal((await request(baseUrl, "GET", "/api/pilot-evidence/status")).status, 200);
+    assert.equal((await request(
+      baseUrl,
+      "GET",
+      `/api/pilot-evidence/status?tenant_id=${CONTEXT.tenantId}`
+    )).status, 400);
     assert.equal((await request(baseUrl, "POST", "/api/pilot-evidence/cases/case-1/surfaced", {})).status, 200);
     assert.equal((await request(baseUrl, "POST", "/api/pilot-evidence/cases/case-1/inspected", {})).status, 200);
     assert.equal((await request(baseUrl, "POST", "/api/pilot-evidence/cases/case-1/feedback", {

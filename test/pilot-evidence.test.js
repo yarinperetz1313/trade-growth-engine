@@ -247,3 +247,19 @@ test("first scan and first surfaced milestones retain their initial fact on late
   assert.deepEqual(later.record.facts, scanFacts);
   assert.equal(store.snapshot().length, 1);
 });
+
+test("JSON evidence reads reject corrupted persisted facts without exposing customer content", async () => {
+  const sentinel = "PRIVATE CUSTOMER CELL";
+  const event = structuredClone(build());
+  event.facts.customer_content = sentinel;
+  const repository = createJsonPilotEvidenceRepository({
+    store: memoryStore([event]),
+    localTenantId: TENANT_A
+  });
+
+  await assert.rejects(
+    repository.list(context()),
+    error => error.code === "PILOT_EVIDENCE_PERSISTENCE_UNAVAILABLE"
+      && !error.message.includes(sentinel)
+  );
+});

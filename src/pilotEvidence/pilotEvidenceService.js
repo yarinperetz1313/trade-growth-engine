@@ -149,6 +149,7 @@ function createTenantService({ context, idFactory, clock, persistence, repositor
             case_id: event.facts.case_id,
             feedback_code: event.facts.feedback_code
           }))
+          .slice(-OPERATING_QUEUE_LIMIT)
       };
     },
 
@@ -196,7 +197,7 @@ function createTenantService({ context, idFactory, clock, persistence, repositor
 }
 
 function uniqueIds(values) {
-  return [...new Set(values)].slice(0, OPERATING_QUEUE_LIMIT);
+  return [...new Set(values)].slice(-OPERATING_QUEUE_LIMIT);
 }
 
 function bindJson(repository, context) {
