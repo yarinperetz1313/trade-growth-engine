@@ -222,7 +222,9 @@ function App() {
         )}
 
         {page === "imports" && (
-          <ImportWorkspace />
+          <ImportWorkspace
+            onContinueToCommandCenter={() => navigatePage("opportunities")}
+          />
         )}
 
       </main>

@@ -1,9 +1,12 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
 
 const contracts = import("../web/lib/pilotEvidenceContracts.mjs");
+const repositoryRoot = path.resolve(__dirname, "..");
 
 function importFacts() {
   return {
@@ -39,6 +42,7 @@ function statusResponse() {
         action_executed: false
       },
       latest_import: importFacts(),
+      surfaced_case_id: "case-1",
       inspected_case_ids: ["case-1"],
       linked_action_ids: ["action-1"],
       case_feedback: [{ case_id: "case-1", feedback_code: "USEFUL" }]
@@ -160,4 +164,34 @@ test("pilot evidence ambiguity requires read reconciliation and generations reje
   const second = guard.begin("case-2");
   assert.equal(guard.finish(first), false);
   assert.equal(guard.finish(second), true);
+});
+
+test("browser sources keep first-value continuation bounded and outside browser storage", () => {
+  const importWorkspace = fs.readFileSync(
+    path.join(repositoryRoot, "web/components/ImportWorkspace.jsx"),
+    "utf8"
+  );
+  const commandCenter = fs.readFileSync(
+    path.join(repositoryRoot, "web/components/RevenueCommandCenter.jsx"),
+    "utf8"
+  );
+  const api = fs.readFileSync(path.join(repositoryRoot, "web/lib/api.js"), "utf8");
+  const revenueContracts = fs.readFileSync(
+    path.join(repositoryRoot, "web/lib/revenueLeakCaseContracts.mjs"),
+    "utf8"
+  );
+  const combined = `${importWorkspace}\n${commandCenter}\n${api}\n${revenueContracts}`;
+
+  assert.match(importWorkspace, /Committed Data Health/);
+  assert.match(importWorkspace, /Continue to Revenue Command Center/);
+  assert.match(commandCenter, /First credible imported-customer case/);
+  assert.match(commandCenter, /Sample \/ demo — excluded from first-value evidence/);
+  assert.match(combined, /No eligible stalled-opportunity leak/);
+  assert.match(combined, /Evidence stale or untrustworthy/);
+  assert.match(combined, /Evidence suppressed by Data Health/);
+  assert.match(api, /export async function getPilotEvidenceStatus\b/);
+  assert.match(api, /export async function recordPilotCaseInspected\b/);
+  assert.match(api, /export async function recordPilotCaseFeedback\b/);
+  assert.doesNotMatch(combined, /localStorage|sessionStorage/);
+  assert.doesNotMatch(commandCenter, /free.form|textarea/i);
 });

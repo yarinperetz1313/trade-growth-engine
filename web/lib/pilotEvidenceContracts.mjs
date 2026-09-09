@@ -57,6 +57,7 @@ export function unwrapPilotEvidenceStatusResponse(response) {
     || !hasExactKeys(status, [
       "milestones",
       "latest_import",
+      "surfaced_case_id",
       "inspected_case_ids",
       "linked_action_ids",
       "case_feedback"
@@ -65,6 +66,9 @@ export function unwrapPilotEvidenceStatusResponse(response) {
     || !hasExactKeys(status.milestones, MILESTONE_KEYS)
     || !MILESTONE_KEYS.every(key => typeof status.milestones[key] === "boolean")
     || status.milestones.import_committed !== (status.latest_import !== null)
+    || status.surfaced_case_id !== null && !boundedText(status.surfaced_case_id, 255)
+    || status.milestones.first_credible_case_surfaced
+      !== (status.surfaced_case_id !== null)
     || !validIdentifierList(status.inspected_case_ids, 255)
     || status.milestones.case_inspected !== (status.inspected_case_ids.length > 0)
     || !validIdentifierList(status.linked_action_ids, 255)

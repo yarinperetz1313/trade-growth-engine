@@ -192,6 +192,7 @@ test("status is bounded, tenant-derived, and resumable without customer content"
     action_executed: false
   });
   assert.equal(status.latest_import, null);
+  assert.equal(status.surfaced_case_id, null);
   assert.deepEqual(status.inspected_case_ids, ["imported-case"]);
   assert.deepEqual(status.linked_action_ids, []);
   assert.deepEqual(status.case_feedback, [{
@@ -222,4 +223,5 @@ test("surfacing records only the first server-ranked imported case with exact va
     value_kind: "KNOWN_POSITIVE",
     currency: "AUD"
   });
+  assert.equal((await service.getStatus()).surfaced_case_id, "imported-case");
 });

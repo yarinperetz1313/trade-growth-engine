@@ -126,6 +126,9 @@ function createTenantService({ context, idFactory, clock, persistence, repositor
       const linkedActionIds = uniqueIds(events
         .filter(event => event.event_type === "REVENUE_ACTION_MATERIALIZED_LINKED")
         .map(event => event.facts.revenue_action_id));
+      const surfacedCase = events.find(event =>
+        event.event_type === "FIRST_CREDIBLE_CASE_SURFACED"
+      );
       return {
         milestones: {
           import_committed: eventTypes.has("IMPORT_COMMITTED"),
@@ -137,6 +140,7 @@ function createTenantService({ context, idFactory, clock, persistence, repositor
           action_executed: eventTypes.has("ACTION_EXECUTED")
         },
         latest_import: latestImport ? structuredClone(latestImport.facts) : null,
+        surfaced_case_id: surfacedCase?.facts.case_id || null,
         inspected_case_ids: inspectedCaseIds,
         linked_action_ids: linkedActionIds,
         case_feedback: events

@@ -1310,6 +1310,25 @@ p {
   color: #e0ad78;
 }
 
+.rcc2-origin,
+.rcc2-first-value {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
+.rcc2-origin {
+  color: #8e99aa;
+}
+
+.rcc2-origin.imported_customer,
+.rcc2-first-value {
+  color: #b8d8c0;
+}
+
+.rcc2-origin.sample_demo {
+  color: #e0ad78;
+}
+
 .rcc2-case-detail {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   padding: 18px 16px;
@@ -1351,6 +1370,80 @@ p {
   margin-top: 8px;
 }
 
+.rcc2-pilot-feedback {
+  align-items: end;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, auto);
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
+.rcc2-pilot-feedback h5,
+.rcc2-pilot-feedback p {
+  margin: 0;
+}
+
+.rcc2-pilot-feedback p {
+  color: #8f99aa;
+  font-size: 10px;
+  margin-top: 5px;
+}
+
+.rcc2-feedback-controls {
+  align-items: end;
+  display: flex;
+  gap: 8px;
+}
+
+.rcc2-feedback-controls label {
+  display: grid;
+  font-size: 9px;
+  gap: 5px;
+}
+
+.rcc2-feedback-controls select {
+  background: #17191d;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #eef2f8;
+  padding: 8px 10px;
+}
+
+.rcc2-pilot-journey {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: grid;
+  gap: 12px;
+  padding: 16px 20px;
+}
+
+.rcc2-pilot-journey > div {
+  display: grid;
+  gap: 4px;
+}
+
+.rcc2-pilot-journey ol {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: repeat(7, minmax(100px, 1fr));
+  list-style: none;
+  margin: 0;
+  overflow-x: auto;
+  padding: 0 0 4px;
+}
+
+.rcc2-pilot-journey li {
+  color: #768195;
+  display: flex;
+  font-size: 9px;
+  gap: 5px;
+}
+
+.rcc2-pilot-journey li.complete {
+  color: #b8d8c0;
+}
+
 .rcc2-alert,
 .rcc2-success,
 .rcc2-state,
@@ -1381,6 +1474,51 @@ p {
 .rcc2-scan-summary {
   background: rgba(104, 150, 116, 0.08);
   color: #b8d8c0;
+}
+
+.rcc2-scan-summary {
+  display: block;
+}
+
+.rcc2-scan-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 16px;
+}
+
+.rcc2-scan-summary > p,
+.rcc2-scan-summary > small {
+  display: block;
+  line-height: 1.5;
+  margin: 10px 0 0;
+}
+
+.rcc2-scan-outcomes {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(5, minmax(150px, 1fr));
+  margin-top: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.rcc2-scan-outcomes article {
+  background: rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+}
+
+.rcc2-scan-outcomes article > span {
+  font-size: 18px;
+}
+
+.rcc2-scan-outcomes ul {
+  line-height: 1.45;
+  margin: 0;
+  padding-left: 16px;
 }
 
 .rcc2-state {
@@ -1423,8 +1561,14 @@ p {
 @media (max-width: 600px) {
   .rcc2-hero,
   .rcc2-detail-heading,
-  .rcc2-next-action {
+  .rcc2-next-action,
+  .rcc2-pilot-feedback {
     flex-direction: column;
+  }
+
+  .rcc2-pilot-feedback {
+    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .rcc2-hero-actions,
@@ -1450,6 +1594,11 @@ p {
 
   .rcc2-case-why {
     grid-column: auto;
+  }
+
+  .rcc2-feedback-controls {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 
@@ -1955,9 +2104,71 @@ p {
   padding: 14px;
 }
 
+.committed-data-health {
+  background: rgba(104, 150, 116, .06);
+  border: 1px solid rgba(104, 150, 116, .2);
+  border-radius: 10px;
+  display: grid;
+  gap: 14px;
+  margin: 0 0 18px;
+  padding: 20px;
+}
+
+.import-terminal .committed-data-health {
+  margin-top: 20px;
+}
+
+.committed-data-health h3,
+.committed-data-health p,
+.committed-data-health dl {
+  margin: 0;
+}
+
+.committed-data-health p {
+  color: #8f99aa;
+  font-size: 10px;
+  line-height: 1.55;
+  margin-top: 6px;
+}
+
+.committed-health-summary,
+.committed-health-coverage {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(5, minmax(100px, 1fr));
+}
+
+.committed-health-summary div,
+.committed-health-coverage span {
+  background: rgba(0, 0, 0, .1);
+  border-radius: 7px;
+  font-size: 9px;
+  padding: 10px;
+}
+
+.committed-health-summary dt {
+  color: #768195;
+}
+
+.committed-health-summary dd {
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
+.committed-health-coverage {
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+}
+
+.committed-health-coverage strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
 @media (max-width: 900px) {
   .import-steps,
-  .data-health-grid {
+  .data-health-grid,
+  .committed-health-summary,
+  .committed-health-coverage {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1970,6 +2181,8 @@ p {
   .import-form-grid,
   .mapping-row,
   .result-grid,
+  .committed-health-summary,
+  .committed-health-coverage,
   .data-health-issues > div {
     grid-template-columns: 1fr;
   }

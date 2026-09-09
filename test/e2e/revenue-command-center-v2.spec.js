@@ -439,6 +439,13 @@ test("shows explicit scan suppression/exclusion truth and refreshes the queue", 
   await page.getByRole("button", { name: "Scan stalled opportunities" }).click();
   await expect(page.locator(".rcc2-scan-summary")).toContainText("Suppressed 1");
   await expect(page.locator(".rcc2-scan-summary")).toContainText("Excluded 0");
+  await expect(page.locator(".rcc2-scan-summary")).toContainText("Potential revenue leak detected");
+  await expect(page.locator(".rcc2-scan-summary")).toContainText("No eligible stalled-opportunity leak");
+  await expect(page.locator(".rcc2-scan-summary")).toContainText("Evidence unavailable");
+  await expect(page.locator(".rcc2-scan-summary")).toContainText("Evidence stale or untrustworthy");
+  await expect(page.locator(".rcc2-scan-summary")).toContainText("Evidence suppressed by Data Health");
+  await expect(page.locator(".rcc2-scan-summary")).toContainText("NEXT_ACTION_PRESENT");
+  await expect(page.locator(".rcc2-scan-summary")).toContainText("COMMERCIAL_VALUE_INVALID");
   await expect.poll(() => queueReads).toBeGreaterThanOrEqual(2);
 });
 
