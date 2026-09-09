@@ -235,6 +235,34 @@
   The existing isolated native PostgreSQL 16.15 cluster was reachable on port
   55439; Docker remained unnecessary. Vite reports the existing non-fatal
   greater-than-500 kB chunk advisory. GitHub delivery was intentionally not run.
+- A later bounded final review of candidate `75b8c98` blocked on migration 013's
+  PostgreSQL three-valued check semantics. The table check accepted SQL `NULL`,
+  and `source_collection` plus `action_status` also fell through nullable
+  PL/pgSQL `IF` predicates to `TRUE`. Regressions were added before migration
+  edits for JSON `null` in `source_collection`, `value_kind`, `feedback_code`,
+  `action_status`, and `execution_effect_type` through direct runtime-authorized
+  inserts with the existing tenant, actor, and RLS context.
+- Final database remediation red: the focused static migration test failed 0/1.
+  The focused real-PostgreSQL test failed 0/1 with all five inserts returning no
+  SQLSTATE and all five malformed rows persisted. The first correction run
+  proved the table-level `IS TRUE` boundary rejected three cases but still
+  allowed the two PL/pgSQL fallthroughs (`source_collection` and
+  `action_status`), persisting two rows.
+- Final database remediation green: migration 013 now requires its validation
+  result `IS TRUE` and makes the two nullable `IF` predicates explicitly
+  fail-closed. The focused static test passed 1/1; the focused PostgreSQL test
+  passed 1/1 with SQLSTATE `23514` for all five inserts and zero persisted rows;
+  the affected PostgreSQL 16.15 contract passed 64/64. Valid event creation and
+  semantic replay, forced RLS, tenant/actor guards, append-only grants, and the
+  checksum-ledger runner remained green. Browser E2E, build, and full Verify were
+  intentionally not rerun for this migration-only correction.
+- Migration 013 SHA-256 after the final database remediation is
+  `b27c7d6c69990f459b1e51c0d902d55f6a1f44fbf17accb69459b2c26465f6a8`.
+  Migrations 001-012 remain byte-identical to merge-base `3f0ed74`. The migration
+  static/runner set passed 19/19, the bounded prohibited-content grep passed,
+  `npm run test:harness` passed, and `git diff --check` passed. Attribution,
+  disposable PostgreSQL/dependency cleanup, and clean-status proof are recorded
+  at the local checkpoint handoff.
 
 ## Review and handoff
 
@@ -244,9 +272,10 @@
   scope inventory, observer/catch and fact-comparison call sites, timestamp-count
   coherence, privacy/outbound boundaries, tests, and documentation disclosed no
   further in-scope correction.
-- Fresh-review status: the coordinator-supplied independent review produced the
-  three findings above. This work stops after their local remediation and
-  self-review; the coordinator owns any next independent review and delivery.
+- Fresh-review status: the coordinator-supplied independent reviews produced the
+  earlier three findings and the later migration-013 fail-closed finding above.
+  This work stops after their local remediation and self-review; the coordinator
+  owns any next independent review and delivery.
 - Final remediation evidence: exact-head fast verification, diff checks,
   migration/privacy checks, attribution, and clean repository proof are recorded
   before the single local fix checkpoint.

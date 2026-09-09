@@ -629,6 +629,10 @@ test("migration 013 establishes closed append-only tenant-safe pilot evidence", 
   assert.match(evidence, /force row level security/);
   assert.match(evidence, /create policy tenant_scope/);
   assert.match(evidence, /pilot_evidence_events_runtime_guard/);
+  assert.match(
+    evidence,
+    /facts jsonb not null check \(tge\.pilot_evidence_facts_valid\(event_type, facts\) is true\)/
+  );
   assert.match(evidence, /grant select, insert on tge\.pilot_evidence_events to tge_runtime/);
   assert.doesNotMatch(
     evidence,

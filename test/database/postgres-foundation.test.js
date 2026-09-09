@@ -423,6 +423,124 @@ if (!testDatabaseUrl) {
     await runtimeClient.query("rollback");
   });
 
+  test("pilot evidence rejects JSON null for every closed enum fact", async () => {
+    const invalidEvents = [
+      {
+        id: "null-source-collection",
+        eventType: "IMPORT_COMMITTED",
+        facts: {
+          import_batch_id: "batch-null-source",
+          source_collection: null,
+          total_count: 1,
+          committed_count: 1,
+          skipped_count: 0,
+          quality_blocked_count: 0,
+          quality_conflict_count: 0,
+          source_identity_covered_count: 1,
+          commercial_value_covered_count: null,
+          stage_covered_count: null,
+          created_at_covered_count: null,
+          created_at_invalid_count: null,
+          updated_at_covered_count: null,
+          updated_at_invalid_count: null,
+          contactable_count: null
+        }
+      },
+      {
+        id: "null-value-kind",
+        eventType: "FIRST_CREDIBLE_CASE_SURFACED",
+        facts: {
+          case_id: "case-null-value-kind",
+          import_batch_id: "batch-null-value-kind",
+          value_kind: null,
+          currency: null
+        }
+      },
+      {
+        id: "null-feedback-code",
+        eventType: "OPERATOR_FEEDBACK",
+        facts: {
+          case_id: "case-null-feedback",
+          import_batch_id: "batch-null-feedback",
+          feedback_code: null
+        }
+      },
+      {
+        id: "null-action-status",
+        eventType: "ACTION_APPROVED",
+        facts: {
+          case_id: "case-null-action-status",
+          import_batch_id: "batch-null-action-status",
+          revenue_action_id: "action-null-status",
+          action_status: null
+        }
+      },
+      {
+        id: "null-execution-effect-type",
+        eventType: "ACTION_EXECUTED",
+        facts: {
+          case_id: "case-null-effect",
+          import_batch_id: "batch-null-effect",
+          revenue_action_id: "action-null-effect",
+          action_status: "EXECUTED",
+          execution_effect_type: null
+        }
+      }
+    ];
+    const sqlStates = [];
+
+    for (const invalidEvent of invalidEvents) {
+      await runtimeClient.query("begin");
+      await runtimeClient.query("select tge.set_request_context($1, $2)", [
+        tenantA,
+        "auth0|owner-a"
+      ]);
+      try {
+        await runtimeClient.query(
+          `insert into tge.pilot_evidence_events (
+             tenant_id, id, event_type, actor_subject_id, occurred_at,
+             semantic_key, facts, created_at
+           ) values ($1, $2, $3, $4, $5, $6, $7::jsonb, $5)`,
+          [
+            tenantA,
+            invalidEvent.id,
+            invalidEvent.eventType,
+            "auth0|owner-a",
+            "2026-09-09T01:30:00.000Z",
+            sha256(invalidEvent.id),
+            JSON.stringify(invalidEvent.facts)
+          ]
+        );
+        sqlStates.push(null);
+        await runtimeClient.query("commit");
+      } catch (error) {
+        sqlStates.push(error.code);
+        await runtimeClient.query("rollback");
+      }
+    }
+
+    await runtimeClient.query("begin");
+    await runtimeClient.query("select tge.set_request_context($1, $2)", [
+      tenantA,
+      "auth0|owner-a"
+    ]);
+    const persisted = await runtimeClient.query(
+      `select count(*)::int as count
+       from tge.pilot_evidence_events
+       where tenant_id = $1 and id = any($2::text[])`,
+      [tenantA, invalidEvents.map(event => event.id)]
+    );
+    await runtimeClient.query("commit");
+
+    assert.deepEqual({
+      sqlStates,
+      persistedCount: persisted.rows[0].count
+    }, {
+      sqlStates: invalidEvents.map(() => "23514"),
+      persistedCount: 0
+    });
+  });
+
   test("runner refuses an implicit 001 baseline when known objects exist", async () => {
     const baselineDatabaseName = `tge_baseline_${randomUUID().replaceAll("-", "")}`;
     const baselineUrl = replaceDatabase(testDatabaseUrl, baselineDatabaseName);

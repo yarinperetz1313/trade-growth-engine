@@ -236,6 +236,21 @@ hygiene are recorded in the completed plan; PostgreSQL, managed browser E2E, and
 the production build were not rerun because their production boundaries did not
 change. This remains a local candidate with no GitHub delivery.
 
+A subsequent bounded final review of candidate `75b8c98` found that migration
+`013` could admit exact-key evidence whose closed enum value was JSON `null`
+because PostgreSQL checks accept SQL `NULL`; nullable PL/pgSQL predicates also
+allowed `source_collection` and `action_status` to fall through to `TRUE`.
+Migration `013` now requires the validator result `IS TRUE` and explicitly
+fails closed on those two predicates. Real PostgreSQL regressions cover null
+`source_collection`, `value_kind`, `feedback_code`, `action_status`, and
+`execution_effect_type`: all five direct runtime-authorized inserts fail with
+SQLSTATE `23514` and persist no row. The affected PostgreSQL 16.15 contract
+passes **64/64**; the new migration checksum is
+`b27c7d6c69990f459b1e51c0d902d55f6a1f44fbf17accb69459b2c26465f6a8`, and
+migrations `001`-`012` remain byte-identical to merge-base `3f0ed74`. Browser,
+build, full Verify, and GitHub delivery were intentionally not run for this
+migration-only remediation.
+
 Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 
 The Product Truth audit/fix work unit is complete: [PR #17](https://github.com/yarinperetz1313/trade-growth-engine/pull/17) merged at `5231838` and closed [Issue #7](https://github.com/yarinperetz1313/trade-growth-engine/issues/7). This did not provision Auth0, SMTP, production persistence, import execution, or cutover, and it did not begin Pilot Readiness PR-5 or later slices.

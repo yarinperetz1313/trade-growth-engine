@@ -56,9 +56,9 @@ begin
       'updated_at_invalid_count', 'contactable_count'
     ])
       or not tge.pilot_evidence_bounded_id(value->'import_batch_id', 200)
-      or (value->>'source_collection') not in (
+      or ((value->>'source_collection') in (
         'prospects', 'opportunities', 'tasks', 'activities'
-      ) then return false;
+      )) is not true then return false;
     end if;
     if not (
       tge.pilot_evidence_count(value->'total_count')
@@ -182,10 +182,10 @@ begin
       or not tge.pilot_evidence_bounded_id(value->'case_id', 255)
       or not tge.pilot_evidence_bounded_id(value->'import_batch_id', 200)
       or not tge.pilot_evidence_bounded_id(value->'revenue_action_id', 255)
-      or (value->>'action_status') <> (case kind
+      or ((value->>'action_status') = (case kind
         when 'REVENUE_ACTION_MATERIALIZED_LINKED' then 'RECOMMENDED'
         when 'ACTION_APPROVED' then 'APPROVED'
-        else 'EXECUTED' end) then return false;
+        else 'EXECUTED' end)) is not true then return false;
     end if;
     return kind <> 'ACTION_EXECUTED'
       or (value->>'execution_effect_type') in (
@@ -214,7 +214,7 @@ create table tge.pilot_evidence_events (
   ),
   occurred_at timestamptz not null,
   semantic_key text not null check (semantic_key ~ '^[0-9a-f]{64}$'),
-  facts jsonb not null check (tge.pilot_evidence_facts_valid(event_type, facts)),
+  facts jsonb not null check (tge.pilot_evidence_facts_valid(event_type, facts) is true),
   created_at timestamptz not null default now(),
   primary key (tenant_id, id),
   unique (tenant_id, semantic_key),
