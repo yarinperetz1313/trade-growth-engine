@@ -17,6 +17,9 @@ const { createTenantContext } = require("../src/persistence/tenantContext");
 const legacyRevenueActionService = require(
   "../src/revenueActions/revenueActionService"
 );
+const legacyRevenueActionRepository = require(
+  "../src/revenueActions/revenueActionRepository"
+);
 const {
   LOCAL_REVENUE_LEAK_TENANT_ID
 } = require("../src/revenueLeakCases/jsonRevenueLeakCaseRepository");
@@ -233,6 +236,112 @@ test("imported-customer handoff, approval, and execution append one bounded fact
     action_status: "EXECUTED",
     execution_effect_type: "INTERNAL_TASK"
   });
+});
+
+test("execution evidence failure cannot rewrite completed JSON action or effects", async () => {
+  seedEligibleOpportunity({ imported: true });
+  const service = localService();
+  const detected = await createDetectedCase(service);
+  const handoff = await service.createRevenueActionForCase(detected.id);
+  const actionId = handoff.data.revenue_action.id;
+
+  legacyRevenueActionService.prepareRevenueAction(actionId);
+  legacyRevenueActionService.approveRevenueAction(actionId);
+  const validEvidence = readCollection("pilot_evidence_events");
+  const corruptedEvidence = structuredClone(validEvidence);
+  corruptedEvidence[0].facts.customer_content = "PRIVATE CUSTOMER CELL";
+  writeCollection("pilot_evidence_events", corruptedEvidence);
+
+  assert.throws(
+    () => legacyRevenueActionService.executeRevenueAction(actionId),
+    error => error.code === "PILOT_EVIDENCE_PERSISTENCE_UNAVAILABLE"
+  );
+
+  const executed = readCollection("revenue_actions")[0];
+  const taskEffects = readCollection("tasks").filter(
+    task => task.metadata?.revenue_action_id === actionId
+  );
+  const activityEffects = readCollection("activities").filter(
+    activity => activity.metadata?.revenue_action_id === actionId
+  );
+  assert.equal(executed.status, "EXECUTED");
+  assert.equal(executed.audit.filter(entry => entry.transition === "EXECUTED").length, 1);
+  assert.equal(executed.audit.some(entry => entry.transition === "FAILED"), false);
+  assert.equal(taskEffects.length, 1);
+  assert.equal(activityEffects.length, 1);
+
+  writeCollection("pilot_evidence_events", validEvidence);
+  const repaired = legacyRevenueActionService.executeRevenueAction(actionId);
+  assert.equal(repaired.ok, true);
+  assert.equal(repaired.duplicate, true);
+  assert.equal(readCollection("tasks").filter(
+    task => task.metadata?.revenue_action_id === actionId
+  ).length, 1);
+  assert.equal(readCollection("activities").filter(
+    activity => activity.metadata?.revenue_action_id === actionId
+  ).length, 1);
+  assert.equal(readCollection("pilot_evidence_events").filter(
+    event => event.event_type === "ACTION_EXECUTED"
+  ).length, 1);
+});
+
+test("true JSON execution-effect failures still persist FAILED truth", async () => {
+  seedEligibleOpportunity({ imported: true });
+  const service = localService();
+  const detected = await createDetectedCase(service);
+  const handoff = await service.createRevenueActionForCase(detected.id);
+  const actionId = handoff.data.revenue_action.id;
+  legacyRevenueActionService.prepareRevenueAction(actionId);
+  legacyRevenueActionService.approveRevenueAction(actionId);
+
+  const createTask = legacyRevenueActionRepository.createTaskForRevenueAction;
+  legacyRevenueActionRepository.createTaskForRevenueAction = () => {
+    throw new Error("simulated effect failure");
+  };
+  let result;
+  try {
+    result = legacyRevenueActionService.executeRevenueAction(actionId);
+  } finally {
+    legacyRevenueActionRepository.createTaskForRevenueAction = createTask;
+  }
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "REVENUE_ACTION_EXECUTION_FAILED");
+  const failed = readCollection("revenue_actions")[0];
+  assert.equal(failed.status, "FAILED");
+  assert.equal(failed.execution_result.error, "EXECUTION_EFFECT_FAILED");
+  assert.equal(failed.audit.at(-1).transition, "FAILED");
+  assert.equal(readCollection("pilot_evidence_events").some(
+    event => event.event_type === "ACTION_EXECUTED"
+  ), false);
+});
+
+test("local action evidence replay accepts reordered facts without duplicates", async () => {
+  seedEligibleOpportunity({ imported: true });
+  const service = localService();
+  const detected = await createDetectedCase(service);
+  const handoff = await service.createRevenueActionForCase(detected.id);
+  const actionId = handoff.data.revenue_action.id;
+
+  legacyRevenueActionService.prepareRevenueAction(actionId);
+  legacyRevenueActionService.approveRevenueAction(actionId);
+  legacyRevenueActionService.executeRevenueAction(actionId);
+  const evidence = readCollection("pilot_evidence_events");
+  const executedIndex = evidence.findIndex(
+    event => event.event_type === "ACTION_EXECUTED"
+  );
+  evidence[executedIndex].facts = Object.fromEntries(
+    Object.entries(evidence[executedIndex].facts).reverse()
+  );
+  writeCollection("pilot_evidence_events", evidence);
+
+  const replay = legacyRevenueActionService.executeRevenueAction(actionId);
+
+  assert.equal(replay.ok, true);
+  assert.equal(replay.duplicate, true);
+  assert.equal(readCollection("pilot_evidence_events").filter(
+    event => event.event_type === "ACTION_EXECUTED"
+  ).length, 1);
 });
 
 test("local action observers reject malformed evidence without exposing customer content", async () => {

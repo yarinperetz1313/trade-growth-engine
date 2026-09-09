@@ -4,7 +4,8 @@ const crypto = require("node:crypto");
 
 const {
   buildPilotEvidenceEvent,
-  conflict
+  conflict,
+  pilotEvidenceFactsEqual
 } = require("./pilotEvidenceDomain");
 const { classifyOpportunityDataOrigin } = require("./dataOrigin");
 const {
@@ -61,7 +62,7 @@ function observeLocalRevenueAction(eventType, action) {
   if (existing) {
     if (
       existing.event_type !== event.event_type
-      || JSON.stringify(existing.facts) !== JSON.stringify(event.facts)
+      || !pilotEvidenceFactsEqual(existing.facts, event.facts)
     ) throw conflict();
     return existing;
   }

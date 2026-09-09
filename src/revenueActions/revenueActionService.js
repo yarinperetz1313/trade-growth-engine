@@ -740,11 +740,10 @@ function executeRevenueAction(id, body = {}) {
   };
   repository.replaceRevenueAction(action);
 
+  let executed;
   try {
     const effects = action.execution_type === "COMMUNICATION_DRAFT" ? executeCommunication(action) : executeInternalTask(action);
-    const executed = finalizeExecution(action, effects);
-    observeLocalRevenueAction("ACTION_EXECUTED", executed.data);
-    return executed;
+    executed = finalizeExecution(action, effects);
   } catch (error) {
     const failedAt = now();
     const failed = {
@@ -763,6 +762,8 @@ function executeRevenueAction(id, body = {}) {
     repository.replaceRevenueAction(failed);
     return failure("REVENUE_ACTION_EXECUTION_FAILED", "Revenue action execution failed and can be safely retried.", 500, { id });
   }
+  observeLocalRevenueAction("ACTION_EXECUTED", executed.data);
+  return executed;
 }
 
 module.exports = {

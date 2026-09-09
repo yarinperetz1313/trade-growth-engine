@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const { isDeepStrictEqual } = require("node:util");
 
 const PILOT_EVENT_TYPES = Object.freeze([
   "IMPORT_COMMITTED",
@@ -171,8 +172,13 @@ function validateImportFacts(facts) {
   ) invalid("counts");
   for (const field of [
     "commercial_value_covered_count", "stage_covered_count",
-    "created_at_covered_count", "updated_at_covered_count", "contactable_count"
+    "created_at_covered_count", "created_at_invalid_count",
+    "updated_at_covered_count", "updated_at_invalid_count", "contactable_count"
   ]) if (facts[field] !== null && facts[field] > facts.total_count) invalid(field);
+}
+
+function pilotEvidenceFactsEqual(left, right) {
+  return isDeepStrictEqual(left, right);
 }
 
 function validateScanFacts(facts) {
@@ -280,5 +286,6 @@ module.exports = {
   buildPilotEvidenceEvent,
   conflict,
   isSingletonMilestone,
+  pilotEvidenceFactsEqual,
   publicPilotEvidenceEvent
 };

@@ -179,7 +179,8 @@
   Third, the browser accepted parseable non-canonical mutation timestamps. The
   first attempted red revealed shared mutable test facts masking later cases;
   after isolating the fixture the real product red was 3/4, and the corrected
-  browser contract set passed 13/13. No unresolved in-scope P0-P3 finding remains.
+  browser contract set passed 13/13. That checkpoint conclusion was superseded
+  by the later fresh-review block and remediation recorded below.
 - Privacy review: the production pilot domain exposes only the recorded exact
   allowlisted fact keys. A case-insensitive grep across `src/pilotEvidence`, the
   pilot API, and migration `013` found none of the prohibited customer-content
@@ -199,6 +200,36 @@
   passed harness plus integration 330/330, affected managed Chromium passed
   27/27, and `npm run build` passed (31 modules, 97 ms). PostgreSQL was not
   redundantly rerun after that browser-only change.
+- Fresh review of candidate `00f6d8d` blocked on exactly three findings. The
+  red-first remediation added regressions before production edits. `node --test
+  test/pilot-evidence.test.js` passed 7/13 and failed the intended 6/13: both
+  invalid timestamp-counter bounds, both corrupted persisted-JSON reads,
+  semantic flat/nested fact equality, and reordered repository replay. The
+  elevated focused handoff run passed 16/18 and failed only the intended JSON
+  execution-observer lifecycle and reordered local-observer replays; an initial
+  sandboxed run also had two unrelated `listen EPERM` failures.
+- Remediation keeps pilot observation outside the JSON execution-effect failure
+  catch. An observation failure after finalization now leaves the canonical
+  action and its single task/activity effect `EXECUTED`; after evidence repair,
+  exact replay appends one missing event and creates no duplicate action effect.
+  A separate regression proves genuine effect failure still persists `FAILED`
+  with `EXECUTION_EFFECT_FAILED`. PostgreSQL observation remains unchanged and
+  inside its existing tenant transaction.
+- Server validation now applies the existing `total_count` upper bound to both
+  `created_at_invalid_count` and `updated_at_invalid_count`, matching migration
+  013 and browser validation. Corrupted local JSON carrying either incoherent
+  value fails closed on read. JSON repository and local action-observer replay
+  compare facts with Node lossless recursive structured equality, matching the
+  PostgreSQL repository behavior: flat or nested key order is ignored, arrays
+  and values are not normalized, genuine conflicts remain conflicts, and exact
+  closed schema validation is unchanged.
+- Green remediation evidence: focused pilot evidence passed 13/13; focused
+  handoff passed 19/19; the final affected RevenueAction/pilot-evidence/JSON/API/
+  browser-contract set passed 70/70; exact-head `npm run verify:fast` passed the
+  harness and all 339 integration assertions. No PostgreSQL production/schema
+  code changed and the regression is JSON-only, so real PostgreSQL was not
+  rerun. No web production code changed; browser contract coverage ran, while
+  managed E2E and the production build were not rerun.
 - Environment notes: sandboxed process/listener probes returned permission
   errors, so explicitly approved elevated localhost checks/runners were used.
   The existing isolated native PostgreSQL 16.15 cluster was reachable on port
@@ -207,11 +238,16 @@
 
 ## Review and handoff
 
-- Implementer self-check: complete base-diff review of production persistence,
-  API, observer, browser state/recovery, migration, and test changes.
-- Fresh-review readiness: the sole-engineer constraint forbade delegation, so a
-  separate defect-first reread of `origin/main...HEAD` was performed locally.
-- Final-review evidence: all findings and resolutions are recorded above; final
-  diff checks and repository-state proof are required after the documentation
-  checkpoint, with no further product mutation planned.
+- Implementer self-check: the complete base diff was reread defect-first after
+  the bounded remediation, including production persistence, API,
+  lifecycle/observer, browser state/recovery, migration, and tests. The 47-file
+  scope inventory, observer/catch and fact-comparison call sites, timestamp-count
+  coherence, privacy/outbound boundaries, tests, and documentation disclosed no
+  further in-scope correction.
+- Fresh-review status: the coordinator-supplied independent review produced the
+  three findings above. This work stops after their local remediation and
+  self-review; the coordinator owns any next independent review and delivery.
+- Final remediation evidence: exact-head fast verification, diff checks,
+  migration/privacy checks, attribution, and clean repository proof are recorded
+  before the single local fix checkpoint.
 - Debt/follow-up: only the explicit non-goals above; do not begin them in this PR.

@@ -6,6 +6,7 @@ const {
   buildPilotEvidenceEvent,
   conflict,
   isSingletonMilestone,
+  pilotEvidenceFactsEqual,
   publicPilotEvidenceEvent
 } = require("./pilotEvidenceDomain");
 const { requireTenantContext } = require("../persistence/tenantContext");
@@ -53,7 +54,7 @@ function createJsonPilotEvidenceRepository({ store, localTenantId } = {}) {
           existing.event_type !== event.event_type
           || (
             !isSingletonMilestone(event.event_type)
-            && JSON.stringify(existing.facts) !== JSON.stringify(event.facts)
+            && !pilotEvidenceFactsEqual(existing.facts, event.facts)
           )
         ) throw conflict();
         return { record: publicPilotEvidenceEvent(existing), duplicate: true, created: false };

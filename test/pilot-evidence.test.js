@@ -7,7 +7,8 @@ const {
   FEEDBACK_CODES,
   PILOT_EVENT_TYPES,
   PilotEvidenceError,
-  buildPilotEvidenceEvent
+  buildPilotEvidenceEvent,
+  pilotEvidenceFactsEqual
 } = require("../src/pilotEvidence/pilotEvidenceDomain");
 const {
   createJsonPilotEvidenceRepository
@@ -122,6 +123,43 @@ test("event builders accept only bounded non-content facts and server authority"
   );
 });
 
+test("import evidence rejects created timestamp invalid counts above the total", () => {
+  assert.throws(
+    () => build("IMPORT_COMMITTED", importFacts({
+      created_at_invalid_count: 3
+    })),
+    error => error instanceof PilotEvidenceError
+      && error.code === "PILOT_EVIDENCE_INVALID"
+      && error.details?.field === "created_at_invalid_count"
+  );
+});
+
+test("import evidence rejects updated timestamp invalid counts above the total", () => {
+  assert.throws(
+    () => build("IMPORT_COMMITTED", importFacts({
+      updated_at_invalid_count: 3
+    })),
+    error => error instanceof PilotEvidenceError
+      && error.code === "PILOT_EVIDENCE_INVALID"
+      && error.details?.field === "updated_at_invalid_count"
+  );
+});
+
+test("pilot evidence fact equality is semantic for reordered flat and nested keys", () => {
+  assert.equal(pilotEvidenceFactsEqual(
+    { case_id: "case-1", import_batch_id: "batch-1" },
+    { import_batch_id: "batch-1", case_id: "case-1" }
+  ), true);
+  assert.equal(pilotEvidenceFactsEqual(
+    { summary: { committed: 2, counts: { skipped: 0, total: 2 } } },
+    { summary: { counts: { total: 2, skipped: 0 }, committed: 2 } }
+  ), true);
+  assert.equal(pilotEvidenceFactsEqual(
+    { summary: { committed: 2, counts: { skipped: 0, total: 2 } } },
+    { summary: { counts: { total: 3, skipped: 0 }, committed: 2 } }
+  ), false);
+});
+
 test("known positive, known zero, unknown, and not applicable remain distinct", () => {
   const common = { case_id: "case-1", import_batch_id: "batch-1" };
   for (const [kind, currency] of [
@@ -179,6 +217,28 @@ test("JSON evidence is tenant-scoped, append-only, semantically idempotent, and 
     )),
     error => error.code === "PILOT_EVIDENCE_CONFLICT"
   );
+  assert.equal(store.snapshot().length, 1);
+});
+
+test("JSON evidence replays semantically identical facts with reordered keys", async () => {
+  const first = build();
+  const reorderedFacts = Object.fromEntries(
+    Object.entries(importFacts()).reverse()
+  );
+  const store = memoryStore([first]);
+  const repository = createJsonPilotEvidenceRepository({
+    store,
+    localTenantId: TENANT_A
+  });
+
+  const replay = await repository.append(context(), build(
+    "IMPORT_COMMITTED",
+    reorderedFacts,
+    { id: "event-reordered", occurredAt: "2026-09-09T02:00:00.000Z" }
+  ));
+
+  assert.equal(replay.duplicate, true);
+  assert.equal(replay.record.id, first.id);
   assert.equal(store.snapshot().length, 1);
 });
 
@@ -263,3 +323,22 @@ test("JSON evidence reads reject corrupted persisted facts without exposing cust
       && !error.message.includes(sentinel)
   );
 });
+
+for (const field of [
+  "created_at_invalid_count",
+  "updated_at_invalid_count"
+]) {
+  test(`JSON evidence reads reject persisted ${field} above the total`, async () => {
+    const event = structuredClone(build());
+    event.facts[field] = event.facts.total_count + 1;
+    const repository = createJsonPilotEvidenceRepository({
+      store: memoryStore([event]),
+      localTenantId: TENANT_A
+    });
+
+    await assert.rejects(
+      repository.list(context()),
+      error => error.code === "PILOT_EVIDENCE_PERSISTENCE_UNAVAILABLE"
+    );
+  });
+}

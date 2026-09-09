@@ -219,6 +219,23 @@ passed **27/27**, and the production build passed. Migration `010`-`012`
 checksums remain unchanged and `013` is recorded in the completed plan. These
 are local results only: no push, PR, CI, merge, or issue mutation has occurred.
 
+A later fresh review of candidate `00f6d8d` blocked on three bounded defects,
+now corrected locally. JSON RevenueAction execution observes pilot evidence only
+after the effect/finalization failure boundary: an observation error can surface
+after canonical `EXECUTED` truth, but cannot rewrite the completed action or its
+effects to `FAILED`; an exact replay repairs the missing event without duplicate
+effects. Genuine execution-effect errors still persist `FAILED` with
+`EXECUTION_EFFECT_FAILED`. Server validation now rejects either nullable invalid
+timestamp counter above `total_count`, matching migration and browser checks,
+including fail-closed reads of corrupted JSON evidence. JSON idempotency uses
+lossless recursive structured equality, so object-key order is irrelevant while
+different values and the exact closed fact schemas remain conflicts/errors.
+Focused remediation passed **70/70** affected RevenueAction, pilot-evidence,
+JSON, API, and browser-contract tests. Exact-head fast-gate evidence and final
+hygiene are recorded in the completed plan; PostgreSQL, managed browser E2E, and
+the production build were not rerun because their production boundaries did not
+change. This remains a local candidate with no GitHub delivery.
+
 Deterministic deal intelligence remains the source of opportunity recommendations. Read-only revenue intelligence aggregates that output. Phase 2 adds `src/revenueActions/`: a durable `revenue_actions.json` domain record with immutable recommendation snapshots, evidence, lifecycle audit, approval state, prepared execution, and CRM result links. The Opportunity Command Center is the detailed execution surface; the Revenue Command Center navigates into it and refreshes after mutations.
 
 The Product Truth audit/fix work unit is complete: [PR #17](https://github.com/yarinperetz1313/trade-growth-engine/pull/17) merged at `5231838` and closed [Issue #7](https://github.com/yarinperetz1313/trade-growth-engine/issues/7). This did not provision Auth0, SMTP, production persistence, import execution, or cutover, and it did not begin Pilot Readiness PR-5 or later slices.
