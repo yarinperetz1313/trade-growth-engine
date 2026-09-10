@@ -28,6 +28,18 @@ pilot startup never runs migrations and never accepts that operator URL as a
 runtime fallback. Neither URL, tokens, raw import cells, nor provider details are
 logged or returned by runtime errors.
 
+| Required variable | Exact Pilot meaning |
+| --- | --- |
+| `PORT` | Integer listener port from 1 through 65535 |
+| `TGE_RUNTIME_DATABASE_URL` | Non-empty `postgres:`/`postgresql:` URL for the least-privilege runtime login and named database |
+| `TGE_PUBLIC_APP_URL` | Exact HTTPS browser origin, without path or trailing slash |
+| `TGE_PUBLIC_API_URL` | Exact HTTPS API origin, without path or trailing slash |
+| `TGE_AUTH0_ISSUER` | Exact HTTPS issuer ending in `/`, with no query or fragment |
+| `TGE_AUTH0_AUDIENCE` | Exact non-empty API audience |
+| `TGE_AUTH0_CLIENT_ID` | Exact non-secret public SPA client ID |
+| `TGE_AUTH0_CALLBACK_URL` | Exact HTTPS URL on `TGE_PUBLIC_APP_URL` |
+| `TGE_AUTH0_LOGOUT_URL` | Exact HTTPS URL on `TGE_PUBLIC_APP_URL` |
+
 ## Composition and ownership
 
 The pilot bootstrap constructs dependencies in this order:
@@ -88,7 +100,9 @@ The readiness probe is bounded by configured timeouts and proves:
 An append-only migration exposes only the bounded readiness result needed by the
 runtime role. It does not grant access to the migration ledger. Failed probes
 keep readiness false and are retried at a bounded interval. Runtime logs emit
-only stable event/error codes.
+only stable event/error codes. Migration `014_secure_pilot_runtime_readiness.sql`
+has SHA-256
+`59069a3cd6963800f83762ccc9ee6ea6f57660d247d20816312f245c48e079b5`.
 
 ## Browser and packaging
 
@@ -110,7 +124,7 @@ provisioning remain operator prerequisites.
 The bootstrap owns the HTTP server, readiness timer, and pool it creates.
 `SIGTERM` and `SIGINT` stop readiness work, stop accepting requests, bound the
 HTTP drain, and end the pool exactly once. Injected test resources remain
-explicitly owned according to their injected cleanup port.
+explicitly owned according to their injected cleanup contract.
 
 A ready response is local runtime evidence only. It does not prove Auth0 AU
 tenant/plan location, real JWKS reachability before a bearer is verified, email

@@ -1,9 +1,32 @@
 # Project State
 
-_Last locally audited on 2026-09-09. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+_Last locally audited on 2026-09-10. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
 ## Current verified shape
 Trade Growth Engine is a Vite React + Express local-first CRM. `src/index.js` starts the server, `src/api/` exposes thin structured HTTP boundaries, and `web/main.jsx` provides hash-routed UI. Local JSON persistence flows through `src/services/localStore.js`; tests and E2E use isolated stores. The [Legacy JSON Compatibility Contract](architecture/LEGACY_JSON_COMPATIBILITY.md) and deterministic fixtures characterize that adapter for the future persistence cutover.
+
+Assisted Pilot Safety Gate V1 PR-1 adds the first explicit supported
+production-like API bootstrap at `src/pilot/index.js`, exposed as
+`npm run server:pilot` and `npm start`. It validates the complete Pilot
+configuration before pool/listener creation, always composes Auth0 verification,
+membership-derived authorization, the independently branded persistence
+`TenantContext`, and all current PostgreSQL business repositories, and has no
+JSON or unauthenticated fallback. Migration
+`014_secure_pilot_runtime_readiness.sql` provides a narrow invoker-rights probe
+for the nonprivileged runtime role. `/health/live` (and compatibility `/health`)
+proves only listening; `/health/ready` proves the local database, exact migration,
+role, required-schema, and membership lookup path. All other APIs except public
+browser Auth0 configuration return `SECURE_RUNTIME_NOT_READY` until that probe
+succeeds, then retain normal bearer/membership/tenant enforcement.
+
+Local full verification at reviewed implementation checkpoint `2ec4bfd` passed the
+engineering harness, integration **351/351**, real PostgreSQL 16.15 **66/66**,
+managed Chromium **51/51**, and the production build. The separately validated
+Pilot browser build embedded the exact HTTPS public API origin. This evidence is
+local only: it does not prove live Auth0/JWKS, Universal Login/SMTP/OTP,
+provisioning, Australian hosting, backup/restore, privacy approval, or deferred
+raw-evidence retention/deletion, and no GitHub delivery or external operation was
+performed.
 
 Pilot PR-2 is **complete** and adds a PostgreSQL foundation without changing that runtime authority: append-only migrations `001`–`004`, an audited-baseline/owner-role checksum runner, the tenant-scoped `tge` schema, forced RLS and least-privilege group roles, reciprocal RevenueAction effect constraints, immutable typed import/audit evidence, and a real-PostgreSQL test gate. Final remediation was append-only: migrations `001`–`003` remained unchanged.
 
@@ -295,6 +318,11 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - **PR-3 and PR-4 are complete and merged through PR #16 at `b0a8e36`**: tenant-aware PostgreSQL repositories and transactional RevenueAction persistence consume the membership-derived auth boundary through a server-only trusted-context bridge. The underlying combined state at `9fe7cea` is verified by [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854), which passed the complete combined gate. Real Auth0 AU/SMTP acceptance remains deployment-gated; that combined PR-3/PR-4 verification did not cover the later PR-5 work summarized below.
 - **The Product Truth audit/fix work unit is complete through PR #17 at `5231838`**, and Issue #7 is closed. Its repository-backed UI corrections and managed Product Truth coverage do not establish external-provider, provisioning, import, or cutover evidence.
 - **PR-5A implements CSV contract, limits, immutable staging, and bounded preview; PR-5B implements draft mapping, validation, and Data Health analysis; PR-5C implements controlled atomic canonical commit and ID-map reconciliation; PR-5D implements the contract-mocked browser workflow and adversarial state coverage.** Raw-evidence retention/deletion acceptance is explicitly deferred to a separate reviewed follow-up; cutover and production provisioning remain unimplemented.
+- **Assisted Pilot Safety Gate V1 PR-1 is complete as a local checkpoint:** the
+  fail-closed Pilot entrypoint, migration `014` readiness contract, protected
+  startup gate, PostgreSQL-only authenticated composition, portable commands,
+  validated browser API origin, and graceful cleanup are implemented and fully
+  verified. Provider provisioning and later milestone slices remain unstarted.
 - **Issue #8 RevenueLeakCase foundation implements the bounded domain,
   JSON/PostgreSQL repositories, tenant-bound API, migration `012`, and focused
   contract/database evidence for `STALLED_OPPORTUNITY`. The current follow-on

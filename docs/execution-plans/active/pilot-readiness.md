@@ -6,7 +6,7 @@
 - **PR-3 and PR-4 are integrated in code, complete, and merged through [PR #16](https://github.com/yarinperetz1313/trade-growth-engine/pull/16) at `b0a8e36`.** PR #16 closed [Issue #2](https://github.com/yarinperetz1313/trade-growth-engine/issues/2) and [Issue #5](https://github.com/yarinperetz1313/trade-growth-engine/issues/5). Tenant-aware PostgreSQL repositories and transactional RevenueAction execution consume PR-4 membership authority through a server-only bridge between independently branded contexts. The old magic-link blocker is removed.
 - **Combined verification is COMPLETE at `9fe7cea`.** [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854) passed the engineering harness, 129 integration tests, 44 PostgreSQL 16.15 database tests, 7 managed Chromium tests, and the production build. Fresh combined review found no P0, P1, or P3 findings; its only P2 was stale status text corrected in this record.
 - **PR-5A implements bounded CSV staging/preview; PR-5B implements draft mapping, validation, and Data Health; PR-5C implements controlled atomic canonical commit and existing-ID-map reconciliation; PR-5D implements the contract-mocked browser workflow and adversarial browser states.** Raw-evidence retention/deletion acceptance and implementation are explicitly deferred to a separate reviewed follow-up. JSON cutover, deployment, and production provisioning remain out of scope.
-- **TGE Assisted Pilot Safety Gate V1 PR-1 is ACTIVE from pinned base `e5e8f5fc432caa52b879bfa92a56bd6946ae89f9`.** This slice adds only the explicit secure pilot runtime/readiness bootstrap described in [Secure Pilot Runtime](../../architecture/SECURE_PILOT_RUNTIME.md). GitHub delivery, external provisioning, retention deletion, currency, and later milestone slices remain out of scope.
+- **TGE Assisted Pilot Safety Gate V1 PR-1 is COMPLETE as a verified local checkpoint from pinned base `e5e8f5fc432caa52b879bfa92a56bd6946ae89f9`.** The explicit secure pilot runtime/readiness bootstrap described in [Secure Pilot Runtime](../../architecture/SECURE_PILOT_RUNTIME.md) is implemented and reviewed through `2ec4bfd`. GitHub delivery, external provisioning, retention deletion, currency, and later milestone slices remain out of scope.
 
 The canonical architecture is the [foundation](../../architecture/PILOT_READINESS_FOUNDATION.md), with the identity path detailed in [Authentication and TenantContext](../../architecture/AUTHENTICATION_AND_TENANT_CONTEXT.md). Provisioning and release evidence live in the [production gate](../../operations/PILOT_PRODUCTION_GATE.md).
 
@@ -15,7 +15,7 @@ The canonical architecture is the [foundation](../../architecture/PILOT_READINES
 | Area | Contract |
 | --- | --- |
 | Current product | Local JSON remains the local runtime/test persistence authority. Deterministic intelligence and manual RevenueAction approval are unchanged. |
-| Database foundation | PostgreSQL 16.15 uses append-only migrations. `001` remains 2,752 bytes with SHA-256 `d08f3b7e5c97e05a5ec7f96242543fbbf437d7af4edea34d22dc09db910cfc62`; PR-3 owns unchanged migrations `005`–`009`; PR-4 follows with `010_auth_membership_and_invitations.sql`; PR-5C appends `011_canonical_import_commit.sql`; the later approved Issue #8 foundation appends `012_revenue_leak_case_foundation.sql`. |
+| Database foundation | PostgreSQL 16.15 uses append-only migrations. `001` remains 2,752 bytes with SHA-256 `d08f3b7e5c97e05a5ec7f96242543fbbf437d7af4edea34d22dc09db910cfc62`; PR-3 owns unchanged migrations `005`–`009`; PR-4 follows with `010_auth_membership_and_invitations.sql`; PR-5C appends `011_canonical_import_commit.sql`; Issue #8 appends `012_revenue_leak_case_foundation.sql`; pilot evidence appends `013_privacy_minimized_pilot_evidence.sql`; this slice appends `014_secure_pilot_runtime_readiness.sql`. |
 | Identity | Auth0 AU, New Universal Login, passwordless email OTP, Authorization Code Flow with PKCE. No Classic Login, magic links, Auth0 Organizations invitations, or public signup. |
 | Authorization | TGE resolves exactly one active membership by `(issuer, subject)`, derives immutable `TenantContext`, and applies centralized OWNER/ADMIN/MEMBER policy. Client tenant, email, role, headers, query values, and JWT custom claims are never authority. |
 | Isolation | Server authorization, explicit tenant repository predicates, and forced PostgreSQL RLS remain separate required layers. Transaction-local GUCs are trusted server inputs only after membership resolution. |
@@ -74,11 +74,11 @@ No local mock or deterministic seam may be reported as real Auth0/SMTP proof.
   follow-up.** The earlier generic PR-6/PR-7 labels were planning placeholders,
   not concrete unmerged code or dependencies, and are no longer used as roadmap
   authority.
-- [ ] **Assisted Pilot Safety Gate V1 PR-1 — secure pilot runtime and readiness.**
-  Add the explicit fail-closed bootstrap, append-only readiness probe, protected
+- [x] **Assisted Pilot Safety Gate V1 PR-1 — secure pilot runtime and readiness.**
+  The explicit fail-closed bootstrap, append-only readiness probe, protected
   request gate, portable commands, exact configuration validation, graceful
-  cleanup, and authenticated PostgreSQL import/operating-loop evidence. Do not
-  provision providers or begin PR-2.
+  cleanup, and authenticated PostgreSQL import/operating-loop evidence are
+  complete. Providers were not provisioned and PR-2 was not started.
 
 ### Assisted Pilot Safety Gate V1 PR-1 execution decisions
 
@@ -97,6 +97,11 @@ No local mock or deterministic seam may be reported as real Auth0/SMTP proof.
 
 | Level | Command/evidence | Recorded result |
 | --- | --- | --- |
+| PR-1 product-red | `node --test test/pilot-runtime.test.js`; `node --test test/database-migrations-static.test.js`; later focused `bootstrap releases` and `package scripts` name patterns | **EXPECTED FAIL:** initial runtime **0/9** because the Pilot modules/scripts did not exist; initial migration contract **14/16** because migration `014` did not exist; the added pre-listener composition-cleanup regression failed **0/1** because the owned pool was not released; the final packaging assertion failed **0/1** because dotenv still emitted non-contract startup text. Each failure was corrected before the corresponding production change. |
+| PR-1 focused runtime/auth | `node --test test/pilot-runtime.test.js test/auth-api.test.js` | **PASS: 20/20.** Covers exact fail-closed configuration, no runtime-DSN/JSON/unauthenticated fallback, listening versus readiness, bounded dependency failures, membership denial, normalized errors, and idempotent owned-resource cleanup. |
+| PR-1 Pilot browser build | `TGE_PUBLIC_API_URL=https://api.example.test VITE_API_URL=https://api.example.test npm run build:pilot`; artifact checks for the configured origin and absence of `localhost:3000` | **PASS:** Vite 8.2.2 built 31 modules; the artifact contains only the requested API origin. Existing >500 kB chunk warning remains non-blocking. |
+| PR-1 real PostgreSQL 16.15 focused gate | `TGE_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/postgres npm run test:db` against a disposable Homebrew PostgreSQL 16.15 cluster | **PASS: 66/66.** Proves migration/role readiness, migration-ledger denial, authenticated membership-derived tenant authority through CSV preview → mapping/Data Health → commit → scan/Command Center, forged identity rejection, and cross-tenant isolation. Cluster stopped and removed. |
+| PR-1 full local gate at `2ec4bfd` | `TGE_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/postgres npm run verify` against a fresh disposable Homebrew PostgreSQL 16.15 cluster | **PASS:** harness; integration **351/351**; database **66/66**; managed Chromium **51/51**; production build (Vite 8.2.2, 31 modules). Cluster stopped and removed. This is local evidence, not GitHub CI or provider proof. |
 | PR-5A initial full local gate at `178409c` | `TGE_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/postgres npm run verify` against an isolated PostgreSQL 16.15 cluster | **PASS:** harness; integration **142/142**; database **45/45**; managed Chromium **14/14**; production build. The temporary database cluster was removed after verification. This is historical evidence for that checkpoint. |
 | PR-5A bounded review-fix checkpoint (parent `dc5e3c9`) | `npm run verify:fast` on the code and tests recorded by this document's checkpoint | **PASS:** harness; integration **144/144**. Database, managed Chromium, and production build were not rerun for this bounded transport-error fix. |
 | PR-5C controlled canonical commit | `npm run verify:fast`; `TGE_TEST_DATABASE_URL=postgresql://127.0.0.1:55433/postgres npm run test:db` against disposable PostgreSQL 16.15; `npm run build` | **PASS:** harness; integration **174/174**; database **47/47**; production build (Vite 8.2.2, 22 modules). Browser E2E was intentionally not run because PR-5D/browser flow is outside this slice. The disposable cluster was stopped and removed. |
@@ -110,4 +115,7 @@ No local mock or deterministic seam may be reported as real Auth0/SMTP proof.
 ## Remaining gates
 
 - Auth0 AU plan/tenant, domain, transactional SMTP, SPF/DKIM/DMARC, privacy/DPA, and real OTP E2E evidence remain required before external invitations.
-- Local JSON remains authoritative until an explicit cutover. Production Auth0 AU, SMTP/domain, provisioning, and real OTP evidence remain gated.
+- Local JSON remains supported only by the explicit local compatibility entrypoint;
+  the Pilot entrypoint cannot select or fall back to it. Production Auth0 AU,
+  SMTP/domain, provisioning, region, backup/restore, privacy, retention deletion,
+  and real OTP evidence remain gated.

@@ -18,6 +18,12 @@ evidence. Raw-evidence retention/deletion acceptance and implementation are
 **DEFERRED to a separate reviewed follow-up**; the PR-5D browser workflow does
 not close this production gate.
 
+The repository now contains the explicit fail-closed bootstrap described by the
+[Secure Pilot Runtime](../architecture/SECURE_PILOT_RUNTIME.md). Its readiness
+endpoint proves only local code, runtime-role database access, migration/schema,
+and membership lookup usability. It does not close any provider, topology,
+backup, privacy, retention, provisioning, or real Auth0/SMTP/OTP gate below.
+
 ## Provisioning and vendor gates
 
 - **Static hosting:** Cloudflare Pages is recommended, subject to static-host vendor/privacy approval.

@@ -2,7 +2,7 @@
 
 ## Active plan
 
-- [`active/pilot-readiness.md`](active/pilot-readiness.md) — **PR-0 through PR-2 are COMPLETE; PR-3 and PR-4 are integrated in code and complete; PR-5A through PR-5D are complete in their bounded slices. Raw-evidence retention/deletion acceptance remains a separate reviewed follow-up.**
+- [`active/pilot-readiness.md`](active/pilot-readiness.md) — **PR-0 through PR-2 are COMPLETE; PR-3 and PR-4 are integrated in code and complete; PR-5A through PR-5D remain complete. The Assisted Pilot Safety Gate V1 PR-1 secure runtime/readiness slice is also a complete, fully verified local checkpoint. Raw-evidence retention/deletion acceptance is still a separate reviewed follow-up, so the broader plan remains active.**
 
 ## Completed plans
 

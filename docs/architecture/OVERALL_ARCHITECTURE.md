@@ -7,6 +7,11 @@ Trade Growth Engine is a local-first sales intelligence application.
 - API: Express from `src/app/server.js`.
 - API composition: `src/api/index.js` mounts feature routers.
 - Persistence: JSON collection files remain the default local/test adapter; injected PostgreSQL repositories provide tenant-scoped production persistence.
+- Pilot API: `src/pilot/index.js` is the only supported production-like bootstrap.
+  It validates exact configuration, composes Auth0 and membership authorization
+  with PostgreSQL-only tenant repositories, gates business traffic on secure
+  readiness, and never falls back to JSON or unauthenticated routers. See
+  [Secure Pilot Runtime](SECURE_PILOT_RUNTIME.md).
 
 ## Pilot identity boundary
 

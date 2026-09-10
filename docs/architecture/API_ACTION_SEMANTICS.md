@@ -1,7 +1,13 @@
 # API and Action Semantics
 
 ## Core routes
-- `GET /health` reports service/configuration status.
+- In local compatibility mode, `GET /health` retains its existing service status.
+  In Pilot mode, `GET /health` and `GET /health/live` are liveness only;
+  `GET /health/ready` returns 200 only when the bounded secure dependency probe
+  passes. Before that, every non-health route except `GET /api/auth/config`
+  returns `503 SECURE_RUNTIME_NOT_READY`. A ready Pilot request still requires
+  normal bearer verification, membership-derived `TenantContext`, tenant-scoped
+  persistence, and RLS.
 - `GET /api/opportunities` lists opportunities.
 - `GET /api/pipeline/metrics` returns pipeline totals.
 - `GET /api/intelligence/revenue` returns a read-only deterministic active-pipeline portfolio, classifications, attention totals, and ranked next-best actions.
