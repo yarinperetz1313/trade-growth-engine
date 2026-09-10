@@ -165,6 +165,21 @@ test("ADMIN, MEMBER, and a forged persistence context receive the same denial", 
       && error.code === "ACCESS_DENIED"
       && error.message === "Access is denied."
   );
+  const wrongSubject = createPersistenceTenantContext({
+    tenantId: owner.tenantId,
+    identityIssuer: owner.issuer,
+    subjectId: "auth0|different-owner"
+  });
+  await assert.rejects(
+    service.request({
+      authorizationContext: owner,
+      persistenceContext: wrongSubject,
+      input: { confirmation: "OFFBOARD_ACCESS_AND_RAW_EVIDENCE" }
+    }),
+    error => error instanceof AuthorizationError
+      && error.code === "ACCESS_DENIED"
+      && error.message === "Access is denied."
+  );
   await assert.rejects(
     service.request({
       authorizationContext: owner,

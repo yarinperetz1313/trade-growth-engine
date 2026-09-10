@@ -102,6 +102,135 @@ if (!databaseUrl) {
     assert.equal(row.raw_cleanup_attempts, 0);
   });
 
+  test("maintenance login has only connection, schema, and targetless processor authority", async () => {
+    await grantMaintenance();
+    const role = await admin.query(
+      `select rolcanlogin, rolinherit, rolsuper, rolcreatedb, rolcreaterole,
+         rolreplication, rolbypassrls,
+         pg_has_role('tge_maintenance', 'tge_owner', 'member') owner_member,
+         pg_has_role('tge_maintenance', 'tge_migrator', 'member') migrator_member,
+         pg_has_role('tge_maintenance', 'tge_runtime', 'member') runtime_member
+       from pg_roles where rolname = 'tge_maintenance'`
+    );
+    assert.deepEqual(role.rows[0], {
+      rolcanlogin: false,
+      rolinherit: false,
+      rolsuper: false,
+      rolcreatedb: false,
+      rolcreaterole: false,
+      rolreplication: false,
+      rolbypassrls: false,
+      owner_member: false,
+      migrator_member: false,
+      runtime_member: false
+    });
+
+    const maintenance = new Client({ connectionString: maintenanceUrl });
+    await maintenance.connect();
+    try {
+      const privileges = await maintenance.query(
+        `select
+           has_database_privilege(current_user, current_database(), 'CONNECT') can_connect,
+           has_schema_privilege(current_user, 'tge', 'USAGE') schema_usage,
+           has_schema_privilege(current_user, 'tge', 'CREATE') schema_create,
+           has_function_privilege(current_user,
+             'tge.process_due_raw_import_cleanup(integer)', 'EXECUTE') raw_processor,
+           has_function_privilege(current_user,
+             'tge.process_pending_tenant_offboarding(integer)', 'EXECUTE') offboard_processor,
+           (select count(*)::integer from pg_proc function_record
+             join pg_namespace namespace_record
+               on namespace_record.oid = function_record.pronamespace
+             where namespace_record.nspname = 'tge'
+               and has_function_privilege(
+                 current_user, function_record.oid, 'EXECUTE'
+               )) executable_functions,
+           (select count(*)::integer from pg_class relation_record
+             join pg_namespace namespace_record
+               on namespace_record.oid = relation_record.relnamespace
+             where namespace_record.nspname = 'tge'
+               and relation_record.relkind in ('r', 'p', 'v', 'm', 'S')
+               and has_table_privilege(
+                 current_user,
+                 relation_record.oid,
+                 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+               )) privileged_relations`
+      );
+      assert.deepEqual(privileges.rows[0], {
+        can_connect: true,
+        schema_usage: true,
+        schema_create: false,
+        raw_processor: true,
+        offboard_processor: true,
+        executable_functions: 2,
+        privileged_relations: 0
+      });
+      await assert.rejects(
+        maintenance.query("set role tge_owner"),
+        error => error?.code === "42501"
+      );
+      await assert.rejects(
+        maintenance.query("set role tge_migrator"),
+        error => error?.code === "42501"
+      );
+      assert.deepEqual(
+        (await maintenance.query(
+          "select * from tge.process_due_raw_import_cleanup(1)"
+        )).rows,
+        []
+      );
+      assert.deepEqual(
+        (await maintenance.query(
+          "select * from tge.process_pending_tenant_offboarding(1)"
+        )).rows,
+        []
+      );
+      await assert.rejects(
+        maintenance.query("select * from tge.import_batches"),
+        error => error?.code === "42501"
+      );
+    } finally {
+      await maintenance.end();
+    }
+  });
+
+  test("exact 168-hour expiry survives both Melbourne DST boundaries", async () => {
+    const tenant = await seedTenant("dst", "OWNER");
+    await admin.query("set timezone to 'Australia/Melbourne'");
+    try {
+      for (const [id, createdAt, expiresAt] of [
+        ["dst-autumn", "2026-04-01T00:00:00Z", "2026-04-08T00:00:00Z"],
+        ["dst-spring", "2026-10-01T00:00:00Z", "2026-10-08T00:00:00Z"]
+      ]) {
+        await admin.query(
+          `insert into tge.import_batches (
+             tenant_id, id, status, source_filename, source_sha256,
+             authorized_by_subject_id, authorization_verified_at,
+             preview_summary, raw_expires_at, metadata_retain_until,
+             created_at, updated_at
+           ) values ($1, $2, 'PREVIEWED', 'dst.csv', $3, $4, $5,
+             '{"rowCount":0,"sourceCollection":"prospects"}', $6,
+             '2027-11-01T00:00:00Z', $5, $5)`,
+          [tenant.id, id, "a".repeat(64), tenant.subject, createdAt, expiresAt]
+        );
+      }
+      const horizons = await admin.query(
+        `select id, extract(epoch from (raw_expires_at - created_at))::integer seconds
+         from tge.import_batches where tenant_id = $1 order by id`,
+        [tenant.id]
+      );
+      assert.deepEqual(horizons.rows, [
+        { id: "dst-autumn", seconds: 604800 },
+        { id: "dst-spring", seconds: 604800 }
+      ]);
+    } finally {
+      await admin.query("set timezone to 'UTC'");
+      await admin.query(
+        "delete from tge.import_batches where tenant_id = $1",
+        [tenant.id]
+      );
+    }
+  });
+
   test("due raw cells are denied before cleanup while future and other-tenant evidence stays isolated", async () => {
     const dueTenant = await seedTenant("due", "OWNER");
     const otherTenant = await seedTenant("other", "OWNER");
@@ -151,6 +280,36 @@ if (!databaseUrl) {
     }
   });
 
+  test("runtime cannot stage raw rows into expired, cleaned, or terminal batches", async () => {
+    const tenant = await seedTenant("staging-boundary", "OWNER");
+    await seedImport(tenant, "expired-write", -8);
+    await seedImport(tenant, "committed-write", -1, { committed: true });
+    await seedImport(tenant, "cleaned-write", -8);
+    try {
+      await admin.query(
+        `update tge.import_batches
+         set status = 'EXPIRED', raw_cleanup_state = 'SUCCEEDED',
+           raw_cleanup_attempts = 1, raw_cleanup_started_at = clock_timestamp(),
+           raw_cleanup_completed_at = clock_timestamp()
+         where tenant_id = $1 and id = 'cleaned-write'`,
+        [tenant.id]
+      );
+
+      for (const batchId of ["expired-write", "committed-write", "cleaned-write"]) {
+        await assert.rejects(
+          withContext(runtime, tenant, () => insertDirectStaging(runtime, tenant, batchId)),
+          error => error?.code === "23514"
+            && error.message === "Import staging write denied."
+        );
+      }
+    } finally {
+      await admin.query("delete from tge.audit_events where tenant_id = $1", [tenant.id]);
+      await admin.query("delete from tge.prospects where tenant_id = $1", [tenant.id]);
+      await admin.query("delete from tge.import_staging_records where tenant_id = $1", [tenant.id]);
+      await admin.query("delete from tge.import_batches where tenant_id = $1", [tenant.id]);
+    }
+  });
+
   test("targetless cleanup is concurrency-safe, retry-safe, minimized, and preserves canonical/audit truth", async () => {
     const tenant = await seedTenant("cleanup", "OWNER");
     await seedImport(tenant, "cleanup-batch", -8, { committed: true });
@@ -160,7 +319,6 @@ if (!databaseUrl) {
       const run = async () => {
         const client = await pool.connect();
         try {
-          await client.query("set role tge_migrator");
           return (await client.query(
             "select * from tge.process_due_raw_import_cleanup(1)"
           )).rows;
@@ -236,7 +394,6 @@ if (!databaseUrl) {
     const maintenance = new Client({ connectionString: maintenanceUrl });
     await maintenance.connect();
     try {
-      await maintenance.query("set role tge_migrator");
       const failed = await maintenance.query(
         "select * from tge.process_due_raw_import_cleanup(1)"
       );
@@ -339,7 +496,10 @@ if (!databaseUrl) {
   });
 
   test("offboarding atomically revokes access and raw evidence but truthfully retains canonical and immutable evidence", async () => {
-    const tenant = await seedTenant("offboard-process", "OWNER");
+    const tenant = await seedTenant("offboard-process", "OWNER", {
+      billing_reference: "preserve-me",
+      unclassified_nested: { value: 7 }
+    });
     const other = await seedTenant("offboard-neighbor", "OWNER");
     await seedImport(tenant, "offboard-batch", -1, { committed: true });
     await seedImport(other, "neighbor-batch", -1, { committed: true });
@@ -354,8 +514,6 @@ if (!databaseUrl) {
     await maintenance.connect();
     await competingMaintenance.connect();
     try {
-      await maintenance.query("set role tge_migrator");
-      await competingMaintenance.query("set role tge_migrator");
       await admin.query(
         `create function tge.test_fail_offboarding() returns trigger language plpgsql as $$
          begin raise exception 'private offboarding provider detail'; end $$`
@@ -455,6 +613,15 @@ if (!databaseUrl) {
       assert.equal(request.rows[0].deletion_evidence.audit_events_retained, 1);
       assert.equal(request.rows[0].deletion_evidence.external_actions_performed, false);
       assert.doesNotMatch(JSON.stringify(request.rows[0]), /private-|auth0\||@|token|dsn/i);
+      const tenantMetadata = await admin.query(
+        "select metadata from tge.tenants where id = $1",
+        [tenant.id]
+      );
+      assert.deepEqual(tenantMetadata.rows[0].metadata, {
+        billing_reference: "preserve-me",
+        unclassified_nested: { value: 7 },
+        offboarding_state: "OFFBOARDED_ACCESS_REVOKED"
+      });
       const evidenceStates = await admin.query(
         `select status, attempt_number
          from tge.data_deletion_evidence
@@ -477,15 +644,72 @@ if (!databaseUrl) {
     }
   });
 
-  async function seedTenant(label, role) {
+  test("offboarding waits for an already-authorized import and leaves no post-success raw evidence", async () => {
+    const tenant = await seedTenant("offboard-barrier", "OWNER");
+    await withContext(runtime, tenant, () => runtime.query(
+      "select * from tge.request_tenant_offboarding('OFFBOARD_ACCESS_AND_RAW_EVIDENCE')"
+    ));
+    await grantMaintenance();
+    const importing = new Client({ connectionString: runtimeUrl });
+    const maintenance = new Client({
+      connectionString: maintenanceUrl,
+      application_name: `slice2-offboard-barrier-${tenant.id}`
+    });
+    let settled = false;
+    await importing.connect();
+    await maintenance.connect();
+    try {
+      await importing.query("begin");
+      await setContext(importing, tenant);
+      await importing.query(
+        `insert into tge.import_batches (
+           tenant_id, id, status, source_filename, source_sha256,
+           authorized_by_subject_id, authorization_verified_at,
+           preview_summary, raw_expires_at, metadata_retain_until,
+           created_at, updated_at
+         ) values ($1, 'in-flight-batch', 'PREVIEWED', 'private.csv', $2, $3,
+           clock_timestamp(), '{"rowCount":1,"sourceCollection":"prospects"}',
+           clock_timestamp() + interval '7 days',
+           clock_timestamp() + interval '12 months', clock_timestamp(), clock_timestamp())`,
+        [tenant.id, "9".repeat(64), tenant.subject]
+      );
+
+      const offboarding = maintenance.query(
+        "select * from tge.process_pending_tenant_offboarding(1)"
+      ).finally(() => { settled = true; });
+      const blocked = await waitForMaintenanceLock(
+        admin,
+        `slice2-offboard-barrier-${tenant.id}`,
+        () => settled
+      );
+      assert.equal(blocked, true, "offboarding must wait for the in-flight import");
+
+      await insertDirectStaging(importing, tenant, "in-flight-batch");
+      await importing.query("commit");
+      const processed = await offboarding;
+      assert.equal(processed.rows[0].state, "OFFBOARDED_ACCESS_REVOKED");
+      const raw = await admin.query(
+        `select raw_payload from tge.import_staging_records
+         where tenant_id = $1 and import_batch_id = 'in-flight-batch'`,
+        [tenant.id]
+      );
+      assert.equal(raw.rows[0].raw_payload, null);
+    } finally {
+      if (!settled) await importing.query("rollback").catch(() => {});
+      await importing.end();
+      await maintenance.end();
+    }
+  });
+
+  async function seedTenant(label, role, metadata = {}) {
     const tenant = {
       id: randomUUID(),
       subject: `auth0|${label}-${randomUUID()}`,
       issuer: "https://pilot.au.auth0.com/"
     };
     await admin.query(
-      "insert into tge.tenants (id, slug, name) values ($1, $2, $3)",
-      [tenant.id, `${label}-${tenant.id}`, `Private ${label}`]
+      "insert into tge.tenants (id, slug, name, metadata) values ($1, $2, $3, $4::jsonb)",
+      [tenant.id, `${label}-${tenant.id}`, `Private ${label}`, JSON.stringify(metadata)]
     );
     await admin.query(
       `insert into tge.tenant_memberships (
@@ -642,8 +866,42 @@ if (!databaseUrl) {
   }
 
   async function grantMaintenance() {
-    await admin.query(`grant tge_migrator to ${quoteIdentifier(maintenanceRole)}`);
+    await admin.query(`grant tge_maintenance to ${quoteIdentifier(maintenanceRole)}`);
   }
+}
+
+async function insertDirectStaging(client, tenant, batchId) {
+  return client.query(
+    `insert into tge.import_staging_records (
+       tenant_id, import_batch_id, id, source_collection, source_id,
+       source_ordinal, raw_payload, raw_payload_sha256, disposition,
+       idempotency_key, metadata, created_at, updated_at
+     ) values ($1, $2, $3, 'prospects', $4, 999,
+       '{"cells":[{"raw":"post-terminal-private"}]}'::jsonb, $5,
+       'PENDING', $6, '{}'::jsonb, clock_timestamp(), clock_timestamp())`,
+    [
+      tenant.id,
+      batchId,
+      `late-row-${randomUUID()}`,
+      `late-source-${randomUUID()}`,
+      "8".repeat(64),
+      `late-key-${randomUUID()}`
+    ]
+  );
+}
+
+async function waitForMaintenanceLock(client, applicationName, isSettled) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await client.query(
+      `select wait_event_type from pg_stat_activity
+       where application_name = $1 and state = 'active'`,
+      [applicationName]
+    );
+    if (result.rows[0]?.wait_event_type === "Lock") return true;
+    if (isSettled()) return false;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  return false;
 }
 
 function addMonths(value, count) {

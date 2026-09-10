@@ -1,14 +1,15 @@
 # Project State
 
-_Last locally audited on 2026-09-10. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+_Last locally audited on 2026-09-11. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
 Assisted Pilot Safety Gate V1 Slice 2 now implements the PostgreSQL-only
 [raw-import expiry and tenant offboarding
 contract](architecture/PILOT_READINESS_FOUNDATION.md#import-safety-retention-and-deletion). Append-only
 migration `015_raw_import_expiry_tenant_offboarding.sql` makes database time the
-authority for the exact seven-day raw deadline, denies expired staged rows,
-adds retry/concurrency-safe targetless cleanup through the existing server-only
-operations role, and records immutable privacy-minimized evidence. The Pilot API
+authority for the exact 168-elapsed-hour raw deadline, denies expired staged
+rows, adds retry/concurrency-safe targetless cleanup through a distinct
+processor-only `tge_maintenance` role with no owner/migrator path, and records
+immutable privacy-minimized evidence. The Pilot API
 adds tenant-authorized cleanup status plus an active-OWNER and
 reauthentication/MFA-gated offboarding request. Offboarding atomically scrubs raw
 imports, removes tenant invitation records, and revokes memberships; its truthful
@@ -16,6 +17,15 @@ success state is `OFFBOARDED_ACCESS_REVOKED` with scope
 `ACCESS_AND_RAW_EVIDENCE_ONLY`. Canonical CRM, ID-map reconciliation, audit, and
 Pilot evidence remain intact. Local JSON compatibility and human-controlled
 external-action boundaries are unchanged.
+
+The bounded independent High-review remediation adds a terminal tenant write
+barrier ordered before offboarding batch discovery, rejects direct runtime
+staging inserts into expired, cleaned, committed, failed, and otherwise
+non-writable batches, preserves all existing tenant metadata while setting only
+`metadata.offboarding_state`, and requires exact tenant/issuer/subject equality
+at the server sensitive-action boundary. Offboarding still minimizes only tenant
+`slug` and `name`, and does not broaden deletion into canonical or immutable
+evidence.
 
 Slice 2 followed red-first delivery. The initial new migration contract was
 **1/6**, service/API was **0/4**, and meaningful PostgreSQL behavior was **0/6**
@@ -28,6 +38,21 @@ Chromium **51/51**, and the Vite 8.2.2 production build of 31 modules. Migration
 `001`–`014` remain byte-identical and `git diff --check` passed. This does not
 prove provider provisioning, production scheduling/credentials/monitoring,
 external destructive actions, or a legal basis for canonical CRM deletion.
+
+The six-finding High-review remediation was also delivered red-first. Before
+the remediation, the new migration assertions were **6/9**, the offboarding
+service assertions were **4/5**, and the disposable-PostgreSQL behavior was
+**6/10**: the maintenance authority was still the migrator, the deadline used a
+calendar-day interval, terminal/staging write guards and the overlap lock were
+absent, tenant metadata was replaced, and a wrong subject was accepted. The
+remediated focused static/service tests are **14/14**, the affected
+auth/import/persistence set is **69/69**, and the focused PostgreSQL suite is
+**11/11**. The proportional final gate passed the engineering harness plus
+integration **381/381**, the complete PostgreSQL suite **78/78**, the
+harness/migration-static pair **22/22**, `git diff --check`, and the unchanged
+SHA-256 values for migrations `001`–`014`. Browser E2E and the production build
+were not repeated because this bounded remediation changes no browser or web
+production source.
 
 Post-merge [GitHub Verify run 34440327842](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/34440327842)
 failed integration at **349 passed / 7 failed** because an engineering-harness

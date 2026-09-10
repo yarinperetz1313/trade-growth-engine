@@ -45,6 +45,7 @@ function createTenantOffboardingService({
     if (
       authorized.tenantId !== trustedPersistence.tenantId
       || authorized.issuer !== trustedPersistence.identityIssuer
+      || authorized.subject !== trustedPersistence.subjectId
     ) {
       throw new AuthorizationError();
     }

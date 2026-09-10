@@ -1,5 +1,37 @@
 set local role tge_owner;
 
+reset role;
+
+do $role$
+begin
+  if not exists (select 1 from pg_catalog.pg_roles where rolname = 'tge_maintenance') then
+    create role tge_maintenance nologin noinherit nosuperuser nocreatedb
+      nocreaterole noreplication nobypassrls;
+  end if;
+end
+$role$;
+
+alter role tge_maintenance nologin noinherit nosuperuser nocreatedb nocreaterole
+  noreplication nobypassrls;
+revoke tge_owner from tge_maintenance;
+revoke tge_migrator from tge_maintenance;
+revoke tge_runtime from tge_maintenance;
+
+do $database$
+begin
+  execute format(
+    'revoke all privileges on database %I from tge_maintenance',
+    current_database()
+  );
+  execute format(
+    'grant connect on database %I to tge_maintenance',
+    current_database()
+  );
+end
+$database$;
+
+set local role tge_owner;
+
 alter table tge.import_batches
   add column raw_cleanup_state text not null default 'PENDING',
   add column raw_cleanup_attempts integer not null default 0,
@@ -8,9 +40,31 @@ alter table tge.import_batches
   add column raw_cleanup_failure_code text,
   add column raw_cleanup_retryable boolean not null default false;
 
+do $constraint$
+declare
+  legacy_constraints text[];
+begin
+  select array_agg(constraint_record.conname order by constraint_record.conname)
+  into legacy_constraints
+  from pg_catalog.pg_constraint constraint_record
+  where constraint_record.conrelid = 'tge.import_batches'::regclass
+    and constraint_record.contype = 'c'
+    and pg_catalog.pg_get_constraintdef(constraint_record.oid)
+      ~ 'raw_expires_at.*<=.*created_at';
+
+  if cardinality(legacy_constraints) is distinct from 1 then
+    raise exception 'Expected one legacy raw-expiry constraint.';
+  end if;
+  execute format(
+    'alter table tge.import_batches drop constraint %I',
+    legacy_constraints[1]
+  );
+end
+$constraint$;
+
 alter table tge.import_batches
   add constraint import_batches_raw_exact_expiry_check
-    check (raw_expires_at = created_at + interval '7 days'),
+    check (raw_expires_at = created_at + interval '168 hours'),
   add constraint import_batches_raw_cleanup_state_check check (
     raw_cleanup_state in ('PENDING', 'IN_PROGRESS', 'SUCCEEDED', 'FAILED')
   ),
@@ -77,7 +131,7 @@ begin
   new.created_at := authoritative_at;
   new.updated_at := authoritative_at;
   new.authorization_verified_at := authoritative_at;
-  new.raw_expires_at := authoritative_at + interval '7 days';
+  new.raw_expires_at := authoritative_at + interval '168 hours';
   new.metadata_retain_until := authoritative_at + interval '12 months';
   new.raw_cleanup_state := 'PENDING';
   new.raw_cleanup_attempts := 0;
@@ -93,7 +147,96 @@ create trigger import_batches_runtime_retention_clock
 before insert on tge.import_batches
 for each row execute function tge.guard_runtime_import_retention_clock();
 
+create function tge.guard_import_batch_tenant_writable()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, tge
+as $function$
+declare
+  runtime_session boolean;
+begin
+  runtime_session := (
+    pg_catalog.pg_has_role(session_user, 'tge_runtime', 'member')
+    and coalesce((
+      select not rolsuper
+      from pg_catalog.pg_roles
+      where rolname = session_user
+    ), false)
+  );
+  if not runtime_session then return new; end if;
+
+  perform 1
+  from tge.tenants tenant
+  where tenant.id = new.tenant_id
+    and tenant.metadata->>'offboarding_state'
+      is distinct from 'OFFBOARDED_ACCESS_REVOKED'
+  for share;
+  if not found then
+    raise exception using
+      errcode = '23514',
+      message = 'Import batch write denied.';
+  end if;
+  return new;
+end
+$function$;
+
+create trigger import_batches_tenant_writable
+before insert on tge.import_batches
+for each row execute function tge.guard_import_batch_tenant_writable();
+
+create function tge.guard_import_staging_writable()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, tge
+as $function$
+declare
+  runtime_session boolean;
+  target_batch record;
+begin
+  runtime_session := (
+    pg_catalog.pg_has_role(session_user, 'tge_runtime', 'member')
+    and coalesce((
+      select not rolsuper
+      from pg_catalog.pg_roles
+      where rolname = session_user
+    ), false)
+  );
+  if not runtime_session then return new; end if;
+
+  select batch.status, batch.raw_expires_at, batch.raw_cleanup_state
+  into target_batch
+  from tge.tenants tenant
+  join tge.import_batches batch
+    on batch.tenant_id = tenant.id
+  where tenant.id = new.tenant_id
+    and batch.id = new.import_batch_id
+    and tenant.metadata->>'offboarding_state'
+      is distinct from 'OFFBOARDED_ACCESS_REVOKED'
+  for share of tenant;
+
+  if not found
+    or target_batch.status not in ('STAGED', 'PREVIEWED')
+    or target_batch.raw_expires_at <= clock_timestamp()
+    or target_batch.raw_cleanup_state not in ('PENDING', 'FAILED') then
+    raise exception using
+      errcode = '23514',
+      message = 'Import staging write denied.';
+  end if;
+  return new;
+end
+$function$;
+
+create trigger import_staging_writable
+before insert on tge.import_staging_records
+for each row execute function tge.guard_import_staging_writable();
+
 revoke all on function tge.guard_runtime_import_retention_clock()
+  from public, tge_runtime;
+revoke all on function tge.guard_import_batch_tenant_writable()
+  from public, tge_runtime;
+revoke all on function tge.guard_import_staging_writable()
   from public, tge_runtime;
 
 drop policy tenant_scope on tge.import_staging_records;
@@ -146,28 +289,28 @@ create policy tenant_update_unexpired on tge.import_staging_records
 
 create policy maintenance_scope on tge.import_batches
   for all
-  using (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'))
-  with check (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'));
+  using (pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member'))
+  with check (pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member'));
 
 create policy maintenance_scope on tge.import_staging_records
   for all
-  using (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'))
-  with check (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'));
+  using (pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member'))
+  with check (pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member'));
 
 create policy maintenance_scope on tge.tenants
   for all
-  using (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'))
-  with check (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'));
+  using (pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member'))
+  with check (pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member'));
 
 create policy maintenance_scope on tge.tenant_memberships
   for all
-  using (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'))
-  with check (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'));
+  using (pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member'))
+  with check (pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member'));
 
 create policy maintenance_scope on tge.assisted_invitations
   for all
-  using (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'))
-  with check (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'));
+  using (pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member'))
+  with check (pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member'));
 
 create function tge.deletion_evidence_count(value jsonb)
 returns boolean
@@ -278,8 +421,8 @@ create policy tenant_scope on tge.data_deletion_evidence
 
 create policy maintenance_scope on tge.data_deletion_evidence
   for all
-  using (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'))
-  with check (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'));
+  using (pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member'))
+  with check (pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member'));
 
 create function tge.guard_data_deletion_evidence()
 returns trigger
@@ -362,8 +505,8 @@ create policy tenant_request_insert on tge.tenant_offboarding_requests
 
 create policy maintenance_scope on tge.tenant_offboarding_requests
   for all
-  using (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'))
-  with check (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'));
+  using (pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member'))
+  with check (pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member'));
 
 create function tge.scrub_import_batch_internal(
   target_tenant_id uuid,
@@ -383,7 +526,7 @@ declare
   current_attempt integer;
   result_summary jsonb;
 begin
-  if not pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member')
+  if not pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member')
     or coalesce((
       select rolsuper from pg_catalog.pg_roles where rolname = session_user
     ), true)
@@ -514,7 +657,7 @@ declare
   retained_canonical_count integer;
   retained_audit_count integer;
 begin
-  if not pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member')
+  if not pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member')
     or coalesce((
       select rolsuper from pg_catalog.pg_roles where rolname = session_user
     ), true)
@@ -694,7 +837,7 @@ declare
   audit_count integer;
   pilot_count integer;
 begin
-  if not pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member')
+  if not pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member')
     or coalesce((
       select rolsuper from pg_catalog.pg_roles where rolname = session_user
     ), true)
@@ -726,6 +869,16 @@ begin
     where request.tenant_id = candidate.tenant_id;
 
     begin
+      perform 1
+      from tge.tenants tenant
+      where tenant.id = candidate.tenant_id
+      for update;
+      if not found then
+        raise exception using
+          errcode = '23514',
+          message = 'Tenant offboarding target is unavailable.';
+      end if;
+
       raw_batch_count := 0;
       raw_row_count := 0;
       for import_batch in
@@ -775,7 +928,7 @@ begin
       update tge.tenants tenant
       set slug = 'offboarded-' || tenant.id::text,
           name = 'Offboarded tenant',
-          metadata = jsonb_build_object(
+          metadata = tenant.metadata || jsonb_build_object(
             'offboarding_state', 'OFFBOARDED_ACCESS_REVOKED'
           ),
           updated_at = attempted_at
@@ -946,25 +1099,28 @@ revoke all on tge.data_deletion_evidence from public, tge_runtime;
 revoke all on tge.tenant_offboarding_requests from public;
 grant select on tge.tenant_offboarding_requests to tge_runtime;
 
-grant usage on schema tge to tge_migrator;
+revoke all on all tables in schema tge from tge_maintenance;
+revoke all on all sequences in schema tge from tge_maintenance;
+revoke all on all functions in schema tge from tge_maintenance;
+grant usage on schema tge to tge_maintenance;
 revoke all on function tge.deletion_evidence_count(jsonb)
-  from public, tge_runtime, tge_migrator;
+  from public, tge_runtime, tge_migrator, tge_maintenance;
 revoke all on function tge.deletion_evidence_facts_valid(text, jsonb)
-  from public, tge_runtime, tge_migrator;
+  from public, tge_runtime, tge_migrator, tge_maintenance;
 revoke all on function tge.guard_data_deletion_evidence()
-  from public, tge_runtime, tge_migrator;
+  from public, tge_runtime, tge_migrator, tge_maintenance;
 revoke all on function tge.scrub_import_batch_internal(uuid, text, timestamptz)
-  from public, tge_runtime, tge_migrator;
+  from public, tge_runtime, tge_migrator, tge_maintenance;
 revoke all on function tge.process_due_raw_import_cleanup(integer)
-  from public, tge_runtime;
+  from public, tge_runtime, tge_migrator, tge_maintenance;
 revoke all on function tge.process_pending_tenant_offboarding(integer)
-  from public, tge_runtime;
+  from public, tge_runtime, tge_migrator, tge_maintenance;
 revoke all on function tge.request_tenant_offboarding(text) from public;
 
 grant execute on function tge.process_due_raw_import_cleanup(integer)
-  to tge_migrator;
+  to tge_maintenance;
 grant execute on function tge.process_pending_tenant_offboarding(integer)
-  to tge_migrator;
+  to tge_maintenance;
 grant execute on function tge.request_tenant_offboarding(text) to tge_runtime;
 grant execute on function tge.pilot_runtime_readiness() to tge_runtime;
 

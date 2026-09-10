@@ -50,9 +50,22 @@ test("migration 015 makes the database timestamp the exact seven-day authority",
   assert.match(sql, /^set local role tge_owner;/);
   assert.match(sql, /guard_runtime_import_retention_clock/i);
   assert.match(sql, /clock_timestamp\(\)/i);
-  assert.match(sql, /raw_expires_at\s*:=\s*authoritative_at\s*\+\s*interval '7 days'/i);
-  assert.match(sql, /raw_expires_at\s*=\s*created_at\s*\+\s*interval '7 days'/i);
+  assert.match(sql, /raw_expires_at\s*:=\s*authoritative_at\s*\+\s*interval '168 hours'/i);
+  assert.match(sql, /raw_expires_at\s*=\s*created_at\s*\+\s*interval '168 hours'/i);
   assert.doesNotMatch(clockGuard, /requested_(?:at|time|tenant|batch|target)/i);
+});
+
+test("migration 015 expresses seven days as exactly 168 elapsed hours", () => {
+  const sql = migration();
+  assert.match(
+    sql,
+    /raw_expires_at\s*:=\s*authoritative_at\s*\+\s*interval '168 hours'/i
+  );
+  assert.match(
+    sql,
+    /raw_expires_at\s*=\s*created_at\s*\+\s*interval '168 hours'/i
+  );
+  assert.doesNotMatch(sql, /interval '7 days'/i);
 });
 
 test("migration 015 exposes truthful retry-safe raw cleanup without runtime delete authority", () => {
@@ -64,7 +77,7 @@ test("migration 015 exposes truthful retry-safe raw cleanup without runtime dele
   assert.match(sql, /for update skip locked/i);
   assert.match(sql, /raw_payload\s*=\s*null/i);
   assert.match(sql, /source_filename\s*=\s*'\[deleted\]'/i);
-  assert.match(sql, /grant execute on function tge\.process_due_raw_import_cleanup\(integer\)\s+to tge_migrator/i);
+  assert.match(sql, /grant execute on function tge\.process_due_raw_import_cleanup\(integer\)\s+to tge_maintenance/i);
   assert.doesNotMatch(sql, /grant[^;]*(?:update|delete)[^;]*to tge_runtime/i);
 });
 
@@ -90,9 +103,9 @@ test("migration 015 derives offboarding authority from active OWNER membership",
   assert.doesNotMatch(sql, /request_tenant_offboarding\([^)]*(?:uuid|timestamptz)/i);
 });
 
-test("migration 015 uses the existing server-only operations role and minimized offboarding evidence", () => {
+test("migration 015 uses the dedicated maintenance role and minimized offboarding evidence", () => {
   const sql = migration();
-  assert.match(sql, /pg_has_role\(session_user, 'tge_migrator', 'member'\)/i);
+  assert.match(sql, /pg_has_role\(session_user, 'tge_maintenance', 'member'\)/i);
   assert.match(sql, /process_pending_tenant_offboarding\(requested_limit integer\)/i);
   assert.match(sql, /for update skip locked/i);
   assert.match(sql, /ACCESS_AND_RAW_EVIDENCE_ONLY/i);
@@ -101,4 +114,37 @@ test("migration 015 uses the existing server-only operations role and minimized 
   assert.match(sql, /audit_events_retained/i);
   assert.match(sql, /external_actions_performed/i);
   assert.doesNotMatch(sql, /delete from tge\.(?:prospects|opportunities|tasks|activities|revenue_actions|revenue_leak_cases|audit_events|pilot_evidence_events)/i);
+});
+
+test("migration 015 creates a targetless-only maintenance role with no migrator or owner path", () => {
+  const sql = migration();
+  const command = fs.readFileSync(
+    path.join(root, "scripts/run-maintenance-cleanup.mjs"),
+    "utf8"
+  );
+  assert.match(sql, /create role tge_maintenance nologin noinherit/i);
+  assert.match(
+    sql,
+    /grant execute on function tge\.process_due_raw_import_cleanup\(integer\)\s+to tge_maintenance/i
+  );
+  assert.match(
+    sql,
+    /grant execute on function tge\.process_pending_tenant_offboarding\(integer\)\s+to tge_maintenance/i
+  );
+  assert.doesNotMatch(sql, /grant\s+(?:tge_owner|tge_migrator)\s+to\s+tge_maintenance/i);
+  assert.doesNotMatch(
+    sql,
+    /grant execute on function tge\.process_(?:due_raw_import_cleanup|pending_tenant_offboarding)\(integer\)\s+to tge_migrator/i
+  );
+  assert.doesNotMatch(command, /set\s+(?:local\s+)?role/i);
+});
+
+test("migration 015 guards tenant terminal state and staging batch writability", () => {
+  const sql = migration();
+  assert.match(sql, /guard_import_batch_tenant_writable/i);
+  assert.match(sql, /guard_import_staging_writable/i);
+  assert.match(sql, /OFFBOARDED_ACCESS_REVOKED/i);
+  assert.match(sql, /target_batch\.status\s+not in\s*\('STAGED',\s*'PREVIEWED'\)/i);
+  assert.match(sql, /target_batch\.raw_expires_at\s*<=\s*clock_timestamp\(\)/i);
+  assert.match(sql, /target_batch\.raw_cleanup_state\s+not in\s*\('PENDING',\s*'FAILED'\)/i);
 });

@@ -12,7 +12,6 @@ if (!connectionString) {
   try {
     await client.connect();
     await client.query("begin");
-    await client.query("set local role tge_migrator");
     const raw = await client.query(
       "select * from tge.process_due_raw_import_cleanup($1::integer)",
       [limit]
