@@ -20,6 +20,16 @@ as $$
       and not coalesce(roles.rolcreatedb, true)
       and not coalesce(roles.rolcreaterole, true)
       and not coalesce(roles.rolreplication, true)
+      and not exists (
+        select 1
+        from pg_catalog.pg_roles as granted_roles
+        where granted_roles.rolname not in (session_user, 'tge_runtime')
+          and pg_catalog.pg_has_role(
+            session_user,
+            granted_roles.oid,
+            'member'
+          )
+      )
     ) as login_nonprivileged,
     (
       to_regclass('tge.tenant_memberships') is not null

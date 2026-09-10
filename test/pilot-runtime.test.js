@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -41,7 +42,8 @@ function fakePool({
     readinessQueries: 0,
     released: 0
   };
-  const pool = {
+  const pool = new EventEmitter();
+  Object.assign(pool, {
     async connect() {
       return {
         async query(sql) {
@@ -74,8 +76,18 @@ function fakePool({
     async end() {
       state.ended += 1;
     }
-  };
+  });
   return { pool, state };
+}
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
 }
 
 async function request(server, pathname, options = {}) {
@@ -321,6 +333,118 @@ test("secure readiness requires the exact migration marker, runtime role, and me
   assert.equal(failed.readiness.snapshot().ready, false);
 });
 
+test("owned pool errors fail readiness closed and expose only a normalized lifecycle code", async () => {
+  const { createPilotRuntime, readPilotConfig } = loadRuntime();
+  const fixture = fakePool();
+  const logs = [];
+  const runtime = createPilotRuntime({
+    config: readPilotConfig(VALID_ENV),
+    pool: fixture.pool,
+    poolOwned: true,
+    tokenVerifier: { async verify() { throw new Error("unused"); } },
+    logger: {
+      info(code) { logs.push(code); },
+      warn(code) { logs.push(code); },
+      error(code) { logs.push(code); }
+    }
+  });
+
+  await runtime.probeReadiness();
+  assert.equal(runtime.readiness.snapshot().ready, true);
+  const sensitive = new Error(
+    "postgresql://runtime:credential@provider.example/customer stack token"
+  );
+  sensitive.stack = "provider stack with customer content";
+  assert.doesNotThrow(() => fixture.pool.emit("error", sensitive));
+  assert.equal(runtime.readiness.snapshot().ready, false);
+  assert.deepEqual(logs, ["PILOT_DATABASE_POOL_ERROR"]);
+  assert.doesNotMatch(JSON.stringify(logs), /credential|provider|stack|token|customer/i);
+  await runtime.close();
+  assert.equal(fixture.pool.listenerCount("error"), 0);
+});
+
+test("readiness probes remain single-flight through timeout and cannot outlive close", async () => {
+  const { createPilotRuntime, readPilotConfig } = loadRuntime();
+  const gates = [];
+  const events = [];
+  const state = {
+    activeReadinessQueries: 0,
+    ended: 0,
+    maximumReadinessQueries: 0,
+    readinessQueries: 0
+  };
+  const pool = new EventEmitter();
+  pool.connect = async () => ({
+    async query(sql) {
+      const normalized = String(sql?.text || sql).replace(/\s+/g, " ").trim();
+      if (normalized.includes("tge.pilot_runtime_readiness")) {
+        const gate = deferred();
+        gates.push(gate);
+        state.readinessQueries += 1;
+        state.activeReadinessQueries += 1;
+        state.maximumReadinessQueries = Math.max(
+          state.maximumReadinessQueries,
+          state.activeReadinessQueries
+        );
+        try {
+          return await gate.promise;
+        } finally {
+          state.activeReadinessQueries -= 1;
+          events.push("probe-settled");
+        }
+      }
+      return { rows: [] };
+    },
+    release() {}
+  });
+  pool.end = async () => {
+    state.ended += 1;
+    events.push("pool-ended");
+  };
+  const runtime = createPilotRuntime({
+    config: readPilotConfig(VALID_ENV),
+    operationTimeoutMs: 5,
+    pool,
+    poolOwned: true,
+    shutdownTimeoutMs: 100,
+    tokenVerifier: { async verify() { throw new Error("unused"); } },
+    logger: { info() {}, warn() {}, error() {} }
+  });
+  const keepAlive = setInterval(() => {}, 1000);
+
+  try {
+    await runtime.probeReadiness();
+    await runtime.probeReadiness();
+    const closing = runtime.close();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(state.ended, 0);
+    for (const gate of gates) {
+      gate.resolve({
+        rows: [{
+          schema_version: "014",
+          runtime_role_member: true,
+          login_nonprivileged: true,
+          required_relations_available: true
+        }]
+      });
+    }
+    await closing;
+
+    assert.equal(state.readinessQueries, 1);
+    assert.equal(state.maximumReadinessQueries, 1);
+    assert.deepEqual(events, ["probe-settled", "pool-ended"]);
+    assert.equal(state.ended, 1);
+    assert.equal(runtime.readiness.snapshot().ready, false);
+    await runtime.probeReadiness();
+    assert.equal(state.readinessQueries, 1);
+    assert.equal(runtime.readiness.snapshot().ready, false);
+  } finally {
+    clearInterval(keepAlive);
+    for (const gate of gates) gate.resolve({ rows: [] });
+    await runtime.close();
+  }
+});
+
 test("a ready pilot still requires membership-derived auth and never exposes an unauthenticated API", async () => {
   const { createPilotRuntime, readPilotConfig } = loadRuntime();
   const fixture = fakePool();
@@ -362,6 +486,43 @@ test("pilot shutdown is idempotent and releases an owned pool exactly once", asy
   await Promise.all([runtime.close(), runtime.close()]);
   assert.equal(server.listening, false);
   assert.equal(fixture.state.ended, 1);
+});
+
+test("owned pool shutdown is bounded and keeps normalized error handling when end times out", async () => {
+  const { createPilotRuntime, readPilotConfig } = loadRuntime();
+  const fixture = fakePool();
+  const logs = [];
+  fixture.pool.end = () => new Promise(() => {});
+  const runtime = createPilotRuntime({
+    config: readPilotConfig(VALID_ENV),
+    pool: fixture.pool,
+    poolOwned: true,
+    shutdownTimeoutMs: 5,
+    tokenVerifier: { async verify() { throw new Error("unused"); } },
+    logger: {
+      info() {},
+      warn(code) { logs.push(code); },
+      error(code) { logs.push(code); }
+    }
+  });
+  const keepAlive = setInterval(() => {}, 1000);
+  const startedAt = Date.now();
+  try {
+    await runtime.close();
+  } finally {
+    clearInterval(keepAlive);
+  }
+  assert.ok(Date.now() - startedAt < 500);
+  assert.deepEqual(logs, ["PILOT_DATABASE_SHUTDOWN_FAILED"]);
+  assert.equal(fixture.pool.listenerCount("error"), 1);
+  assert.doesNotThrow(() => fixture.pool.emit(
+    "error",
+    new Error("late provider credential stack")
+  ));
+  assert.deepEqual(logs, [
+    "PILOT_DATABASE_SHUTDOWN_FAILED",
+    "PILOT_DATABASE_POOL_ERROR"
+  ]);
 });
 
 test("package scripts expose explicit local and pilot modes plus a validated pilot browser build", async () => {

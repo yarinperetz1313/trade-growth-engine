@@ -1075,6 +1075,60 @@ if (!testDatabaseUrl) {
     );
   });
 
+  test("runtime readiness rejects privileged and schema-escalating dual-role logins", async () => {
+    const escalationRole = `tge_escalation_test_${randomUUID().replaceAll("-", "")}`;
+    const baseline = await runtimeClient.query(
+      "select login_nonprivileged from tge.pilot_runtime_readiness()"
+    );
+    assert.deepEqual(baseline.rows, [{ login_nonprivileged: true }]);
+
+    await adminClient.query(`create role ${quoteIdentifier(escalationRole)} nologin`);
+    await adminClient.query(
+      `grant create on schema tge to ${quoteIdentifier(escalationRole)}`
+    );
+    try {
+      for (const additionalRole of [
+        "tge_owner",
+        "tge_migrator",
+        escalationRole
+      ]) {
+        await adminClient.query(
+          `grant ${quoteIdentifier(additionalRole)} to ${quoteIdentifier(runtimeRole)}`
+        );
+        const result = await runtimeClient.query(
+          "select login_nonprivileged from tge.pilot_runtime_readiness()"
+        );
+        assert.deepEqual(
+          result.rows,
+          [{ login_nonprivileged: false }],
+          additionalRole
+        );
+        await adminClient.query(
+          `revoke ${quoteIdentifier(additionalRole)} from ${quoteIdentifier(runtimeRole)}`
+        );
+      }
+    } finally {
+      for (const additionalRole of [
+        "tge_owner",
+        "tge_migrator",
+        escalationRole
+      ]) {
+        await adminClient.query(
+          `revoke ${quoteIdentifier(additionalRole)} from ${quoteIdentifier(runtimeRole)}`
+        );
+      }
+      await adminClient.query(
+        `revoke create on schema tge from ${quoteIdentifier(escalationRole)}`
+      );
+      await adminClient.query(`drop role ${quoteIdentifier(escalationRole)}`);
+    }
+
+    const restored = await runtimeClient.query(
+      "select login_nonprivileged from tge.pilot_runtime_readiness()"
+    );
+    assert.deepEqual(restored.rows, [{ login_nonprivileged: true }]);
+  });
+
   test("membership roles and RevenueAction active identity constraints are exact", async () => {
     await assertSqlState(
       adminClient.query(

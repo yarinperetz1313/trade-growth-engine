@@ -147,6 +147,7 @@ function readPilotConfig(env = process.env) {
 }
 
 function createReadinessState() {
+  let closed = false;
   let current = freezeSnapshot(false, {
     configuration: "ready",
     auth: "configured_not_externally_verified",
@@ -158,6 +159,7 @@ function createReadinessState() {
     isReady: () => current.ready,
     snapshot: () => current,
     mark(checks) {
+      if (closed) return current;
       current = freezeSnapshot(Object.values(checks).every(value => [
         "ready",
         "usable",
@@ -167,12 +169,15 @@ function createReadinessState() {
       return current;
     },
     close() {
+      if (closed) return current;
+      closed = true;
       current = freezeSnapshot(false, {
         ...current.checks,
         database: "closed",
         migrations: "not_ready",
         membership: "not_ready"
       });
+      return current;
     }
   });
 }
@@ -282,57 +287,75 @@ function createPilotRuntime({
   let readinessTimer = null;
   let probeInFlight = null;
   let closePromise = null;
+  let lifecycle = "open";
+  let readinessRevision = 0;
   const signalHandlers = new Map();
+  const onPoolError = () => {
+    readinessRevision += 1;
+    readiness.mark(createUnavailableChecks());
+    safeLog(logger, "error", "PILOT_DATABASE_POOL_ERROR");
+  };
+  if (poolOwned && typeof pool.on === "function") {
+    pool.on("error", onPoolError);
+  }
 
-  async function probeReadiness() {
-    if (probeInFlight) return probeInFlight;
-    probeInFlight = (async () => {
-      const checks = {
-        configuration: "ready",
-        auth: "configured_not_externally_verified",
-        database: "not_ready",
-        migrations: "not_ready",
-        membership: "not_ready"
-      };
-      try {
-        const row = await withTimeout(
-          readDatabaseReadiness(pool),
-          operationTimeoutMs
-        );
-        checks.database = "usable";
-        if (
-          row?.schema_version !== EXPECTED_SCHEMA_VERSION
-          || row.runtime_role_member !== true
-          || row.login_nonprivileged !== true
-          || row.required_relations_available !== true
-        ) {
-          readiness.mark(checks);
-          safeLog(logger, "warn", "PILOT_READINESS_CHECK_FAILED");
+  function probeReadiness() {
+    if (lifecycle !== "open") return Promise.resolve(readiness.snapshot());
+    if (probeInFlight) return probeInFlight.result;
+    const revision = readinessRevision;
+    const checks = createUnavailableChecks();
+    const work = (async () => {
+      const row = await readDatabaseReadiness(pool);
+      checks.database = "usable";
+      if (
+        row?.schema_version !== EXPECTED_SCHEMA_VERSION
+        || row.runtime_role_member !== true
+        || row.login_nonprivileged !== true
+        || row.required_relations_available !== true
+      ) {
+        return checks;
+      }
+      checks.migrations = "current";
+      if (lifecycle !== "open" || revision !== readinessRevision) return checks;
+      const memberships = await membershipRepository.findActiveMembershipsByIdentity({
+        issuer: config.auth.issuer,
+        subject: "urn:tge:pilot-readiness:v1"
+      });
+      if (!Array.isArray(memberships)) throw new Error("membership probe failed");
+      checks.membership = "usable";
+      return checks;
+    })();
+    const result = withTimeout(work, operationTimeoutMs).then(
+      completedChecks => {
+        if (lifecycle !== "open" || revision !== readinessRevision) {
           return readiness.snapshot();
         }
-        checks.migrations = "current";
-        const memberships = await withTimeout(
-          membershipRepository.findActiveMembershipsByIdentity({
-            issuer: config.auth.issuer,
-            subject: "urn:tge:pilot-readiness:v1"
-          }),
-          operationTimeoutMs
-        );
-        if (!Array.isArray(memberships)) throw new Error("membership probe failed");
-        checks.membership = "usable";
-        return readiness.mark(checks);
-      } catch {
+        const snapshot = readiness.mark(completedChecks);
+        if (!snapshot.ready) {
+          safeLog(logger, "warn", "PILOT_READINESS_CHECK_FAILED");
+        }
+        return snapshot;
+      },
+      () => {
+        if (lifecycle !== "open" || revision !== readinessRevision) {
+          return readiness.snapshot();
+        }
         readiness.mark(checks);
         safeLog(logger, "warn", "PILOT_READINESS_CHECK_FAILED");
         return readiness.snapshot();
-      } finally {
-        probeInFlight = null;
       }
-    })();
-    return probeInFlight;
+    );
+    const record = { result, work };
+    probeInFlight = record;
+    const clearProbe = () => {
+      if (probeInFlight === record) probeInFlight = null;
+    };
+    work.then(clearProbe, clearProbe);
+    return result;
   }
 
   async function listen({ port = config.port, autoProbe = true } = {}) {
+    if (lifecycle !== "open") throw new Error("Pilot runtime is closing.");
     if (server) throw new Error("Pilot runtime is already listening.");
     server = await listenApp(app, port);
     if (autoProbe) {
@@ -354,6 +377,8 @@ function createPilotRuntime({
 
   async function close() {
     if (closePromise) return closePromise;
+    lifecycle = "closing";
+    readinessRevision += 1;
     closePromise = (async () => {
       if (readinessTimer) clearInterval(readinessTimer);
       readinessTimer = null;
@@ -362,16 +387,29 @@ function createPilotRuntime({
       }
       signalHandlers.clear();
       readiness.close();
+      const activeProbe = probeInFlight?.work;
       if (server) {
         await closeServer(server, shutdownTimeoutMs, logger);
       }
+      if (
+        activeProbe
+        && !await settlesWithin(activeProbe, shutdownTimeoutMs)
+      ) {
+        safeLog(logger, "warn", "PILOT_READINESS_SHUTDOWN_TIMEOUT");
+      }
+      let poolEnded = false;
       if (poolOwned && typeof pool.end === "function") {
         try {
           await withTimeout(pool.end(), shutdownTimeoutMs);
+          poolEnded = true;
         } catch {
           safeLog(logger, "error", "PILOT_DATABASE_SHUTDOWN_FAILED");
         }
       }
+      if (poolEnded && typeof pool.removeListener === "function") {
+        pool.removeListener("error", onPoolError);
+      }
+      lifecycle = "closed";
       safeLog(logger, "info", "PILOT_RUNTIME_STOPPED");
     })();
     return closePromise;
@@ -385,6 +423,16 @@ function createPilotRuntime({
     readiness,
     registerSignalHandlers
   });
+}
+
+function createUnavailableChecks() {
+  return {
+    configuration: "ready",
+    auth: "configured_not_externally_verified",
+    database: "not_ready",
+    migrations: "not_ready",
+    membership: "not_ready"
+  };
 }
 
 async function readDatabaseReadiness(pool) {
@@ -456,6 +504,18 @@ function withTimeout(promise, timeoutMs) {
       }
     );
   });
+}
+
+async function settlesWithin(promise, timeoutMs) {
+  try {
+    await withTimeout(Promise.resolve(promise).then(
+      () => undefined,
+      () => undefined
+    ), timeoutMs);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function safeLog(logger, level, code) {

@@ -686,6 +686,21 @@ test("migration 014 exposes only a bounded least-privilege runtime readiness pro
   assert.doesNotMatch(readiness, /security\s+definer/i);
 });
 
+test("migration 014 rejects privileged and non-allowlisted role memberships", () => {
+  const readiness = read(
+    "database/migrations/014_secure_pilot_runtime_readiness.sql"
+  );
+  assert.match(readiness, /not exists\s*\([\s\S]*?from pg_catalog\.pg_roles as granted_roles/i);
+  assert.match(
+    readiness,
+    /granted_roles\.rolname not in \(session_user, 'tge_runtime'\)/i
+  );
+  assert.match(
+    readiness,
+    /pg_catalog\.pg_has_role\(\s*session_user,\s*granted_roles\.oid,\s*'member'\s*\)/i
+  );
+});
+
 test("runner, package scripts, Compose, and CI use the real pinned PostgreSQL gate", () => {
   const runner = read("scripts/migrate-db.mjs");
   const runnerPolicy = read("scripts/migration-runner-policy.mjs");
