@@ -6,6 +6,7 @@
 - **PR-3 and PR-4 are integrated in code, complete, and merged through [PR #16](https://github.com/yarinperetz1313/trade-growth-engine/pull/16) at `b0a8e36`.** PR #16 closed [Issue #2](https://github.com/yarinperetz1313/trade-growth-engine/issues/2) and [Issue #5](https://github.com/yarinperetz1313/trade-growth-engine/issues/5). Tenant-aware PostgreSQL repositories and transactional RevenueAction execution consume PR-4 membership authority through a server-only bridge between independently branded contexts. The old magic-link blocker is removed.
 - **Combined verification is COMPLETE at `9fe7cea`.** [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854) passed the engineering harness, 129 integration tests, 44 PostgreSQL 16.15 database tests, 7 managed Chromium tests, and the production build. Fresh combined review found no P0, P1, or P3 findings; its only P2 was stale status text corrected in this record.
 - **PR-5A implements bounded CSV staging/preview; PR-5B implements draft mapping, validation, and Data Health; PR-5C implements controlled atomic canonical commit and existing-ID-map reconciliation; PR-5D implements the contract-mocked browser workflow and adversarial browser states.** Raw-evidence retention/deletion acceptance and implementation are explicitly deferred to a separate reviewed follow-up. JSON cutover, deployment, and production provisioning remain out of scope.
+- **TGE Assisted Pilot Safety Gate V1 PR-1 is ACTIVE from pinned base `e5e8f5fc432caa52b879bfa92a56bd6946ae89f9`.** This slice adds only the explicit secure pilot runtime/readiness bootstrap described in [Secure Pilot Runtime](../../architecture/SECURE_PILOT_RUNTIME.md). GitHub delivery, external provisioning, retention deletion, currency, and later milestone slices remain out of scope.
 
 The canonical architecture is the [foundation](../../architecture/PILOT_READINESS_FOUNDATION.md), with the identity path detailed in [Authentication and TenantContext](../../architecture/AUTHENTICATION_AND_TENANT_CONTEXT.md). Provisioning and release evidence live in the [production gate](../../operations/PILOT_PRODUCTION_GATE.md).
 
@@ -21,6 +22,7 @@ The canonical architecture is the [foundation](../../architecture/PILOT_READINES
 | Invitations | OWNER-only assisted invitations are expiring, revocable, single-use, hashed at rest, identity-bound after server provisioning, and atomically consumed with membership/audit evidence. Sensitive changes cross a reauthentication/MFA-ready injected policy. |
 | Combined runtime | The server validates the auth context, mints a separate PR-3 persistence context from tenant ID and subject, and injects it into tenant-scoped PostgreSQL routers/transactions. Auth mode returns `503 TENANT_PERSISTENCE_UNAVAILABLE` without the adapter/bridge. JSON remains the default local/test adapter; no cutover is claimed. |
 | Provisioning | Real Auth0 AU tenant/plan, custom domain, SMTP, sender authentication, callback/logout/origin configuration, and external OTP E2E remain deployment gates. |
+| Secure pilot runtime | Local `server` remains JSON-compatible. Only `server:pilot`/`start` is supported for Pilot: exact validated configuration, Auth0 plus membership authorization, least-privilege PostgreSQL only, separate liveness/readiness, pre-readiness request gating, bounded probes/retries, and owned graceful shutdown. Readiness proves local wiring/database/migration usability only. |
 
 ## PR-4 implementation
 
@@ -72,6 +74,24 @@ No local mock or deterministic seam may be reported as real Auth0/SMTP proof.
   follow-up.** The earlier generic PR-6/PR-7 labels were planning placeholders,
   not concrete unmerged code or dependencies, and are no longer used as roadmap
   authority.
+- [ ] **Assisted Pilot Safety Gate V1 PR-1 — secure pilot runtime and readiness.**
+  Add the explicit fail-closed bootstrap, append-only readiness probe, protected
+  request gate, portable commands, exact configuration validation, graceful
+  cleanup, and authenticated PostgreSQL import/operating-loop evidence. Do not
+  provision providers or begin PR-2.
+
+### Assisted Pilot Safety Gate V1 PR-1 execution decisions
+
+| Area | Decision | Acceptance evidence |
+| --- | --- | --- |
+| Entrypoints | Preserve `npm run server` for local JSON compatibility. Add `npm run server:pilot` and `npm start` as the only Pilot bootstrap; it has no adapter flag or fallback. | Startup/config regressions and package contract |
+| Configuration | Require bounded port, `TGE_RUNTIME_DATABASE_URL`, exact HTTPS public app/API URLs, and exact Auth0 issuer/audience/client/callback/logout values before listen. Derive exact issuer JWKS. Never use the migration/operator URL as runtime fallback. | Missing/invalid matrix; no-secret error assertions |
+| Composition | One owned pool feeds persistence, `PostgresAuthRepository`, invitation service, Auth0 verifier/runtime, the branded auth-to-persistence bridge, and every current PostgreSQL business router. Sensitive invitation administration/provisioning remains denied without later injected policies. | Component tests plus authenticated real-PostgreSQL HTTP journey |
+| Health gate | `/health/live` and `/health` are liveness only. `/health/ready` requires configured auth plus the bounded runtime-role/schema/membership-path probe. Except for health and `/api/auth/config`, APIs return `SECURE_RUNTIME_NOT_READY` until ready. | Listening/not-ready/ready and dependency-failure regressions |
+| Database proof | Append one migration exposing only a bounded runtime readiness result; verify runtime membership, non-superuser/non-`BYPASSRLS` login, current marker/schema, and membership lookup. Runtime cannot read the migration ledger and never runs migrations. | Static and PostgreSQL 16 tests |
+| Browser | Keep separate static hosting. A pilot build validates exact HTTPS `VITE_API_URL === TGE_PUBLIC_API_URL`; browser Auth0 config still comes from `/api/auth/config` and existing memory-only PKCE/bearer paths remain authoritative. | Browser/build configuration contract; managed Chromium only if browser behavior changes |
+| Cleanup | The runtime owns its readiness loop, HTTP listener, and created pool; signals and explicit close stop work and release resources exactly once with a bounded drain. | Shutdown/idempotency regressions |
+| Explicit limits | Ready is not live Auth0/JWKS/SMTP/OTP, provisioning, region, backup/restore, privacy, or retention-deletion proof. No secrets, DSNs, tokens, raw cells, tenant/customer data, or cross-tenant existence appear in normalized errors. | Response/log assertions and final gate statement |
 
 ## Verification
 
