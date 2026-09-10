@@ -2,6 +2,58 @@
 
 _Last locally audited on 2026-09-10. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
+Post-merge [GitHub Verify run 34440327842](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/34440327842)
+failed integration at **349 passed / 7 failed** because an engineering-harness
+negative self-test rewrote tracked repository files in place during parallel
+`node:test` execution. Its temporary replacement of the Auth0
+`algorithms: ["RS256"]` contract with unquoted test text made seven concurrent
+Pilot-runtime test files load syntactically invalid JavaScript; this was a test
+isolation race, not a runtime assertion failure. The bounded remediation runs
+every harness-negative mutation in a disposable copied repository with an
+independent Git index. A synchronized process regression reproduced the exact
+`SyntaxError: Unexpected identifier 'BY'` before the fix and now requires the
+live authentication source to parse and every live tracked-file hash to remain
+unchanged while the isolated real harness fails closed. Assisted Pilot Safety
+Gate V1 Slice 2 remains unstarted. Local remediation evidence is focused
+harness/isolation **6/6**, five parallel harness-plus-Pilot stress iterations
+at **20/20 each** (**100/100** aggregate), and repeated `npm run verify:fast`
+with the engineering harness plus integration **357/357**. An earlier fast-gate
+attempt had one transient public-config `fetch failed` result (**356/357**); the
+exact file immediately passed **10/10**, and the complete repeated gate passed.
+These results do not add database, managed-browser, provider, or delivery
+evidence.
+
+A fresh post-merge review then found that harness helpers still inherited
+ambient Git controls and that fixture/marker cleanup relied on JavaScript
+`finally` blocks. Red regressions were **0/1** when a caller-controlled
+repository/index redirected the synchronized fixture/checker/hash path and
+**0/1** each for `SIGINT` and `SIGTERM`, with the test-owned fixture repository
+left behind. The bounded follow-up strips every `GIT_*` variable only at Git and
+checker subprocess boundaries, preserves unrelated test environment, and uses
+one owned, idempotent temporary-directory lifecycle whose handlers are removed
+after normal cleanup and which re-raises both signals after cleanup. The three
+red regressions are now **3/3**, both complete harness files are **10/10**, five
+parallel harness-plus-Pilot-runtime stress iterations are **24/24** each
+(**120/120** aggregate), and `npm run verify:fast` passed the engineering
+harness plus integration **361/361**. No runtime, auth, database, browser,
+dependency, workflow, or Slice 2 behavior changed, and no broader evidence is
+added.
+
+The final bounded review found two additional P3 harness lifecycle defects:
+parent timeout killed only the direct child and could orphan its descendant and
+owned directories, while re-raising a signal with unrelated listeners still
+installed could invoke them twice and suppress default termination. Red-first
+subprocess evidence was **0/3**: both `SIGINT` and `SIGTERM` children timed out,
+and the timeout case retained its fixture, marker, and live descendant. The
+test-only remediation gives every collected child a dedicated process group,
+uses bounded `SIGTERM` cleanup followed by group `SIGKILL` recovery, and removes
+remaining listeners before the one signal re-raise. Focused regressions are
+**3/3**, the complete harness/isolation pair is **11/11**, and five parallel
+harness-plus-Pilot-runtime stress iterations are **25/25** each (**125/125**
+aggregate). `npm run verify:fast` passed the engineering harness plus integration
+**362/362**. No runtime, product, database, browser, dependency, workflow, or
+Slice 2 behavior changed, and no broader evidence is added.
+
 ## Current verified shape
 Trade Growth Engine is a Vite React + Express local-first CRM. `src/index.js` starts the server, `src/api/` exposes thin structured HTTP boundaries, and `web/main.jsx` provides hash-routed UI. Local JSON persistence flows through `src/services/localStore.js`; tests and E2E use isolated stores. The [Legacy JSON Compatibility Contract](architecture/LEGACY_JSON_COMPATIBILITY.md) and deterministic fixtures characterize that adapter for the future persistence cutover.
 

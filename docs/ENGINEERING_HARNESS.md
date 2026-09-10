@@ -48,6 +48,23 @@ For local database verification, start the pinned disposable service with `docke
 
 The Node test suite executes this gate too, so a broken gate is itself a test failure. These checks intentionally do not enforce file-size, style, or speculative architecture rules.
 
+Harness-negative self-tests run the real checker against a copied tracked-file
+snapshot with its own temporary Git index. Their Git and checker subprocesses
+discard every ambient `GIT_*` control while preserving unrelated test
+environment, so a caller cannot redirect repository, worktree, index, object,
+or tracked-set discovery. Contract removals, untracked-path fixtures, and
+tracked-artifact fixtures must never be written into the live worktree. A
+synchronized cross-process regression verifies that all live tracked-file
+hashes remain stable while the isolated checker observes and rejects a removed
+contract. Test-owned fixture and marker directories use one idempotent lifecycle
+that unregisters its handlers after normal cleanup and removes all owned paths
+before re-raising `SIGINT` or `SIGTERM` with the original signal semantics.
+Before that one re-raise, the terminating signal's remaining listeners are
+removed so they cannot run twice or suppress default termination. Parent test
+timeouts own a dedicated subprocess group: they allow one bounded `SIGTERM`
+cleanup window, escalate the full group to `SIGKILL`, and do not settle until
+the owned process tree has exited or bounded recovery is exhausted.
+
 ## E2E and CI contract
 
 Use only `npm run test:e2e`. It creates a marked temporary `TGE_E2E_STORE_DIR`, seeds deterministic collections (including `revenue_actions: []`), and removes that store after success, failure, signals, or supported parent errors. It never uses developer `data/*.json`.
