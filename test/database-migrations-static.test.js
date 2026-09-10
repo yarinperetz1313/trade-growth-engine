@@ -31,7 +31,8 @@ test("migration 001 remains byte-for-byte unchanged and migrations are append-on
     "010_auth_membership_and_invitations.sql",
     "011_canonical_import_commit.sql",
     "012_revenue_leak_case_foundation.sql",
-    "013_privacy_minimized_pilot_evidence.sql"
+    "013_privacy_minimized_pilot_evidence.sql",
+    "014_secure_pilot_runtime_readiness.sql"
   ]);
   assert.equal(Buffer.byteLength(initialMigration), 2752);
   assert.equal(
@@ -648,6 +649,41 @@ test("migration 013 establishes closed append-only tenant-safe pilot evidence", 
     "prepared_execution",
     "free_form"
   ]) assert.doesNotMatch(evidence, new RegExp(forbidden, "i"));
+});
+
+test("migration 014 exposes only a bounded least-privilege runtime readiness probe", () => {
+  const readiness = read(
+    "database/migrations/014_secure_pilot_runtime_readiness.sql"
+  );
+  assert.match(readiness, /^set local role tge_owner;/);
+  assert.match(readiness, /create function tge\.pilot_runtime_readiness\(\)/);
+  assert.match(readiness, /'014'::text as schema_version/);
+  assert.match(readiness, /pg_has_role\(session_user, 'tge_runtime', 'member'\)/i);
+  assert.match(readiness, /not coalesce\(roles\.rolsuper, true\)/i);
+  assert.match(readiness, /not coalesce\(roles\.rolbypassrls, true\)/i);
+  for (const relation of [
+    "tenant_memberships",
+    "prospects",
+    "opportunities",
+    "tasks",
+    "activities",
+    "revenue_actions",
+    "import_batches",
+    "import_staging_records",
+    "import_id_map",
+    "revenue_leak_cases",
+    "pilot_evidence_events",
+    "audit_events"
+  ]) {
+    assert.match(readiness, new RegExp(`tge\\.${relation}`));
+  }
+  assert.match(
+    readiness,
+    /grant execute on function tge\.pilot_runtime_readiness\(\) to tge_runtime/
+  );
+  assert.match(readiness, /revoke all on function tge\.pilot_runtime_readiness\(\) from public/);
+  assert.doesNotMatch(readiness, /schema_migrations|grant[^;]*tge_migration/i);
+  assert.doesNotMatch(readiness, /security\s+definer/i);
 });
 
 test("runner, package scripts, Compose, and CI use the real pinned PostgreSQL gate", () => {

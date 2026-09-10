@@ -53,6 +53,7 @@ const pilotEvidence =
   );
 
 function createApiRouter({
+  healthRouter = health,
   importsRouter = null,
   pilotEvidenceRouter = pilotEvidence,
   revenueLeakCasesRouter = revenueLeakCases,
@@ -63,7 +64,7 @@ function createApiRouter({
     express.Router();
 
 router.use(
-  health
+  healthRouter
 );
 
 if (postgresCoreRouter) {

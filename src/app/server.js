@@ -60,16 +60,28 @@ function sendTenantPersistenceUnavailable(res) {
 
 function createApp({
   authRuntime = null,
+  healthRouter,
   importService,
+  onUnhandledError = error => console.error(error),
   persistence,
   revenueActionService,
   resolveAuthorizationContext,
-  resolveTenantContext
+  resolveTenantContext,
+  secureReadiness = null
 } = {}) {
   if (persistence && revenueActionService) {
     throw new TypeError(
       "Inject either persistence or a RevenueAction service, not both."
     );
+  }
+  if (
+    secureReadiness !== null
+    && typeof secureReadiness?.isReady !== "function"
+  ) {
+    throw new TypeError("Secure readiness must expose isReady().");
+  }
+  if (typeof onUnhandledError !== "function") {
+    throw new TypeError("Unhandled error reporting must be a function.");
   }
 
   const authPersistenceAvailable = Boolean(
@@ -113,6 +125,7 @@ function createApp({
       })
       : null;
     api = createApiRouter({
+      healthRouter,
       importsRouter,
       pilotEvidenceRouter: persistence?.repositories?.pilotEvidence
         ? createPilotEvidenceRouter({
@@ -137,6 +150,22 @@ function createApp({
   const app = express();
   app.disable("x-powered-by");
   app.use(cors(authRuntime?.corsOptions));
+  if (secureReadiness) {
+    app.use((req, res, next) => {
+      const publicWhileStarting = req.method === "GET" && [
+        "/health",
+        "/health/live",
+        "/health/ready",
+        "/api/auth/config"
+      ].includes(req.path);
+      if (publicWhileStarting || secureReadiness.isReady()) return next();
+      return res.status(503).json({
+        ok: false,
+        error: "SECURE_RUNTIME_NOT_READY",
+        message: "The secure pilot runtime is not ready."
+      });
+    });
+  }
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true }));
 
@@ -194,7 +223,11 @@ function createApp({
       });
     }
 
-    console.error(err);
+    try {
+      onUnhandledError(err);
+    } catch {
+      // Error reporting cannot replace the normalized response boundary.
+    }
     return res.status(err.status || 500).json({
       ok: false,
       error: "INTERNAL_SERVER_ERROR",
