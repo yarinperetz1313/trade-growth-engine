@@ -82,6 +82,9 @@ function handleSignal(signal) {
     }
   } finally {
     removeSignalHandlers();
+    // The original dispatch may reach unrelated listeners once. Removing them
+    // here ensures the re-raised signal has its default terminating behavior.
+    process.removeAllListeners(signal);
     handlingSignal = false;
     process.kill(process.pid, signal);
   }

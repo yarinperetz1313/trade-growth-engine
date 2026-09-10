@@ -72,11 +72,14 @@ test("ambient Git-control variables cannot redirect harness fixture, checker, or
       ],
       {
         cwd: repositoryRoot,
+        detached: process.platform !== "win32",
         env: poisonedEnvironment,
         stdio: ["ignore", "pipe", "pipe"]
       }
     );
-    const childResult = await collectChildResult(child);
+    const childResult = await collectChildResult(child, {
+      ownsProcessGroup: process.platform !== "win32"
+    });
 
     assert.equal(
       childResult.code,
@@ -109,6 +112,11 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
     const originalLiveIndexBytes = snapshotGitIndex(cleanGitEnvironment());
     const coordinatorDirectory = createOwnedTempDirectory("tge-harness-signal-");
     const manifestPath = path.join(coordinatorDirectory, "resources.json");
+    const unrelatedListenerPath = path.join(
+      coordinatorDirectory,
+      "unrelated-listener.log"
+    );
+    fs.writeFileSync(unrelatedListenerPath, "");
     let resources;
     let child;
 
@@ -116,7 +124,8 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
       const childEnvironment = {
         ...process.env,
         TGE_HARNESS_TEST_CONTRACT_PATH: "src/auth/authentication.js",
-        TGE_HARNESS_TEST_SIGNAL_MANIFEST_PATH: manifestPath
+        TGE_HARNESS_TEST_SIGNAL_MANIFEST_PATH: manifestPath,
+        TGE_HARNESS_TEST_UNRELATED_SIGNAL_LISTENER_PATH: unrelatedListenerPath
       };
       delete childEnvironment.NODE_TEST_CONTEXT;
       child = spawn(
@@ -124,11 +133,15 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
         ["test/engineering-harness.test.js"],
         {
           cwd: repositoryRoot,
+          detached: process.platform !== "win32",
           env: childEnvironment,
           stdio: ["ignore", "pipe", "pipe"]
         }
       );
-      const childResultPromise = collectChildResult(child);
+      const childResultPromise = collectChildResult(child, {
+        ownsProcessGroup: process.platform !== "win32",
+        timeoutMs: 1_500
+      });
 
       await waitForFile(manifestPath);
       resources = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
@@ -142,6 +155,18 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
       assert.equal(childResult.signal, signal, childResult.stderr || childResult.stdout);
       assert.equal(fs.existsSync(resources.fixtureRoot), false, "fixture repository leaked");
       assert.equal(fs.existsSync(resources.markerDirectory), false, "marker directory leaked");
+      const unrelatedListenerInvocations = fs
+        .readFileSync(unrelatedListenerPath, "utf8")
+        .split("\n")
+        .filter(Boolean);
+      assert.ok(
+        unrelatedListenerInvocations.length <= 1,
+        `unrelated signal listener ran ${unrelatedListenerInvocations.length} times`
+      );
+      assert.ok(
+        unrelatedListenerInvocations.every(invocation => invocation === signal),
+        `unrelated listener observed an unexpected signal: ${unrelatedListenerInvocations}`
+      );
       assert.deepEqual(
         snapshotGitIndex(cleanGitEnvironment()),
         originalLiveIndexBytes,
@@ -164,6 +189,81 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
     }
   });
 }
+
+test("timed-out harness subprocess cleans owned resources and terminates its descendant", async () => {
+  const coordinatorDirectory = createOwnedTempDirectory("tge-harness-timeout-");
+  const manifestPath = path.join(coordinatorDirectory, "resources.json");
+  let resources;
+  let child;
+
+  try {
+    const childEnvironment = {
+      ...process.env,
+      TGE_HARNESS_TEST_CONTRACT_PATH: "src/auth/authentication.js",
+      TGE_HARNESS_TEST_SIGNAL_MANIFEST_PATH: manifestPath,
+      TGE_HARNESS_TEST_TIMEOUT_DESCENDANT: "1"
+    };
+    delete childEnvironment.NODE_TEST_CONTEXT;
+    child = spawn(process.execPath, ["test/engineering-harness.test.js"], {
+      cwd: repositoryRoot,
+      detached: process.platform !== "win32",
+      env: childEnvironment,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const childResultPromise = collectChildResult(child, {
+      ownsProcessGroup: process.platform !== "win32",
+      timeoutMs: 500
+    });
+
+    await waitForFile(manifestPath);
+    resources = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    await waitForFile(resources.descendantHeartbeatPath);
+    await assert.rejects(
+      childResultPromise,
+      /timed out waiting for harness test child to exit/
+    );
+    const heartbeatSize = fs.statSync(resources.descendantHeartbeatPath).size;
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    assert.deepEqual(
+      {
+        descendantAlive:
+          fs.statSync(resources.descendantHeartbeatPath).size > heartbeatSize,
+        fixtureExists: fs.existsSync(resources.fixtureRoot),
+        markerExists: fs.existsSync(resources.markerDirectory)
+      },
+      {
+        descendantAlive: false,
+        fixtureExists: false,
+        markerExists: false
+      }
+    );
+  } finally {
+    try {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        signalOwnedChild(child, "SIGKILL", process.platform !== "win32");
+      }
+      if (resources?.descendantPid) {
+        try {
+          process.kill(resources.descendantPid, "SIGKILL");
+        } catch (error) {
+          if (error.code !== "ESRCH" && error.code !== "EPERM") {
+            throw error;
+          }
+        }
+      }
+    } finally {
+      try {
+        if (resources) {
+          fs.rmSync(resources.fixtureRoot, { recursive: true, force: true });
+          fs.rmSync(resources.markerDirectory, { recursive: true, force: true });
+        }
+      } finally {
+        cleanupOwnedDirectory(coordinatorDirectory);
+      }
+    }
+  }
+});
 
 test("harness contract-removal failures never expose mutated tracked source to another process", async () => {
   const authenticationPath = path.join(
@@ -192,11 +292,14 @@ test("harness contract-removal failures never expose mutated tracked source to a
     ],
     {
       cwd: repositoryRoot,
+      detached: process.platform !== "win32",
       env: childEnvironment,
       stdio: ["ignore", "pipe", "pipe"]
     }
   );
-  const childResultPromise = collectChildResult(child);
+  const childResultPromise = collectChildResult(child, {
+    ownsProcessGroup: process.platform !== "win32"
+  });
 
   try {
     const earlyChildResult = await Promise.race([
@@ -303,14 +406,68 @@ async function waitForFile(filePath) {
   }
 }
 
-function collectChildResult(child) {
+function collectChildResult(
+  child,
+  {
+    ownsProcessGroup = false,
+    terminationGraceMs = 500,
+    terminationRecoveryMs = 1_000,
+    timeoutMs = 20_000
+  } = {}
+) {
   return new Promise((resolve, reject) => {
     let stdout = "";
     let stderr = "";
+    let recoveryTimer;
+    let settled = false;
+    let timedOut = false;
     const timeout = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(new Error("timed out waiting for harness test child to exit"));
-    }, 20_000);
+      timedOut = true;
+      const forceKillAt = Date.now() + terminationGraceMs;
+      const recoveryDeadline = forceKillAt + terminationRecoveryMs;
+      let forceKillSent = false;
+
+      signalOwnedChild(child, "SIGTERM", ownsProcessGroup);
+
+      const recover = () => {
+        if (!isOwnedChildAlive(child, ownsProcessGroup)) {
+          settle(
+            reject,
+            new Error("timed out waiting for harness test child to exit")
+          );
+          return;
+        }
+
+        if (!forceKillSent && Date.now() >= forceKillAt) {
+          forceKillSent = true;
+          signalOwnedChild(child, "SIGKILL", ownsProcessGroup);
+        }
+
+        if (Date.now() >= recoveryDeadline) {
+          settle(
+            reject,
+            new Error(
+              "timed out waiting for harness test child process tree to terminate"
+            )
+          );
+          return;
+        }
+
+        recoveryTimer = setTimeout(recover, 10);
+      };
+
+      recover();
+    }, timeoutMs);
+
+    function settle(settler, value) {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      clearTimeout(recoveryTimer);
+      settler(value);
+    }
 
     child.stdout.on("data", chunk => {
       stdout += chunk;
@@ -319,12 +476,47 @@ function collectChildResult(child) {
       stderr += chunk;
     });
     child.once("error", error => {
-      clearTimeout(timeout);
-      reject(error);
+      if (!timedOut) {
+        settle(reject, error);
+      }
     });
     child.once("close", (code, signal) => {
-      clearTimeout(timeout);
-      resolve({ code, signal, stdout, stderr });
+      if (!timedOut) {
+        settle(resolve, { code, signal, stdout, stderr });
+      }
     });
   });
+}
+
+function signalOwnedChild(child, signal, ownsProcessGroup) {
+  try {
+    if (ownsProcessGroup) {
+      process.kill(-child.pid, signal);
+      return true;
+    }
+    return child.kill(signal);
+  } catch (error) {
+    if (
+      error.code === "ESRCH" ||
+      (ownsProcessGroup && error.code === "EPERM")
+    ) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function isOwnedChildAlive(child, ownsProcessGroup) {
+  try {
+    process.kill(ownsProcessGroup ? -child.pid : child.pid, 0);
+    return true;
+  } catch (error) {
+    if (
+      error.code === "ESRCH" ||
+      (ownsProcessGroup && error.code === "EPERM")
+    ) {
+      return false;
+    }
+    throw error;
+  }
 }

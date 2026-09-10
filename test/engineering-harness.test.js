@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { spawnSync } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -189,9 +189,37 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
       process.env.TGE_HARNESS_TEST_SIGNAL_MANIFEST_PATH;
     if (signalManifestPath) {
       signalMarkerDirectory = createOwnedTempDirectory("tge-harness-marker-");
+      const unrelatedSignalListenerPath =
+        process.env.TGE_HARNESS_TEST_UNRELATED_SIGNAL_LISTENER_PATH;
+      if (unrelatedSignalListenerPath) {
+        for (const signal of ["SIGINT", "SIGTERM"]) {
+          process.on(signal, () => {
+            fs.appendFileSync(unrelatedSignalListenerPath, `${signal}\n`);
+          });
+        }
+      }
+      const descendantHeartbeatPath = process.env.TGE_HARNESS_TEST_TIMEOUT_DESCENDANT
+        ? `${signalManifestPath}.descendant-heartbeat`
+        : null;
+      const descendant = descendantHeartbeatPath
+        ? spawn(
+            process.execPath,
+            [
+              "--eval",
+              'const fs = require("node:fs"); const heartbeat = process.argv[1]; fs.appendFileSync(heartbeat, "."); setInterval(() => fs.appendFileSync(heartbeat, "."), 20);',
+              descendantHeartbeatPath
+            ],
+            { stdio: "ignore" }
+          )
+        : null;
       fs.writeFileSync(
         signalManifestPath,
-        `${JSON.stringify({ fixtureRoot, markerDirectory: signalMarkerDirectory })}\n`
+        `${JSON.stringify({
+          descendantHeartbeatPath,
+          descendantPid: descendant?.pid,
+          fixtureRoot,
+          markerDirectory: signalMarkerDirectory
+        })}\n`
       );
       await new Promise(() => {
         setInterval(() => {}, 1_000);

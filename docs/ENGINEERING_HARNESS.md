@@ -59,6 +59,11 @@ hashes remain stable while the isolated checker observes and rejects a removed
 contract. Test-owned fixture and marker directories use one idempotent lifecycle
 that unregisters its handlers after normal cleanup and removes all owned paths
 before re-raising `SIGINT` or `SIGTERM` with the original signal semantics.
+Before that one re-raise, the terminating signal's remaining listeners are
+removed so they cannot run twice or suppress default termination. Parent test
+timeouts own a dedicated subprocess group: they allow one bounded `SIGTERM`
+cleanup window, escalate the full group to `SIGKILL`, and do not settle until
+the owned process tree has exited or bounded recovery is exhausted.
 
 ## E2E and CI contract
 

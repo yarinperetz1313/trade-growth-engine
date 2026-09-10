@@ -39,6 +39,21 @@ harness plus integration **361/361**. No runtime, auth, database, browser,
 dependency, workflow, or Slice 2 behavior changed, and no broader evidence is
 added.
 
+The final bounded review found two additional P3 harness lifecycle defects:
+parent timeout killed only the direct child and could orphan its descendant and
+owned directories, while re-raising a signal with unrelated listeners still
+installed could invoke them twice and suppress default termination. Red-first
+subprocess evidence was **0/3**: both `SIGINT` and `SIGTERM` children timed out,
+and the timeout case retained its fixture, marker, and live descendant. The
+test-only remediation gives every collected child a dedicated process group,
+uses bounded `SIGTERM` cleanup followed by group `SIGKILL` recovery, and removes
+remaining listeners before the one signal re-raise. Focused regressions are
+**3/3**, the complete harness/isolation pair is **11/11**, and five parallel
+harness-plus-Pilot-runtime stress iterations are **25/25** each (**125/125**
+aggregate). `npm run verify:fast` passed the engineering harness plus integration
+**362/362**. No runtime, product, database, browser, dependency, workflow, or
+Slice 2 behavior changed, and no broader evidence is added.
+
 ## Current verified shape
 Trade Growth Engine is a Vite React + Express local-first CRM. `src/index.js` starts the server, `src/api/` exposes thin structured HTTP boundaries, and `web/main.jsx` provides hash-routed UI. Local JSON persistence flows through `src/services/localStore.js`; tests and E2E use isolated stores. The [Legacy JSON Compatibility Contract](architecture/LEGACY_JSON_COMPATIBILITY.md) and deterministic fixtures characterize that adapter for the future persistence cutover.
 
