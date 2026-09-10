@@ -2,9 +2,13 @@ const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const {
+  cleanupOwnedDirectory,
+  createOwnedTempDirectory,
+  isolatedGitEnvironment
+} = require("./helpers/harnessTestIsolation");
 
 const repositoryRoot = path.resolve(__dirname, "..");
 
@@ -14,8 +18,9 @@ test("engineering harness gate passes for the repository contract", () => {
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
-test("engineering harness gate rejects removal of every Pilot Readiness contract rule", () => {
+test("engineering harness gate rejects removal of every Pilot Readiness contract rule", async () => {
   const fixtureRoot = createHarnessFixture();
+  let signalMarkerDirectory;
   const contractRemovals = [
     {
       relativePath: "docs/execution-plans/README.md",
@@ -180,6 +185,19 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
   }
 
   try {
+    const signalManifestPath =
+      process.env.TGE_HARNESS_TEST_SIGNAL_MANIFEST_PATH;
+    if (signalManifestPath) {
+      signalMarkerDirectory = createOwnedTempDirectory("tge-harness-marker-");
+      fs.writeFileSync(
+        signalManifestPath,
+        `${JSON.stringify({ fixtureRoot, markerDirectory: signalMarkerDirectory })}\n`
+      );
+      await new Promise(() => {
+        setInterval(() => {}, 1_000);
+      });
+    }
+
     for (const contractRemoval of removalsToTest) {
       const filePath = path.join(fixtureRoot, contractRemoval.relativePath);
       const originalContents = fs.readFileSync(filePath, "utf8");
@@ -189,7 +207,7 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
         originalContents.replaceAll(contractRemoval.expected, "REMOVED BY TEST")
       );
       try {
-        waitForConcurrentMutationObserver(contractRemoval.relativePath);
+        await waitForConcurrentMutationObserver(contractRemoval.relativePath);
 
         const result = runHarness({}, fixtureRoot);
 
@@ -200,11 +218,14 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
       }
     }
   } finally {
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    if (signalMarkerDirectory) {
+      cleanupOwnedDirectory(signalMarkerDirectory);
+    }
+    cleanupOwnedDirectory(fixtureRoot);
   }
 });
 
-function waitForConcurrentMutationObserver(relativePath) {
+async function waitForConcurrentMutationObserver(relativePath) {
   const readyPath = process.env.TGE_HARNESS_TEST_MUTATION_READY_PATH;
   const releasePath = process.env.TGE_HARNESS_TEST_MUTATION_RELEASE_PATH;
 
@@ -216,10 +237,9 @@ function waitForConcurrentMutationObserver(relativePath) {
   fs.writeFileSync(readyPath, `${relativePath}\n`);
 
   const deadline = Date.now() + 15_000;
-  const waitState = new Int32Array(new SharedArrayBuffer(4));
   while (!fs.existsSync(releasePath)) {
     assert.ok(Date.now() < deadline, "timed out waiting for mutation observer");
-    Atomics.wait(waitState, 0, 0, 10);
+    await new Promise(resolve => setTimeout(resolve, 10));
   }
 }
 
@@ -246,7 +266,7 @@ test("engineering harness gate rejects an untracked machine path", () => {
       /developer-machine absolute path found in test\/\.tmp-untracked-machine-path\.mjs/
     );
   } finally {
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    cleanupOwnedDirectory(fixtureRoot);
   }
 });
 
@@ -279,7 +299,7 @@ test("engineering harness gate rejects tracked CI artifact output", () => {
       /tracked runtime\/generated output: test-artifacts\/.tmp-harness-fixture-[^.]+\.txt/
     );
   } finally {
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    cleanupOwnedDirectory(fixtureRoot);
   }
 });
 
@@ -340,9 +360,7 @@ function loadPlaywrightConfig(storeDir, artifactDir, env = {}) {
 }
 
 function createHarnessFixture() {
-  const fixtureRoot = fs.mkdtempSync(
-    path.join(os.tmpdir(), "tge-harness-fixture-")
-  );
+  const fixtureRoot = createOwnedTempDirectory("tge-harness-fixture-");
   try {
     const trackedResult = runGit(["ls-files", "-z"]);
     assert.equal(
@@ -371,7 +389,7 @@ function createHarnessFixture() {
     assert.equal(addResult.status, 0, addResult.stderr || addResult.stdout);
     return fixtureRoot;
   } catch (error) {
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    cleanupOwnedDirectory(fixtureRoot);
     throw error;
   }
 }
@@ -380,7 +398,7 @@ function runHarness(env = {}, root = repositoryRoot) {
   return spawnSync(process.execPath, ["scripts/check-engineering-harness.mjs"], {
     cwd: root,
     encoding: "utf8",
-    env: { ...process.env, ...env }
+    env: isolatedGitEnvironment(env)
   });
 }
 
@@ -388,6 +406,6 @@ function runGit(args, env = {}, root = repositoryRoot) {
   return spawnSync("git", args, {
     cwd: root,
     encoding: "utf8",
-    env: { ...process.env, ...env }
+    env: isolatedGitEnvironment(env)
   });
 }

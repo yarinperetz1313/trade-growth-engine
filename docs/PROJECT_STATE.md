@@ -23,6 +23,22 @@ exact file immediately passed **10/10**, and the complete repeated gate passed.
 These results do not add database, managed-browser, provider, or delivery
 evidence.
 
+A fresh post-merge review then found that harness helpers still inherited
+ambient Git controls and that fixture/marker cleanup relied on JavaScript
+`finally` blocks. Red regressions were **0/1** when a caller-controlled
+repository/index redirected the synchronized fixture/checker/hash path and
+**0/1** each for `SIGINT` and `SIGTERM`, with the test-owned fixture repository
+left behind. The bounded follow-up strips every `GIT_*` variable only at Git and
+checker subprocess boundaries, preserves unrelated test environment, and uses
+one owned, idempotent temporary-directory lifecycle whose handlers are removed
+after normal cleanup and which re-raises both signals after cleanup. The three
+red regressions are now **3/3**, both complete harness files are **10/10**, five
+parallel harness-plus-Pilot-runtime stress iterations are **24/24** each
+(**120/120** aggregate), and `npm run verify:fast` passed the engineering
+harness plus integration **361/361**. No runtime, auth, database, browser,
+dependency, workflow, or Slice 2 behavior changed, and no broader evidence is
+added.
+
 ## Current verified shape
 Trade Growth Engine is a Vite React + Express local-first CRM. `src/index.js` starts the server, `src/api/` exposes thin structured HTTP boundaries, and `web/main.jsx` provides hash-routed UI. Local JSON persistence flows through `src/services/localStore.js`; tests and E2E use isolated stores. The [Legacy JSON Compatibility Contract](architecture/LEGACY_JSON_COMPATIBILITY.md) and deterministic fixtures characterize that adapter for the future persistence cutover.
 

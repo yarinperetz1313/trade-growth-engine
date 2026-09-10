@@ -49,11 +49,16 @@ For local database verification, start the pinned disposable service with `docke
 The Node test suite executes this gate too, so a broken gate is itself a test failure. These checks intentionally do not enforce file-size, style, or speculative architecture rules.
 
 Harness-negative self-tests run the real checker against a copied tracked-file
-snapshot with its own temporary Git index. Contract removals, untracked-path
-fixtures, and tracked-artifact fixtures must never be written into the live
-worktree. A synchronized cross-process regression verifies that all live
-tracked-file hashes remain stable while the isolated checker observes and
-rejects a removed contract.
+snapshot with its own temporary Git index. Their Git and checker subprocesses
+discard every ambient `GIT_*` control while preserving unrelated test
+environment, so a caller cannot redirect repository, worktree, index, object,
+or tracked-set discovery. Contract removals, untracked-path fixtures, and
+tracked-artifact fixtures must never be written into the live worktree. A
+synchronized cross-process regression verifies that all live tracked-file
+hashes remain stable while the isolated checker observes and rejects a removed
+contract. Test-owned fixture and marker directories use one idempotent lifecycle
+that unregisters its handlers after normal cleanup and removes all owned paths
+before re-raising `SIGINT` or `SIGTERM` with the original signal semantics.
 
 ## E2E and CI contract
 
