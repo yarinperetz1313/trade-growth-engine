@@ -64,7 +64,7 @@ Store audit events and import metadata for **12 months**. Retain raw files for *
 
 ## Configuration boundary
 
-The environment contract names the public app URL, API URL, Auth0 domain/issuer/audience/callback/logout URLs, and operational service URLs. Cloudflare Pages is the static-host recommendation only, pending the vendor/privacy gate. Before external invitations, provision and verify a real domain, Auth0 custom domain, custom transactional SMTP, SPF, DKIM, and DMARC; keep authentication and marketing sending reputations separate.
+The environment contract names the public app URL, API URL, Auth0 domain/issuer/audience/callback/logout URLs, and operational service URLs. The explicit fail-closed bootstrap and its liveness/readiness limits are specified in [Secure Pilot Runtime](SECURE_PILOT_RUNTIME.md). Cloudflare Pages is the static-host recommendation only, pending the vendor/privacy gate. Before external invitations, provision and verify a real domain, Auth0 custom domain, custom transactional SMTP, SPF, DKIM, and DMARC; keep authentication and marketing sending reputations separate.
 
 ## Implementation checklist
 

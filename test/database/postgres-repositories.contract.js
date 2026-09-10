@@ -8,6 +8,10 @@ const {
   createApp
 } = require("../../src/app/server");
 const {
+  createPilotRuntime,
+  readPilotConfig
+} = require("../../src/pilot/runtime");
+const {
   createTenantContext
 } = require("../../src/persistence/tenantContext");
 const {
@@ -5033,6 +5037,155 @@ function registerPostgresRepositoryContractTests({
       );
     });
   }
+
+  test("secure pilot runtime carries membership authority through import and the operating loop", async () => {
+    const issuer = "https://tenant.au.auth0.com/";
+    const pool = createPool({ max: 4 });
+    const tenantA = await createTenant("pilot-runtime-a");
+    const tenantB = await createTenant("pilot-runtime-b");
+    await getAdminClient().query(
+      `update tge.tenant_memberships
+       set identity_issuer = $1
+       where tenant_id in ($2, $3)`,
+      [issuer, tenantA.tenantId, tenantB.tenantId]
+    );
+    const runtime = createPilotRuntime({
+      config: readPilotConfig({
+        PORT: "3000",
+        TGE_RUNTIME_DATABASE_URL: runtimeUrl,
+        TGE_PUBLIC_APP_URL: "https://app.example.test",
+        TGE_PUBLIC_API_URL: "https://api.example.test",
+        TGE_AUTH0_ISSUER: issuer,
+        TGE_AUTH0_AUDIENCE: "https://api.example.test",
+        TGE_AUTH0_CLIENT_ID: "public-spa-client",
+        TGE_AUTH0_CALLBACK_URL: "https://app.example.test/auth/callback",
+        TGE_AUTH0_LOGOUT_URL: "https://app.example.test/signed-out"
+      }),
+      pool,
+      tokenVerifier: {
+        async verify(token) {
+          if (token === "tenant-a-token") {
+            return Object.freeze({ issuer, subject: tenantA.context.subjectId });
+          }
+          if (token === "tenant-b-token") {
+            return Object.freeze({ issuer, subject: tenantB.context.subjectId });
+          }
+          throw new Error("private token detail");
+        }
+      },
+      logger: { info() {}, warn() {}, error() {} }
+    });
+    await runtime.probeReadiness();
+    assert.equal(runtime.readiness.snapshot().ready, true);
+    const server = await runtime.listen({ port: 0, autoProbe: false });
+
+    const now = Date.now();
+    const createdAt = new Date(now - 20 * 24 * 60 * 60 * 1000).toISOString();
+    const updatedAt = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+    const csv = [
+      "source_id,id,business_name,stage,next_action,created_at,updated_at",
+      `pilot-source,pilot-opportunity,Pilot Runtime Trade,PROPOSAL,,${createdAt},${updatedAt}`
+    ].join("\n");
+    const tenantAHeaders = {
+      authorization: "Bearer tenant-a-token",
+      "x-tenant-id": tenantB.tenantId,
+      "x-role": "OWNER"
+    };
+    try {
+      const preview = await request(
+        `http://127.0.0.1:${server.address().port}`,
+        "POST",
+        `/api/import-batches/preview?tenantId=${tenantB.tenantId}`,
+        {
+          sourceCollection: "opportunities",
+          upload: {
+            filename: "pilot.csv",
+            mediaType: "text/csv",
+            contentBase64: Buffer.from(csv, "utf8").toString("base64")
+          }
+        },
+        tenantAHeaders
+      );
+      assert.equal(preview.status, 201);
+      const batchId = preview.data.data.batch.id;
+
+      const analysis = await request(
+        `http://127.0.0.1:${server.address().port}`,
+        "POST",
+        `/api/import-batches/${batchId}/analysis`,
+        {},
+        tenantAHeaders
+      );
+      assert.equal(analysis.status, 200);
+      assert.equal(analysis.data.data.dataHealth.totalRows, 1);
+      assert.equal(analysis.data.data.dataHealth.rowsWithBlockingErrors, 0);
+
+      const committed = await request(
+        `http://127.0.0.1:${server.address().port}`,
+        "POST",
+        `/api/import-batches/${batchId}/commit`,
+        {
+          sourceSystem: "pilot-runtime",
+          idempotencyKey: "pilot-runtime-attempt-1",
+          sourceIdentitySelection: { sourceColumn: "source_id" },
+          selections: [
+            { targetField: "id", sourceColumn: "id", selectedType: "TEXT" },
+            { targetField: "business_name", sourceColumn: "business_name", selectedType: "TEXT" },
+            { targetField: "stage", sourceColumn: "stage", selectedType: "STATUS" },
+            { targetField: "next_action", sourceColumn: "next_action", selectedType: "TEXT" },
+            { targetField: "created_at", sourceColumn: "created_at", selectedType: "TIMESTAMP" },
+            { targetField: "updated_at", sourceColumn: "updated_at", selectedType: "TIMESTAMP" }
+          ]
+        },
+        tenantAHeaders
+      );
+      assert.equal(committed.status, 200);
+      assert.equal(committed.data.data.outcome, "COMMITTED");
+
+      const scan = await request(
+        `http://127.0.0.1:${server.address().port}`,
+        "POST",
+        "/api/revenue-leak-cases/scan-stalled-opportunities",
+        {},
+        tenantAHeaders
+      );
+      assert.equal(scan.status, 200);
+      assert.equal(scan.data.summary.total_opportunities, 1);
+      assert.equal(scan.data.summary.reconciliation.detected_count, 1);
+
+      const queue = await request(
+        `http://127.0.0.1:${server.address().port}`,
+        "GET",
+        "/api/revenue-leak-cases/operating-queue",
+        undefined,
+        tenantAHeaders
+      );
+      assert.equal(queue.status, 200);
+      assert.equal(queue.data.data.total_cases, 1);
+      assert.equal(queue.data.data.entries[0].opportunity.id, "pilot-opportunity");
+
+      const hiddenPreview = await request(
+        `http://127.0.0.1:${server.address().port}`,
+        "GET",
+        `/api/import-batches/${batchId}/preview`,
+        undefined,
+        { authorization: "Bearer tenant-b-token" }
+      );
+      assert.equal(hiddenPreview.status, 404);
+      assert.equal(hiddenPreview.data.error, "IMPORT_BATCH_UNAVAILABLE");
+      const tenantBQueue = await request(
+        `http://127.0.0.1:${server.address().port}`,
+        "GET",
+        "/api/revenue-leak-cases/operating-queue",
+        undefined,
+        { authorization: "Bearer tenant-b-token" }
+      );
+      assert.equal(tenantBQueue.status, 200);
+      assert.equal(tenantBQueue.data.data.total_cases, 0);
+    } finally {
+      await runtime.close();
+    }
+  });
 
   async function stageCsvBatch(
     repositories,

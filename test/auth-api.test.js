@@ -151,6 +151,41 @@ test("auth mode fails closed when the PR-3 persistence boundary is absent", asyn
   }
 });
 
+test("server composition supports a sanitized unhandled-error reporting boundary", async () => {
+  const reported = [];
+  const service = {
+    createPreview: async () => { throw new Error("postgresql://secret raw customer cell"); },
+    readPreview: async () => null,
+    analyzePreview: async () => null,
+    commitBatch: async () => null,
+    readCommit: async () => null
+  };
+  const app = createApp({
+    importService: service,
+    onUnhandledError: () => reported.push("INTERNAL_SERVER_ERROR"),
+    revenueActionService: {},
+    resolveAuthorizationContext: () => ({}),
+    resolveTenantContext: () => ({})
+  });
+
+  await withServer(app, async baseUrl => {
+    const original = console.error;
+    console.error = () => {};
+    try {
+      const result = await request(baseUrl, "/api/import-batches/preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({})
+      });
+      assert.equal(result.status, 500);
+      assert.equal(result.data.error, "INTERNAL_SERVER_ERROR");
+    } finally {
+      console.error = original;
+    }
+  });
+  assert.deepEqual(reported, ["INTERNAL_SERVER_ERROR"]);
+});
+
 test("auth mode bridges its trusted context into PostgreSQL persistence", async () => {
   const fixture = createFixture();
   let receivedContext;

@@ -137,7 +137,8 @@ if (!testDatabaseUrl) {
         ["010", "010_auth_membership_and_invitations.sql"],
         ["011", "011_canonical_import_commit.sql"],
         ["012", "012_revenue_leak_case_foundation.sql"],
-        ["013", "013_privacy_minimized_pilot_evidence.sql"]
+        ["013", "013_privacy_minimized_pilot_evidence.sql"],
+        ["014", "014_secure_pilot_runtime_readiness.sql"]
       ]
     );
     assert.equal(
@@ -149,7 +150,7 @@ if (!testDatabaseUrl) {
       sha256(fs.readFileSync(
         path.join(
           repositoryRoot,
-          "database/migrations/013_privacy_minimized_pilot_evidence.sql"
+          "database/migrations/014_secure_pilot_runtime_readiness.sql"
         )
       ))
     );
@@ -229,12 +230,12 @@ if (!testDatabaseUrl) {
           migrationsDirectory: retroactiveDirectory,
           logger: silentLogger
         }),
-        /retroactive; append-only migrations must follow 013/
+        /retroactive; append-only migrations must follow 014/
       );
 
       copyMigrations(brokenDirectory);
       fs.writeFileSync(
-        path.join(brokenDirectory, "014_broken_transaction.sql"),
+        path.join(brokenDirectory, "015_broken_transaction.sql"),
         "create table tge.must_rollback (id integer);\nselect 1 / 0;\n"
       );
       await assert.rejects(
@@ -246,13 +247,13 @@ if (!testDatabaseUrl) {
         error => {
           assert.match(
             error.message,
-            /Migration 014_broken_transaction\.sql failed \[22012\]: division by zero/
+            /Migration 015_broken_transaction\.sql failed \[22012\]: division by zero/
           );
           assert.equal(error.code, "22012");
           assert.equal(error.migrationLine, undefined);
           assert.deepEqual(error.migration, {
-            id: "014",
-            fileName: "014_broken_transaction.sql"
+            id: "015",
+            fileName: "015_broken_transaction.sql"
           });
           assert.equal(error.cause?.message, "division by zero");
           for (const unsafeField of [
@@ -284,7 +285,7 @@ if (!testDatabaseUrl) {
             to_regclass('tge.must_rollback') as relation,
             exists (
               select 1 from tge_migration.schema_migrations
-              where migration_id = '014'
+              where migration_id = '015'
             ) as ledger_row
         `
       );
@@ -295,7 +296,7 @@ if (!testDatabaseUrl) {
 
       copyMigrations(ownerDirectory);
       fs.writeFileSync(
-        path.join(ownerDirectory, "014_owner_default_probe.sql"),
+        path.join(ownerDirectory, "015_owner_default_probe.sql"),
         `
           create function tge.owner_default_probe()
           returns integer
@@ -308,7 +309,7 @@ if (!testDatabaseUrl) {
         migrationsDirectory: ownerDirectory,
         logger: silentLogger
       });
-      assert.deepEqual(ownerProbe.applied, ["014"]);
+      assert.deepEqual(ownerProbe.applied, ["015"]);
       const ownerProbeSecurity = await adminClient.query(
         `
           select
@@ -1056,6 +1057,76 @@ if (!testDatabaseUrl) {
       await assertSqlState(runtimeClient.query(statement), "42501");
       await runtimeClient.query("rollback");
     }
+  });
+
+  test("runtime readiness proves the exact safe role and schema without migration-ledger access", async () => {
+    const result = await runtimeClient.query(
+      "select * from tge.pilot_runtime_readiness()"
+    );
+    assert.deepEqual(result.rows, [{
+      schema_version: "014",
+      runtime_role_member: true,
+      login_nonprivileged: true,
+      required_relations_available: true
+    }]);
+    await assertSqlState(
+      runtimeClient.query("select * from tge_migration.schema_migrations"),
+      "42501"
+    );
+  });
+
+  test("runtime readiness rejects privileged and schema-escalating dual-role logins", async () => {
+    const escalationRole = `tge_escalation_test_${randomUUID().replaceAll("-", "")}`;
+    const baseline = await runtimeClient.query(
+      "select login_nonprivileged from tge.pilot_runtime_readiness()"
+    );
+    assert.deepEqual(baseline.rows, [{ login_nonprivileged: true }]);
+
+    await adminClient.query(`create role ${quoteIdentifier(escalationRole)} nologin`);
+    await adminClient.query(
+      `grant create on schema tge to ${quoteIdentifier(escalationRole)}`
+    );
+    try {
+      for (const additionalRole of [
+        "tge_owner",
+        "tge_migrator",
+        escalationRole
+      ]) {
+        await adminClient.query(
+          `grant ${quoteIdentifier(additionalRole)} to ${quoteIdentifier(runtimeRole)}`
+        );
+        const result = await runtimeClient.query(
+          "select login_nonprivileged from tge.pilot_runtime_readiness()"
+        );
+        assert.deepEqual(
+          result.rows,
+          [{ login_nonprivileged: false }],
+          additionalRole
+        );
+        await adminClient.query(
+          `revoke ${quoteIdentifier(additionalRole)} from ${quoteIdentifier(runtimeRole)}`
+        );
+      }
+    } finally {
+      for (const additionalRole of [
+        "tge_owner",
+        "tge_migrator",
+        escalationRole
+      ]) {
+        await adminClient.query(
+          `revoke ${quoteIdentifier(additionalRole)} from ${quoteIdentifier(runtimeRole)}`
+        );
+      }
+      await adminClient.query(
+        `revoke create on schema tge from ${quoteIdentifier(escalationRole)}`
+      );
+      await adminClient.query(`drop role ${quoteIdentifier(escalationRole)}`);
+    }
+
+    const restored = await runtimeClient.query(
+      "select login_nonprivileged from tge.pilot_runtime_readiness()"
+    );
+    assert.deepEqual(restored.rows, [{ login_nonprivileged: true }]);
   });
 
   test("membership roles and RevenueAction active identity constraints are exact", async () => {

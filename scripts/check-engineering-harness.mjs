@@ -226,6 +226,9 @@ function validateDatabaseFoundationContract() {
   const pilotEvidenceMigration = readFile(
     "database/migrations/013_privacy_minimized_pilot_evidence.sql"
   );
+  const securePilotRuntimeMigration = readFile(
+    "database/migrations/014_secure_pilot_runtime_readiness.sql"
+  );
   const migrationFiles = fs
     .readdirSync(path.join(rootDir, "database", "migrations"))
     .filter(fileName => /^\d{3}_[a-z0-9_]+\.sql$/.test(fileName))
@@ -352,6 +355,11 @@ function validateDatabaseFoundationContract() {
     "Migration 013 must protect append-only pilot evidence"
   );
   requireText(
+    securePilotRuntimeMigration,
+    "create function tge.pilot_runtime_readiness",
+    "Migration 014 must expose the bounded secure runtime readiness probe"
+  );
+  requireText(
     databaseTest,
     "TGE_TEST_DATABASE_URL",
     "Database tests must require an explicit real PostgreSQL URL"
@@ -379,7 +387,8 @@ function validateDatabaseFoundationContract() {
       "010_auth_membership_and_invitations.sql",
       "011_canonical_import_commit.sql",
       "012_revenue_leak_case_foundation.sql",
-      "013_privacy_minimized_pilot_evidence.sql"
+      "013_privacy_minimized_pilot_evidence.sql",
+      "014_secure_pilot_runtime_readiness.sql"
     ])
   ) {
     failures.push(
