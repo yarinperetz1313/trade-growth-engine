@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const { spawn, spawnSync } = require("node:child_process");
 const { createHash } = require("node:crypto");
+const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
@@ -151,8 +152,15 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
       assert.equal(child.kill(signal), true, `failed to send ${signal}`);
       const childResult = await childResultPromise;
 
-      assert.equal(childResult.code, null, childResult.stderr || childResult.stdout);
-      assert.equal(childResult.signal, signal, childResult.stderr || childResult.stdout);
+      if (process.platform === "win32") {
+        assert.ok(
+          childResult.code !== null || childResult.signal !== null,
+          childResult.stderr || childResult.stdout || "child did not terminate"
+        );
+      } else {
+        assert.equal(childResult.code, null, childResult.stderr || childResult.stdout);
+        assert.equal(childResult.signal, signal, childResult.stderr || childResult.stdout);
+      }
       assert.equal(fs.existsSync(resources.fixtureRoot), false, "fixture repository leaked");
       assert.equal(fs.existsSync(resources.markerDirectory), false, "marker directory leaked");
       const unrelatedListenerInvocations = fs
@@ -214,14 +222,15 @@ test("timed-out harness subprocess cleans owned resources and terminates its des
       ownsProcessGroup: process.platform !== "win32",
       timeoutMs: 500
     });
+    const childRejectionAssertion = assert.rejects(
+      childResultPromise,
+      /timed out waiting for harness test child to exit/
+    );
 
     await waitForFile(manifestPath);
     resources = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
     await waitForFile(resources.descendantHeartbeatPath);
-    await assert.rejects(
-      childResultPromise,
-      /timed out waiting for harness test child to exit/
-    );
+    await childRejectionAssertion;
     const heartbeatSize = fs.statSync(resources.descendantHeartbeatPath).size;
     await new Promise(resolve => setTimeout(resolve, 100));
 
@@ -263,6 +272,95 @@ test("timed-out harness subprocess cleans owned resources and terminates its des
       }
     }
   }
+});
+
+test("EPERM never proves that an owned process group terminated", async () => {
+  const child = createFakeChild(424_242);
+  const permissionDenied = Object.assign(new Error("operation not permitted"), {
+    code: "EPERM"
+  });
+
+  await assert.rejects(
+    collectChildResult(child, {
+      ownsProcessGroup: true,
+      processKill() {
+        throw permissionDenied;
+      },
+      terminationGraceMs: 5,
+      terminationRecoveryMs: 20,
+      timeoutMs: 1
+    }),
+    /timed out waiting for harness test child process tree to terminate/
+  );
+});
+
+test("Windows timeout owns the full process tree and escalates before settling", async () => {
+  const child = createFakeChild(515_151);
+  let ownedDescendantAlive = true;
+  const taskkillCalls = [];
+
+  await assert.rejects(
+    collectChildResult(child, {
+      ownsProcessGroup: false,
+      platform: "win32",
+      spawnProcess(command, args, options) {
+        taskkillCalls.push({ command, args, options });
+        const taskkill = new EventEmitter();
+        const forced = args.includes("/F");
+        setImmediate(() => {
+          taskkill.emit("close", forced ? 0 : 1, null);
+          if (forced) {
+            ownedDescendantAlive = false;
+            child.exitCode = 1;
+            child.emit("close", 1, null);
+          }
+        });
+        return taskkill;
+      },
+      terminationGraceMs: 10,
+      terminationRecoveryMs: 100,
+      timeoutMs: 1
+    }),
+    /timed out waiting for harness test child to exit/
+  );
+
+  assert.deepEqual(
+    taskkillCalls.map(({ command, args, options }) => ({ command, args, options })),
+    [
+      {
+        command: "taskkill.exe",
+        args: ["/PID", "515151", "/T"],
+        options: { shell: false, stdio: "ignore", windowsHide: true }
+      },
+      {
+        command: "taskkill.exe",
+        args: ["/PID", "515151", "/T", "/F"],
+        options: { shell: false, stdio: "ignore", windowsHide: true }
+      }
+    ]
+  );
+  assert.equal(ownedDescendantAlive, false, "owned descendant survived tree kill");
+  assert.equal(child.killCalls.length, 0, "direct-child signalling bypassed tree ownership");
+});
+
+test("Windows tree termination failure exhausts recovery without reporting cleanup success", async () => {
+  const child = createFakeChild(616_161);
+
+  await assert.rejects(
+    collectChildResult(child, {
+      ownsProcessGroup: false,
+      platform: "win32",
+      spawnProcess() {
+        const taskkill = new EventEmitter();
+        setImmediate(() => taskkill.emit("close", 1, null));
+        return taskkill;
+      },
+      terminationGraceMs: 5,
+      terminationRecoveryMs: 20,
+      timeoutMs: 1
+    }),
+    /timed out waiting for harness test child process tree to terminate/
+  );
 });
 
 test("harness contract-removal failures never expose mutated tracked source to another process", async () => {
@@ -410,6 +508,9 @@ function collectChildResult(
   child,
   {
     ownsProcessGroup = false,
+    platform = process.platform,
+    processKill = process.kill,
+    spawnProcess = spawn,
     terminationGraceMs = 500,
     terminationRecoveryMs = 1_000,
     timeoutMs = 20_000
@@ -418,6 +519,7 @@ function collectChildResult(
   return new Promise((resolve, reject) => {
     let stdout = "";
     let stderr = "";
+    let childClosed = false;
     let recoveryTimer;
     let settled = false;
     let timedOut = false;
@@ -426,11 +528,21 @@ function collectChildResult(
       const forceKillAt = Date.now() + terminationGraceMs;
       const recoveryDeadline = forceKillAt + terminationRecoveryMs;
       let forceKillSent = false;
+      let treeTerminationConfirmed = false;
+      const usesWindowsTreeKill = platform === "win32" && !ownsProcessGroup;
 
-      signalOwnedChild(child, "SIGTERM", ownsProcessGroup);
+      if (usesWindowsTreeKill) {
+        runWindowsTreeKill(false);
+      } else {
+        signalOwnedChild(child, "SIGTERM", ownsProcessGroup, processKill);
+      }
 
       const recover = () => {
-        if (!isOwnedChildAlive(child, ownsProcessGroup)) {
+        if (
+          (usesWindowsTreeKill && treeTerminationConfirmed && childClosed) ||
+          (ownsProcessGroup &&
+            !isOwnedChildAlive(child, ownsProcessGroup, processKill))
+        ) {
           settle(
             reject,
             new Error("timed out waiting for harness test child to exit")
@@ -440,7 +552,11 @@ function collectChildResult(
 
         if (!forceKillSent && Date.now() >= forceKillAt) {
           forceKillSent = true;
-          signalOwnedChild(child, "SIGKILL", ownsProcessGroup);
+          if (usesWindowsTreeKill) {
+            runWindowsTreeKill(true);
+          } else {
+            signalOwnedChild(child, "SIGKILL", ownsProcessGroup, processKill);
+          }
         }
 
         if (Date.now() >= recoveryDeadline) {
@@ -455,6 +571,28 @@ function collectChildResult(
 
         recoveryTimer = setTimeout(recover, 10);
       };
+
+      function runWindowsTreeKill(force) {
+        let taskkill;
+        try {
+          taskkill = spawnProcess(
+            "taskkill.exe",
+            ["/PID", String(child.pid), "/T", ...(force ? ["/F"] : [])],
+            { shell: false, stdio: "ignore", windowsHide: true }
+          );
+        } catch {
+          return;
+        }
+
+        taskkill.once("error", () => {
+          // A failed tree-kill attempt is retried with force or fails closed.
+        });
+        taskkill.once("close", code => {
+          if (code === 0) {
+            treeTerminationConfirmed = true;
+          }
+        });
+      }
 
       recover();
     }, timeoutMs);
@@ -481,6 +619,7 @@ function collectChildResult(
       }
     });
     child.once("close", (code, signal) => {
+      childClosed = true;
       if (!timedOut) {
         settle(resolve, { code, signal, stdout, stderr });
       }
@@ -488,35 +627,50 @@ function collectChildResult(
   });
 }
 
-function signalOwnedChild(child, signal, ownsProcessGroup) {
+function signalOwnedChild(child, signal, ownsProcessGroup, processKill = process.kill) {
   try {
     if (ownsProcessGroup) {
-      process.kill(-child.pid, signal);
+      processKill(-child.pid, signal);
       return true;
     }
     return child.kill(signal);
   } catch (error) {
-    if (
-      error.code === "ESRCH" ||
-      (ownsProcessGroup && error.code === "EPERM")
-    ) {
+    if (error.code === "ESRCH") {
       return false;
+    }
+    if (error.code === "EPERM") {
+      return true;
     }
     throw error;
   }
 }
 
-function isOwnedChildAlive(child, ownsProcessGroup) {
+function isOwnedChildAlive(child, ownsProcessGroup, processKill = process.kill) {
   try {
-    process.kill(ownsProcessGroup ? -child.pid : child.pid, 0);
+    processKill(ownsProcessGroup ? -child.pid : child.pid, 0);
     return true;
   } catch (error) {
-    if (
-      error.code === "ESRCH" ||
-      (ownsProcessGroup && error.code === "EPERM")
-    ) {
+    if (error.code === "ESRCH") {
       return false;
+    }
+    if (error.code === "EPERM") {
+      return true;
     }
     throw error;
   }
+}
+
+function createFakeChild(pid) {
+  const child = new EventEmitter();
+  child.pid = pid;
+  child.exitCode = null;
+  child.signalCode = null;
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.killCalls = [];
+  child.kill = signal => {
+    child.killCalls.push(signal);
+    return true;
+  };
+  return child;
 }
