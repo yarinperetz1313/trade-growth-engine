@@ -28,6 +28,21 @@ provisioning, Australian hosting, backup/restore, privacy approval, or deferred
 raw-evidence retention/deletion, and no GitHub delivery or external operation was
 performed.
 
+A fresh High security review of candidate `e6aa122` blocked on three bounded
+findings: migration 014 accepted privileged dual-role logins, the owned pool had
+no safe idle-client error listener, and timed-out readiness work could overlap or
+mutate state after close. Remediation checkpoint `1718556` makes `tge_runtime`
+the only allowed direct/transitive role membership, invalidates readiness on an
+owned pool error while logging only a stable code, and gives timed-out probes one
+non-overlapping owned lifecycle that close freezes and boundedly drains before
+bounded pool shutdown. Product-red evidence was **0/1** for each finding. Green
+evidence is migration static **17/17**, focused runtime/auth **23/23**, real
+PostgreSQL 16.15 **67/67**, fast integration **355/355** plus harness, and a
+Vite 8.2.2 production build of 31 modules in 453 ms. Migrations 001–013 remain
+byte-identical. The disposable database was stopped and removed; no browser
+behavior changed, so managed Chromium was not rerun. No provider or delivery
+claim is added.
+
 Pilot PR-2 is **complete** and adds a PostgreSQL foundation without changing that runtime authority: append-only migrations `001`–`004`, an audited-baseline/owner-role checksum runner, the tenant-scoped `tge` schema, forced RLS and least-privilege group roles, reciprocal RevenueAction effect constraints, immutable typed import/audit evidence, and a real-PostgreSQL test gate. Final remediation was append-only: migrations `001`–`003` remained unchanged.
 
 Commit `8f1b373` fixed PostgreSQL role-creation parameter typing with explicit text casts. CI run `33303061173` then executed all 11 database tests (8 passed, 3 failed), revealing one function-default ACL schema defect and one import negative-fixture defect. Commit `d54d6f1` added `004_global_function_default_privileges.sql`, globally revoked future `tge_owner` function `PUBLIC EXECUTE`, re-protected existing functions, isolated SQLSTATE `23503` missing-source coverage from `23505` duplicate-target coverage, and advanced harness/static/real-database expectations. [GitHub Actions run 33304131266](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33304131266) on `d54d6f1` succeeded: harness passed; integration 68/68; PostgreSQL 16.15 database 11/11; Chromium E2E 7/7; production build passed with 21 modules transformed in 102 ms.
@@ -321,8 +336,10 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - **Assisted Pilot Safety Gate V1 PR-1 is complete as a local checkpoint:** the
   fail-closed Pilot entrypoint, migration `014` readiness contract, protected
   startup gate, PostgreSQL-only authenticated composition, portable commands,
-  validated browser API origin, and graceful cleanup are implemented and fully
-  verified. Provider provisioning and later milestone slices remain unstarted.
+  validated browser API origin, strict runtime-only role-membership allowlist,
+  normalized pool-error boundary, and bounded non-overlapping shutdown are
+  implemented and proportionally verified. Provider provisioning and later
+  milestone slices remain unstarted.
 - **Issue #8 RevenueLeakCase foundation implements the bounded domain,
   JSON/PostgreSQL repositories, tenant-bound API, migration `012`, and focused
   contract/database evidence for `STALLED_OPPORTUNITY`. The current follow-on

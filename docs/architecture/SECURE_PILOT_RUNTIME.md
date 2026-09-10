@@ -90,19 +90,21 @@ The readiness probe is bounded by configured timeouts and proves:
 
 - the process constructed the exact Auth0 verifier configuration (not that the
   external issuer, Universal Login, SMTP, or OTP delivery is live);
-- the database connection uses a non-superuser, non-`BYPASSRLS` login that is a
-  member of `tge_runtime`;
+- the database connection uses a non-superuser, non-`BYPASSRLS` login whose only
+  direct or transitive role membership is the allowlisted `tge_runtime` role;
 - the append-only secure-runtime migration marker and required runtime schema
   objects are installed; and
 - the membership repository can execute its exact issuer/subject lookup path
   under the runtime role without acquiring tenant authority.
 
 An append-only migration exposes only the bounded readiness result needed by the
-runtime role. It does not grant access to the migration ledger. Failed probes
-keep readiness false and are retried at a bounded interval. Runtime logs emit
-only stable event/error codes. Migration `014_secure_pilot_runtime_readiness.sql`
-has SHA-256
-`59069a3cd6963800f83762ccc9ee6ea6f57660d247d20816312f245c48e079b5`.
+runtime role. It does not grant access to the migration ledger. A timed-out probe
+keeps sole ownership of its underlying work until that work settles, so interval
+ticks cannot overlap it. An owned pool error immediately invalidates readiness
+and emits only a stable lifecycle code. Failed probes keep readiness false and
+are retried at a bounded interval only after prior work has settled. Migration
+`014_secure_pilot_runtime_readiness.sql` has SHA-256
+`699cb9c1e7fc4319f71cf7e98e99934706f9f75a8f0f00ae9c22ff90c5c9ea10`.
 
 ## Browser and packaging
 
@@ -122,9 +124,13 @@ provisioning remain operator prerequisites.
 ## Shutdown and limitations
 
 The bootstrap owns the HTTP server, readiness timer, and pool it creates.
-`SIGTERM` and `SIGINT` stop readiness work, stop accepting requests, bound the
-HTTP drain, and end the pool exactly once. Injected test resources remain
-explicitly owned according to their injected cleanup contract.
+`SIGTERM`, `SIGINT`, and explicit close atomically stop new readiness work and
+freeze readiness closed before stopping requests. Close boundedly awaits any
+owned in-flight probe, prevents its result from mutating closed state, bounds the
+HTTP drain and pool shutdown, and ends the pool exactly once. The normalized
+pool-error listener remains installed if pool shutdown times out, preventing a
+late idle-client error from becoming an uncaught event. Injected test resources
+remain explicitly owned according to their injected cleanup contract.
 
 A ready response is local runtime evidence only. It does not prove Auth0 AU
 tenant/plan location, real JWKS reachability before a bearer is verified, email
