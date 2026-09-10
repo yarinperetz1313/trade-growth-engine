@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { spawnSync } = require("node:child_process");
 const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -525,6 +526,26 @@ test("owned pool shutdown is bounded and keeps normalized error handling when en
   ]);
 });
 
+test("invalid pilot startup emits only its stable failure line", () => {
+  const result = spawnSync(
+    process.execPath,
+    [path.join(repositoryRoot, "src", "pilot", "index.js")],
+    {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      env: { NODE_ENV: "test" }
+    }
+  );
+
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "PILOT_RUNTIME_START_FAILED\n");
+  assert.doesNotMatch(
+    `${result.stdout}${result.stderr}`,
+    /dotenv|injected env|loading env|provider/i
+  );
+});
+
 test("package scripts expose explicit local and pilot modes plus a validated pilot browser build", async () => {
   const packageJson = JSON.parse(
     fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")
@@ -533,11 +554,6 @@ test("package scripts expose explicit local and pilot modes plus a validated pil
   assert.equal(packageJson.scripts["server:pilot"], "node src/pilot/index.js");
   assert.equal(packageJson.scripts.start, packageJson.scripts["server:pilot"]);
   assert.equal(packageJson.scripts["build:pilot"], "node scripts/build-pilot.mjs");
-  const pilotEntrypoint = fs.readFileSync(
-    path.join(repositoryRoot, "src", "pilot", "index.js"),
-    "utf8"
-  );
-  assert.match(pilotEntrypoint, /require\("dotenv"\)\.config\(\{ quiet: true \}\)/);
 
   const { validatePilotBuildConfig } = await import(
     "../scripts/pilot-build-config.mjs"

@@ -43,6 +43,19 @@ byte-identical. The disposable database was stopped and removed; no browser
 behavior changed, so managed Chromium was not rerun. No provider or delivery
 claim is added.
 
+A final bounded startup-logging review found that the Pilot entrypoint's quiet
+dotenv load was followed by a non-quiet shared config load through the eager
+server import graph. The shared load is now quiet without changing local JSON
+configuration behavior. A real invalid-startup subprocess regression replaces
+the prior source-text check and proves empty stdout plus exactly
+`PILOT_RUNTIME_START_FAILED` on stderr, with no dependency-controlled dotenv or
+provider/loading metadata.
+Focused Pilot/auth passed **24/24**, local JSON compatibility passed **5/5**,
+the engineering harness and integration suite passed **356/356**, and the
+Vite 8.2.2 production build completed 31 modules in 389 ms. Database and managed
+Chromium gates were not rerun because this changed no schema,
+auth/tenancy/readiness, or browser behavior.
+
 Pilot PR-2 is **complete** and adds a PostgreSQL foundation without changing that runtime authority: append-only migrations `001`–`004`, an audited-baseline/owner-role checksum runner, the tenant-scoped `tge` schema, forced RLS and least-privilege group roles, reciprocal RevenueAction effect constraints, immutable typed import/audit evidence, and a real-PostgreSQL test gate. Final remediation was append-only: migrations `001`–`003` remained unchanged.
 
 Commit `8f1b373` fixed PostgreSQL role-creation parameter typing with explicit text casts. CI run `33303061173` then executed all 11 database tests (8 passed, 3 failed), revealing one function-default ACL schema defect and one import negative-fixture defect. Commit `d54d6f1` added `004_global_function_default_privileges.sql`, globally revoked future `tge_owner` function `PUBLIC EXECUTE`, re-protected existing functions, isolated SQLSTATE `23503` missing-source coverage from `23505` duplicate-target coverage, and advanced harness/static/real-database expectations. [GitHub Actions run 33304131266](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33304131266) on `d54d6f1` succeeded: harness passed; integration 68/68; PostgreSQL 16.15 database 11/11; Chromium E2E 7/7; production build passed with 21 modules transformed in 102 ms.

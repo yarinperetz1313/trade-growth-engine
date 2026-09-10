@@ -14,6 +14,9 @@ external Auth0/SMTP behavior.
 | `npm run server:pilot` / `npm start` | Pilot and production-like API runtime | Always Auth0 plus membership-derived tenant authorization plus PostgreSQL; no adapter selection or fallback |
 
 Pilot startup validates its complete configuration before opening a listener.
+An invalid startup writes no stdout and emits only the stable
+`PILOT_RUNTIME_START_FAILED` line on stderr; dotenv loading is quiet across the
+complete eager import graph.
 It accepts only a bounded TCP port, a PostgreSQL runtime connection URL, an
 exact HTTPS public application origin, an exact HTTPS public API origin, and
 exact Auth0 issuer, audience, public SPA client ID, callback URL, and logout URL.
