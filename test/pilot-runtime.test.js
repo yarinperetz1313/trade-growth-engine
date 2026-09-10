@@ -372,6 +372,11 @@ test("package scripts expose explicit local and pilot modes plus a validated pil
   assert.equal(packageJson.scripts["server:pilot"], "node src/pilot/index.js");
   assert.equal(packageJson.scripts.start, packageJson.scripts["server:pilot"]);
   assert.equal(packageJson.scripts["build:pilot"], "node scripts/build-pilot.mjs");
+  const pilotEntrypoint = fs.readFileSync(
+    path.join(repositoryRoot, "src", "pilot", "index.js"),
+    "utf8"
+  );
+  assert.match(pilotEntrypoint, /require\("dotenv"\)\.config\(\{ quiet: true \}\)/);
 
   const { validatePilotBuildConfig } = await import(
     "../scripts/pilot-build-config.mjs"
