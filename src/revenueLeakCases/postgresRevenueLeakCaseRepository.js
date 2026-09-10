@@ -286,6 +286,7 @@ function createPostgresRevenueLeakCaseRepository(client, tenantId, subjectId) {
          opportunity.id as context_opportunity_id,
          opportunity.prospect_id as context_prospect_id,
          opportunity.business_name as context_opportunity_business_name,
+         opportunity.metadata as context_opportunity_metadata,
          business.id as context_business_id,
          business.business_name as context_business_name,
          action.id as context_action_id,
@@ -319,7 +320,8 @@ function createPostgresRevenueLeakCaseRepository(client, tenantId, subjectId) {
         opportunity: row.context_opportunity_id === null ? null : {
           id: row.context_opportunity_id,
           prospect_id: row.context_prospect_id,
-          business_name: row.context_opportunity_business_name
+          business_name: row.context_opportunity_business_name,
+          metadata: row.context_opportunity_metadata
         },
         business: row.context_business_id === null ? null : {
           id: row.context_business_id,
@@ -333,6 +335,17 @@ function createPostgresRevenueLeakCaseRepository(client, tenantId, subjectId) {
         }
       }))
     };
+  }
+
+  async function findByRevenueActionId(revenueActionId) {
+    const result = await client.query(
+      `select * from tge.revenue_leak_cases
+       where tenant_id = $1 and revenue_action_id = $2
+       order by revenue_action_linked_at, id
+       limit 1`,
+      [tenantId, revenueActionId]
+    );
+    return result.rows[0] ? revenueLeakCaseFromRow(result.rows[0]) : null;
   }
 
   async function transition(id, request) {
@@ -518,6 +531,7 @@ function createPostgresRevenueLeakCaseRepository(client, tenantId, subjectId) {
       return result.rows.map(revenueLeakCaseFromRow);
     },
     findById,
+    findByRevenueActionId,
     reconcile,
     reconcileBatch,
     listOperatingQueueContexts,

@@ -155,6 +155,11 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
       relativePath: "database/migrations/012_revenue_leak_case_foundation.sql",
       expected: "RevenueLeakCase detection evidence is immutable.",
       error: /Migration 012 must protect immutable RevenueLeakCase evidence/
+    },
+    {
+      relativePath: "database/migrations/013_privacy_minimized_pilot_evidence.sql",
+      expected: "Pilot evidence is append-only.",
+      error: /Migration 013 must protect append-only pilot evidence/
     }
   ];
 

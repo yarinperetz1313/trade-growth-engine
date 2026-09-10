@@ -213,6 +213,7 @@ test("browser accepts the complete queue without changing authoritative server o
   assert.equal(entries.value_summary.known_zero.case_count, 1);
   assert.equal(entries.value_summary.unknown.case_count, 1);
   assert.equal(entries.value_summary.not_applicable.case_count, 1);
+  assert.ok(entries.entries.every(entry => entry.data_origin === "EXISTING_CUSTOMER"));
 });
 
 test("browser formats exact same-currency totals beyond one case's numeric envelope", async () => {
@@ -358,6 +359,8 @@ test("browser rejects partial, malformed, re-ranked, or cross-currency-coerced q
     queue.entries[1].ordering_factors.stable_case_id = queue.entries[0].case.id;
   });
   assertInvalid(queue => { queue.entries[0].invented_owner = "owner-1"; });
+  assertInvalid(queue => { delete queue.entries[0].data_origin; });
+  assertInvalid(queue => { queue.entries[0].data_origin = "CUSTOMER_NAME"; });
   assertInvalid(queue => { queue.entries[0].business.name = 42; });
   assertInvalid(queue => {
     queue.entries[0].ordering_factors.leak_age_milliseconds = "86400000";

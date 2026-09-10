@@ -1,17 +1,27 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createRevenueActionForLeakCase,
+  getPilotEvidenceStatus,
   getRevenueLeakOperatingQueue,
+  recordPilotCaseFeedback,
+  recordPilotCaseInspected,
+  recordPilotCaseSurfaced,
   scanStalledOpportunities
 } from "../lib/api";
 import { formatCommercialValue } from "../lib/commercialValue";
 import {
   classifyRevenueLeakOperatingQueueError,
+  detectorOutcomePresentation,
+  detectorReasonExplanation,
   filterRevenueLeakOperatingQueue,
   formatPotentialRevenueAggregate,
   formatPotentialRevenueAtRisk,
   isAmbiguousRevenueLeakCaseMutationError
 } from "../lib/revenueLeakCaseContracts.mjs";
+import {
+  createPilotEvidenceOperationGuard,
+  requiresPilotEvidenceReconciliation
+} from "../lib/pilotEvidenceContracts.mjs";
 import { EvidenceDetails } from "./RevenueLeakCasePanel.jsx";
 
 function countLabel(summary) {
@@ -74,6 +84,104 @@ function identityCopy(entry) {
     || "Business identity unavailable";
 }
 
+const SCAN_OUTCOMES = [
+  "ELIGIBLE_LEAK_DETECTED",
+  "ELIGIBLE_NO_LEAK",
+  "INSUFFICIENT_EVIDENCE",
+  "STALE_OR_UNTRUSTWORTHY_SOURCE",
+  "DATA_HEALTH_SUPPRESSED"
+];
+const FEEDBACK_OPTIONS = [
+  ["USEFUL", "Useful"],
+  ["WRONG", "Wrong"],
+  ["ALREADY_HANDLED", "Already handled"],
+  ["MISSING_CONTEXT", "Missing context"],
+  ["NOT_WORTH_PURSUING", "Not worth pursuing"]
+];
+
+function dataOriginCopy(origin) {
+  if (origin === "IMPORTED_CUSTOMER") return "Imported customer";
+  if (origin === "SAMPLE_DEMO") {
+    return "Sample / demo — excluded from first-value evidence";
+  }
+  return "Existing customer";
+}
+
+function ScanSummary({ summary }) {
+  const detected = summary.outcomes.ELIGIBLE_LEAK_DETECTED.count;
+  return (
+    <section className="rcc2-scan-summary" role="status" aria-label="Complete explicit scan outcomes">
+      <div className="rcc2-scan-heading">
+        <strong>Complete explicit scan</strong>
+        <span>Evaluated {summary.evaluated_count}</span>
+        <span>Excluded {summary.excluded_count}</span>
+        <span>Unevaluated {summary.unevaluated_count}</span>
+      </div>
+      {summary.evaluated_count === 0 && (
+        <p>No canonical opportunities were available. Import or create opportunity evidence, then explicitly scan again.</p>
+      )}
+      {summary.evaluated_count > 0 && detected === 0 && (
+        <p>No eligible stalled-opportunity leak was detected. Review every closed outcome below before deciding whether to improve evidence or scan again.</p>
+      )}
+      <div className="rcc2-scan-outcomes">
+        {SCAN_OUTCOMES.map(outcome => {
+          const result = summary.outcomes[outcome];
+          const title = detectorOutcomePresentation(outcome, null).title;
+          const reasons = Object.entries(result.reasons);
+          return (
+            <article key={outcome}>
+              <strong>{title}</strong>
+              <span>{result.count}</span>
+              {reasons.length === 0 ? (
+                <small>No closed reasons returned.</small>
+              ) : (
+                <ul>
+                  {reasons.map(([reason, count]) => (
+                    <li key={reason}>
+                      <code>{reason}</code> · {count} — {detectorReasonExplanation(reason)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </article>
+          );
+        })}
+      </div>
+      <small>
+        Suppressed {summary.outcomes.DATA_HEALTH_SUPPRESSED.count}. Detector thresholds and queue order are unchanged.
+      </small>
+    </section>
+  );
+}
+
+function PilotJourney({ status }) {
+  if (!status?.milestones.import_committed) return null;
+  const milestones = [
+    ["Import committed", status.milestones.import_committed],
+    ["Explicit scan complete", status.milestones.portfolio_scan_completed],
+    ["First credible case surfaced", status.milestones.first_credible_case_surfaced],
+    ["Case inspected", status.milestones.case_inspected],
+    ["RevenueAction linked", status.milestones.revenue_action_materialized_linked],
+    ["Action approved", status.milestones.action_approved],
+    ["Action executed", status.milestones.action_executed]
+  ];
+  return (
+    <section className="rcc2-pilot-journey" aria-label="First-value pilot journey">
+      <div>
+        <span className="eyebrow">FIRST-VALUE JOURNEY</span>
+        <strong>Privacy-minimized durable milestones</strong>
+      </div>
+      <ol>
+        {milestones.map(([label, complete]) => (
+          <li className={complete ? "complete" : "pending"} key={label}>
+            <span aria-hidden="true">{complete ? "✓" : "○"}</span>{label}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 function QueueSummary({ summary }) {
   const totals = summary?.known_positive?.totals_by_currency || [];
   return (
@@ -114,9 +222,18 @@ function QueueCase({
   expanded,
   disabled,
   mutating,
+  firstImported,
+  inspected,
+  feedback,
+  feedbackCode,
   onToggle,
   onCreateAction,
-  onOpenOpportunity
+  onOpenOpportunity,
+  onFeedbackCode,
+  onSubmitFeedback,
+  onRetryInspection,
+  pilotDisabled,
+  retryInspection
 }) {
   const businessName = identityCopy(entry);
   const potential = formatPotentialRevenueAtRisk(entry.potential_value);
@@ -131,10 +248,16 @@ function QueueCase({
         aria-controls={`rcc2-detail-${entry.case.id}`}
         onClick={onToggle}
       >
-        <span className="rcc2-case-identity">
-          <span className={`rcc2-urgency ${entry.urgency.classification.toLowerCase()}`}>
-            {entry.urgency.classification.replaceAll("_", " ")}
-          </span>
+          <span className="rcc2-case-identity">
+            <span className={`rcc2-urgency ${entry.urgency.classification.toLowerCase()}`}>
+              {entry.urgency.classification.replaceAll("_", " ")}
+            </span>
+            <span className={`rcc2-origin ${entry.data_origin.toLowerCase()}`}>
+              {dataOriginCopy(entry.data_origin)}
+            </span>
+            {firstImported && (
+              <span className="rcc2-first-value">First credible imported-customer case</span>
+            )}
           <strong>{businessName}</strong>
           <small>
             {canNavigate ? "Opportunity" : "Historical opportunity"}{" "}
@@ -175,6 +298,53 @@ function QueueCase({
             evidenceClassification={entry.case.evidence_classification}
             evidenceState="AVAILABLE"
           />
+          {firstImported && (
+            <section className="rcc2-pilot-feedback" aria-label="First-value case feedback">
+              <div>
+                <h5>First-value evidence</h5>
+                <p>{inspected
+                  ? "This exact imported-customer case inspection is recorded."
+                  : "Recording this inspection is pending or unavailable."}</p>
+              </div>
+              {retryInspection && (
+                <button
+                  type="button"
+                  className="oc-secondary-button"
+                  disabled={pilotDisabled}
+                  onClick={onRetryInspection}
+                >
+                  Retry inspection evidence
+                </button>
+              )}
+              {feedback ? (
+                <strong>Feedback recorded: {feedback.replaceAll("_", " ")}</strong>
+              ) : (
+                <div className="rcc2-feedback-controls">
+                  <label>
+                    <span>Bounded feedback</span>
+                    <select
+                      value={feedbackCode}
+                      disabled={pilotDisabled || !inspected}
+                      onChange={event => onFeedbackCode(event.target.value)}
+                    >
+                      <option value="">Choose one</option>
+                      {FEEDBACK_OPTIONS.map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="oc-secondary-button"
+                    disabled={pilotDisabled || !inspected || !feedbackCode}
+                    onClick={onSubmitFeedback}
+                  >
+                    Record feedback
+                  </button>
+                </div>
+              )}
+            </section>
+          )}
           <div className="rcc2-next-action">
             <div>
               <h5>What should I do?</h5>
@@ -250,9 +420,46 @@ export default function RevenueCommandCenter({
   const [mutationMessage, setMutationMessage] = useState(null);
   const [mutationError, setMutationError] = useState(null);
   const [reconciliationBlocked, setReconciliationBlocked] = useState(false);
+  const [pilotStatus, setPilotStatus] = useState(null);
+  const [pilotStatusState, setPilotStatusState] = useState("LOADING");
+  const [pilotMessage, setPilotMessage] = useState(null);
+  const [pilotError, setPilotError] = useState(null);
+  const [pilotMutation, setPilotMutation] = useState(null);
+  const [pilotReconciliationBlocked, setPilotReconciliationBlocked] = useState(false);
+  const [pilotRetry, setPilotRetry] = useState(null);
+  const [feedbackCode, setFeedbackCode] = useState("");
   const mounted = useRef(false);
   const queueRequest = useRef(0);
   const queueRef = useRef(null);
+  const pilotStatusRequest = useRef(0);
+  const pilotGuard = useRef(null);
+  const surfacedAttempt = useRef(null);
+  const inspectedAttempts = useRef(new Set());
+  const ambiguousPilotAttempt = useRef(null);
+  if (pilotGuard.current === null) {
+    pilotGuard.current = createPilotEvidenceOperationGuard();
+  }
+
+  const loadPilotStatus = useCallback(async () => {
+    const requestId = ++pilotStatusRequest.current;
+    setPilotStatusState("LOADING");
+    try {
+      const status = await getPilotEvidenceStatus();
+      if (!mounted.current || requestId !== pilotStatusRequest.current) return null;
+      setPilotStatus(status);
+      setPilotStatusState("READY");
+      setPilotError(null);
+      return status;
+    } catch (statusError) {
+      if (!mounted.current || requestId !== pilotStatusRequest.current) return null;
+      setPilotStatusState("ERROR");
+      setPilotError({
+        title: "Pilot evidence status unavailable",
+        message: statusError?.message || "Durable first-value evidence could not be loaded."
+      });
+      return null;
+    }
+  }, []);
 
   const loadQueue = useCallback(async () => {
     const requestId = ++queueRequest.current;
@@ -285,11 +492,40 @@ export default function RevenueCommandCenter({
   useEffect(() => {
     mounted.current = true;
     loadQueue();
+    loadPilotStatus();
     return () => {
       mounted.current = false;
       queueRequest.current += 1;
+      pilotStatusRequest.current += 1;
+      pilotGuard.current.invalidate();
     };
-  }, [loadQueue]);
+  }, [loadPilotStatus, loadQueue]);
+
+  const firstImportedCase = queue?.entries.find(entry =>
+    entry.data_origin === "IMPORTED_CUSTOMER"
+  ) || null;
+
+  useEffect(() => {
+    const caseId = firstImportedCase?.case.id;
+    if (
+      !caseId
+      || pilotStatusState !== "READY"
+      || !pilotStatus?.milestones.portfolio_scan_completed
+      || pilotStatus?.surfaced_case_id !== null
+      || surfacedAttempt.current === caseId
+    ) return;
+    surfacedAttempt.current = caseId;
+    void runPilotObservation({
+      kind: "surface",
+      caseId,
+      request: () => recordPilotCaseSurfaced(caseId)
+    });
+  }, [
+    firstImportedCase?.case.id,
+    pilotStatus?.milestones.portfolio_scan_completed,
+    pilotStatus?.surfaced_case_id,
+    pilotStatusState
+  ]);
 
   const visibleEntries = useMemo(() => filterRevenueLeakOperatingQueue(
     queue?.entries || [],
@@ -299,7 +535,133 @@ export default function RevenueCommandCenter({
   async function refreshQueue() {
     setMutationMessage(null);
     setMutationError(null);
-    await Promise.all([loadQueue(), onRefresh?.()]);
+    await Promise.all([loadQueue(), loadPilotStatus(), onRefresh?.()]);
+  }
+
+  function pilotObservationConfirmed(status, attempt) {
+    if (attempt.kind === "surface") {
+      return status?.surfaced_case_id === attempt.caseId;
+    }
+    if (attempt.kind === "inspect") {
+      return status?.inspected_case_ids.includes(attempt.caseId);
+    }
+    return status?.case_feedback.some(item =>
+      item.case_id === attempt.caseId
+      && item.feedback_code === attempt.feedbackCode
+    );
+  }
+
+  async function runPilotObservation(attempt) {
+    const token = pilotGuard.current.begin(`${attempt.kind}:${attempt.caseId}`);
+    if (!token || pilotReconciliationBlocked) return;
+    setPilotMutation(attempt);
+    setPilotMessage(null);
+    setPilotError(null);
+    setPilotRetry(null);
+    try {
+      await attempt.request();
+      if (!mounted.current || !pilotGuard.current.isCurrent(token)) return;
+      const durable = await loadPilotStatus();
+      if (!pilotGuard.current.isCurrent(token)) return;
+      if (durable && pilotObservationConfirmed(durable, attempt)) {
+        setPilotMessage(attempt.kind === "feedback"
+          ? "Bounded feedback recorded for this exact case."
+          : attempt.kind === "inspect"
+            ? "Exact imported-customer case inspection recorded."
+            : "First credible imported-customer case surfaced.");
+      } else {
+        setPilotError({
+          title: "Pilot evidence status needs refresh",
+          message: "The mutation response was confirmed, but durable status could not yet confirm the exact identifier."
+        });
+      }
+    } catch (observationError) {
+      if (!mounted.current || !pilotGuard.current.isCurrent(token)) return;
+      if (requiresPilotEvidenceReconciliation(observationError)) {
+        ambiguousPilotAttempt.current = attempt;
+        setPilotReconciliationBlocked(true);
+        const durable = await loadPilotStatus();
+        if (!pilotGuard.current.isCurrent(token)) return;
+        if (durable && pilotObservationConfirmed(durable, attempt)) {
+          ambiguousPilotAttempt.current = null;
+          setPilotReconciliationBlocked(false);
+          setPilotMessage("Durable status confirms the exact pilot evidence fact. No duplicate mutation was attempted.");
+        } else if (durable) {
+          ambiguousPilotAttempt.current = null;
+          setPilotReconciliationBlocked(false);
+          setPilotRetry(attempt);
+          setPilotError({
+            title: "Pilot evidence not confirmed",
+            message: "Durable status was reconciled and does not contain this exact fact. Retry only by explicit choice."
+          });
+        } else {
+          setPilotError({
+            title: "Pilot evidence outcome unknown",
+            message: "Durable status must be reconciled before this evidence mutation can be retried."
+          });
+        }
+      } else {
+        setPilotError({
+          title: "Pilot evidence unavailable",
+          message: observationError?.message || "The bounded evidence fact could not be recorded."
+        });
+      }
+    } finally {
+      if (pilotGuard.current.finish(token)) setPilotMutation(null);
+    }
+  }
+
+  async function reconcilePilotEvidence() {
+    const attempt = ambiguousPilotAttempt.current;
+    const durable = await loadPilotStatus();
+    if (!durable) return;
+    setPilotReconciliationBlocked(false);
+    ambiguousPilotAttempt.current = null;
+    if (attempt && pilotObservationConfirmed(durable, attempt)) {
+      setPilotMessage("Durable status confirms the exact pilot evidence fact. No duplicate mutation was attempted.");
+      setPilotError(null);
+      return;
+    }
+    if (attempt) setPilotRetry(attempt);
+    setPilotError(attempt ? {
+      title: "Pilot evidence not confirmed",
+      message: "Durable status does not contain this exact fact. Retry only by explicit choice."
+    } : null);
+  }
+
+  function inspectFirstImported(entry, { explicitRetry = false } = {}) {
+    const caseId = entry.case.id;
+    if (
+      pilotStatus?.inspected_case_ids.includes(caseId)
+      || pilotMutation
+      || pilotReconciliationBlocked
+      || (!explicitRetry && inspectedAttempts.current.has(caseId))
+    ) return;
+    inspectedAttempts.current.add(caseId);
+    void runPilotObservation({
+      kind: "inspect",
+      caseId,
+      request: () => recordPilotCaseInspected(caseId)
+    });
+  }
+
+  function toggleCase(entry) {
+    const expanding = selectedCaseId !== entry.case.id;
+    setSelectedCaseId(expanding ? entry.case.id : null);
+    if (expanding && entry.case.id === firstImportedCase?.case.id) {
+      inspectFirstImported(entry);
+    }
+  }
+
+  function submitPilotFeedback() {
+    const caseId = firstImportedCase?.case.id;
+    if (!caseId || !feedbackCode) return;
+    void runPilotObservation({
+      kind: "feedback",
+      caseId,
+      feedbackCode,
+      request: () => recordPilotCaseFeedback(caseId, feedbackCode)
+    });
   }
 
   async function runScan() {
@@ -311,6 +673,7 @@ export default function RevenueCommandCenter({
       if (!mounted.current) return;
       setScanSummary(response.summary);
       const durable = await loadQueue();
+      await loadPilotStatus();
       if (durable) setMutationMessage(
         "Scan complete. The durable operating queue was refreshed."
       );
@@ -318,7 +681,7 @@ export default function RevenueCommandCenter({
       if (!mounted.current) return;
       if (isAmbiguousRevenueLeakCaseMutationError(scanError)) {
         setReconciliationBlocked(true);
-        const durable = await loadQueue();
+        const [durable] = await Promise.all([loadQueue(), loadPilotStatus()]);
         setMutationError(durable ? {
           title: "Scan outcome reconciled",
           message: "The scan response was not confirmed. Durable queue truth was reloaded; run another scan only by explicit choice."
@@ -348,6 +711,13 @@ export default function RevenueCommandCenter({
       const linked = durable?.entries.find(item => item.case.id === caseId)
         ?.linked_revenue_action;
       if (linked) {
+        const evidence = await loadPilotStatus();
+        if (evidence && !evidence.linked_action_ids.includes(linked.id)) {
+          setPilotError({
+            title: "Linked action evidence not confirmed",
+            message: "The exact case/action link is durable, but pilot status does not yet contain this action identifier. No mutation was repeated."
+          });
+        }
         setMutationMessage(
           "RevenueAction created and linked. Continue in Opportunity Command Center; approval required."
         );
@@ -365,6 +735,13 @@ export default function RevenueCommandCenter({
         const linked = durable?.entries.find(item => item.case.id === caseId)
           ?.linked_revenue_action;
         if (linked) {
+          const evidence = await loadPilotStatus();
+          if (evidence && !evidence.linked_action_ids.includes(linked.id)) {
+            setPilotError({
+              title: "Linked action evidence not confirmed",
+              message: "Durable queue truth confirms the exact case/action link, but pilot status does not yet contain this action identifier. No mutation was repeated."
+            });
+          }
           setMutationMessage(
             "Durable server truth confirms the RevenueAction link. No duplicate mutation was attempted."
           );
@@ -457,15 +834,39 @@ export default function RevenueCommandCenter({
           <strong>{mutationError.title}</strong><span>{mutationError.message}</span>
         </div>
       )}
-      {scanSummary && (
-        <div className="rcc2-scan-summary" role="status">
-          <strong>Complete explicit scan</strong>
-          <span>Evaluated {scanSummary.evaluated_count}</span>
-          <span>Suppressed {scanSummary.outcomes.DATA_HEALTH_SUPPRESSED.count}</span>
-          <span>Excluded {scanSummary.excluded_count}</span>
-          <span>Unevaluated {scanSummary.unevaluated_count}</span>
+      {pilotMessage && <div className="rcc2-success" role="status">{pilotMessage}</div>}
+      {pilotError && (
+        <div className="rcc2-alert" role="alert">
+          <strong>{pilotError.title}</strong><span>{pilotError.message}</span>
+          {pilotReconciliationBlocked && (
+            <button
+              type="button"
+              className="oc-secondary-button"
+              disabled={pilotStatusState === "LOADING"}
+              onClick={reconcilePilotEvidence}
+            >
+              Reconcile pilot evidence
+            </button>
+          )}
+          {!pilotReconciliationBlocked && pilotStatusState === "ERROR" && (
+            <button type="button" className="oc-secondary-button" onClick={loadPilotStatus}>
+              Retry pilot status
+            </button>
+          )}
+          {!pilotReconciliationBlocked && pilotRetry && pilotRetry.kind !== "inspect" && (
+            <button
+              type="button"
+              className="oc-secondary-button"
+              disabled={Boolean(pilotMutation)}
+              onClick={() => runPilotObservation(pilotRetry)}
+            >
+              Retry exact pilot evidence
+            </button>
+          )}
         </div>
       )}
+      <PilotJourney status={pilotStatus} />
+      {scanSummary && <ScanSummary summary={scanSummary} />}
 
       {queue && (
         <>
@@ -495,7 +896,9 @@ export default function RevenueCommandCenter({
           {queue.entries.length === 0 ? (
             <div className="rcc2-state" data-testid="revenue-leak-queue-empty">
               No active revenue leak cases need attention. This is a complete queue
-              result, not a claim that every opportunity was recently scanned.
+              result, not a claim that every opportunity was recently scanned. Run
+              the explicit stalled-opportunity scan to evaluate current canonical
+              evidence, or import/create opportunities if none are available.
             </div>
           ) : visibleEntries.length === 0 ? (
             <div className="rcc2-state">No cases match these authoritative filters.</div>
@@ -507,12 +910,28 @@ export default function RevenueCommandCenter({
                   entry={entry}
                   expanded={selectedCaseId === entry.case.id}
                   disabled={controlsDisabled || actionsUnavailable}
+                  firstImported={entry.case.id === firstImportedCase?.case.id}
+                  inspected={pilotStatus?.inspected_case_ids.includes(entry.case.id)}
+                  feedback={pilotStatus?.case_feedback.find(item =>
+                    item.case_id === entry.case.id
+                  )?.feedback_code || null}
+                  feedbackCode={feedbackCode}
                   mutating={mutationCaseId === entry.case.id}
-                  onToggle={() => setSelectedCaseId(current =>
-                    current === entry.case.id ? null : entry.case.id
-                  )}
+                  onToggle={() => toggleCase(entry)}
                   onCreateAction={createRecoveryAction}
+                  onFeedbackCode={setFeedbackCode}
+                  onRetryInspection={() => inspectFirstImported(entry, {
+                    explicitRetry: true
+                  })}
+                  onSubmitFeedback={submitPilotFeedback}
                   onOpenOpportunity={onOpenOpportunity}
+                  pilotDisabled={Boolean(
+                    pilotMutation
+                    || pilotReconciliationBlocked
+                    || pilotStatusState !== "READY"
+                  )}
+                  retryInspection={pilotRetry?.kind === "inspect"
+                    && pilotRetry.caseId === entry.case.id}
                 />
               ))}
             </div>

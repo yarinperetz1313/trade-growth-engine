@@ -422,6 +422,17 @@ test("canonical import locks, reconciles, materializes, maps, audits, and finali
       if (/select \* from tge\.finalize_import_commit/i.test(sql)) {
         return { rows: [committedBatch] };
       }
+      if (/insert into tge\.pilot_evidence_events/i.test(sql)) {
+        return { rows: [{
+          tenant_id: params[0],
+          id: params[1],
+          event_type: params[2],
+          actor_subject_id: params[3],
+          occurred_at: params[4],
+          semantic_key: params[5],
+          facts: JSON.parse(params[6])
+        }] };
+      }
       return { rows: [] };
     },
     release() {}
@@ -456,6 +467,23 @@ test("canonical import locks, reconciles, materializes, maps, audits, and finali
           conflicted: 0,
           failed: 0
         },
+        pilotEvidenceFacts: {
+          import_batch_id: "batch-1",
+          source_collection: "prospects",
+          total_count: 1,
+          committed_count: 1,
+          skipped_count: 0,
+          quality_blocked_count: 0,
+          quality_conflict_count: 0,
+          source_identity_covered_count: 1,
+          commercial_value_covered_count: null,
+          stage_covered_count: null,
+          created_at_covered_count: 0,
+          created_at_invalid_count: 0,
+          updated_at_covered_count: 0,
+          updated_at_invalid_count: 0,
+          contactable_count: 0
+        },
         conflicts: [],
         rows: [{
           stagingRecordId: staged.id,
@@ -487,6 +515,7 @@ test("canonical import locks, reconciles, materializes, maps, audits, and finali
   assert.equal(calls.some(([sql]) => /record_import_commit_outcome/i.test(sql)), true);
   assert.equal(calls.some(([sql]) => /insert into tge\.audit_events/i.test(sql)), true);
   assert.equal(calls.some(([sql]) => /finalize_import_commit/i.test(sql)), true);
+  assert.equal(calls.some(([sql]) => /insert into tge\.pilot_evidence_events/i.test(sql)), true);
   for (const [sql, params] of calls.filter(([sql]) => /tge\.(import_|prospects|audit_events)/i.test(sql))) {
     if (Array.isArray(params) && params.length > 0) {
       assert.equal(params[0], context.tenantId, sql);

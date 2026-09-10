@@ -1,7 +1,11 @@
 const localStore = require("../services/localStore");
 const {
-  createJsonRevenueLeakCaseRepository
+  createJsonRevenueLeakCaseRepository,
+  LOCAL_REVENUE_LEAK_TENANT_ID
 } = require("../revenueLeakCases/jsonRevenueLeakCaseRepository");
+const {
+  createJsonPilotEvidenceRepository
+} = require("../pilotEvidence/jsonPilotEvidenceRepository");
 
 function createJsonRepositories({ store = localStore } = {}) {
   const collection = (name, { immutable = false, order, filters = {} } = {}) => ({
@@ -56,7 +60,11 @@ function createJsonRepositories({ store = localStore } = {}) {
       order: (left, right) =>
         String(right.created_at).localeCompare(String(left.created_at))
     }),
-    revenueLeakCases: createJsonRevenueLeakCaseRepository({ store })
+    revenueLeakCases: createJsonRevenueLeakCaseRepository({ store }),
+    pilotEvidence: createJsonPilotEvidenceRepository({
+      store,
+      localTenantId: LOCAL_REVENUE_LEAK_TENANT_ID
+    })
   };
   repositories.opportunities.listForStalledScan = async ({ limit } = {}) => {
     if (!Number.isSafeInteger(limit) || limit < 1) {

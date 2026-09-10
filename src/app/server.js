@@ -12,6 +12,9 @@ const {
   createRevenueLeakCasesRouter
 } = require("../api/revenueLeakCases");
 const {
+  createPilotEvidenceRouter
+} = require("../api/pilotEvidence");
+const {
   createPostgresCoreRouter
 } = require("../api/postgresCore");
 const {
@@ -35,6 +38,9 @@ const {
 const {
   createImportService
 } = require("../imports/importService");
+const {
+  createPilotEvidenceService
+} = require("../pilotEvidence/pilotEvidenceService");
 
 function bridgeAuthTenantContext(authTenantContext) {
   const trustedAuthContext = assertTrustedTenantContext(authTenantContext);
@@ -108,6 +114,12 @@ function createApp({
       : null;
     api = createApiRouter({
       importsRouter,
+      pilotEvidenceRouter: persistence?.repositories?.pilotEvidence
+        ? createPilotEvidenceRouter({
+          service: createPilotEvidenceService({ persistence }),
+          resolveTenantContext: requestTenantContext
+        })
+        : null,
       postgresCoreRouter,
       revenueLeakCasesRouter: persistence?.repositories?.revenueLeakCases
         ? createRevenueLeakCasesRouter({

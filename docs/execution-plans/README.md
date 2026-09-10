@@ -6,6 +6,7 @@
 
 ## Completed plans
 
+- [`completed/first-value-onboarding-pilot-evidence.md`](completed/first-value-onboarding-pilot-evidence.md) — **Issue #9/#14 PR-3 completes the post-import first-value bridge and closed, tenant-scoped, privacy-minimized pilot-evidence contract as a local candidate; GitHub delivery remains coordinator-owned.**
 - [`completed/revenue-command-center-v2.md`](completed/revenue-command-center-v2.md) — **Issue #9 PR-2 makes the server-ordered RevenueLeakCase queue the primary Command Center and composes a tenant-safe, retry-safe handoff into the existing human-controlled RevenueAction lifecycle.**
 - [`completed/revenue-leak-operating-queue.md`](completed/revenue-leak-operating-queue.md) — **Issue #9 PR-1 implements the explicit bounded tenant-wide stalled-opportunity scan and truthful active RevenueLeakCase operating queue; its historical checkpoint excluded the later Command Center/action-handoff and onboarding/evidence work.**
 - [`completed/pr-5b-import-mapping.md`](completed/pr-5b-import-mapping.md)

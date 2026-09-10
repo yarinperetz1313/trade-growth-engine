@@ -42,6 +42,9 @@ const {
 const {
   createPostgresRevenueLeakCaseRepository
 } = require("../../revenueLeakCases/postgresRevenueLeakCaseRepository");
+const {
+  createPostgresPilotEvidenceRepository
+} = require("../../pilotEvidence/postgresPilotEvidenceRepository");
 
 const ACTIVE_ACTION_STATUSES = [
   "RECOMMENDED",
@@ -266,6 +269,16 @@ function createPostgresRepositories({
     linkRevenueAction: (context, id, linkage) => run(
       context,
       scoped => scoped.revenueLeakCases.linkRevenueAction(id, linkage)
+    )
+  };
+  publicRepositories.pilotEvidence = {
+    append: (context, event) => run(
+      context,
+      scoped => scoped.pilotEvidence.append(event)
+    ),
+    list: context => run(
+      context,
+      scoped => scoped.pilotEvidence.list()
     )
   };
 
@@ -691,10 +704,16 @@ function createPostgresRepositories({
     );
     scoped.revenueActions.executeAtomic = (id, plan) =>
       executeRevenueActionAtomic(null, id, plan, transaction);
+    scoped.pilotEvidence = createPostgresPilotEvidenceRepository(
+      transaction.client,
+      transaction.tenantId,
+      transaction.subjectId
+    );
     scoped.imports = createImportRepository(
       transaction.client,
       transaction.tenantId,
-      (name, details) => checkpoint(name, transaction, details)
+      (name, details) => checkpoint(name, transaction, details),
+      scoped.pilotEvidence
     );
     scoped.revenueLeakCases = createPostgresRevenueLeakCaseRepository(
       transaction.client,

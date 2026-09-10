@@ -170,6 +170,21 @@ test("tenant-wide scan preserves all five outcomes and stable reconciliation sum
     ]
   );
   assert.equal(store.state.revenue_leak_cases.length, 1);
+  assert.deepEqual(store.state.pilot_evidence_events.map(event => ({
+    event_type: event.event_type,
+    facts: event.facts
+  })), [{
+    event_type: "PORTFOLIO_SCAN_COMPLETED",
+    facts: {
+      evaluated_count: 5,
+      eligible_leak_count: 1,
+      eligible_no_leak_count: 1,
+      insufficient_evidence_count: 1,
+      stale_source_count: 1,
+      data_health_suppressed_count: 1,
+      excluded_count: 0
+    }
+  }]);
 
   const replay = await service.scanStalledOpportunities();
   assert.deepEqual(replay.summary.reconciliation, {
@@ -198,6 +213,7 @@ test("tenant-wide scan preserves all five outcomes and stable reconciliation sum
   );
   assert.equal(store.state.revenue_leak_cases.length, 2);
   assert.equal(store.state.revenue_leak_cases[0].state, "SUPERSEDED");
+  assert.equal(store.state.pilot_evidence_events.length, 1);
 });
 
 test("over-cap and invalid portfolio scans fail before any case mutation", async () => {
@@ -434,6 +450,7 @@ test("operating queue preserves money truth, canonical context, linked action st
     prospect_id: "prospect-case-aud-a",
     business_name: "Opportunity case-aud-a"
   });
+  assert.equal(linked.data_origin, "EXISTING_CUSTOMER");
   assert.deepEqual(linked.business, {
     id: "prospect-case-aud-a",
     name: "Business case-aud-a"
@@ -453,6 +470,48 @@ test("operating queue preserves money truth, canonical context, linked action st
   assert.equal(Object.hasOwn(queue, "recovered_revenue"), false);
   assert.equal(queue.ordering.stable_final_tie_breaker, "case.id ASC");
   assert.deepEqual(contexts, original);
+});
+
+test("operating queue labels imported and sample/demo cases without exposing provenance payloads", () => {
+  const imported = queueCase({ id: "case-imported" });
+  const sample = queueCase({ id: "case-sample" });
+  const queue = buildRevenueLeakOperatingQueue({
+    contexts: [
+      {
+        case: imported,
+        opportunity: {
+          id: imported.opportunity_id,
+          metadata: { import: {
+            batch_id: "batch-1",
+            source_system: "private-crm",
+            source_record_id: "private-source-id",
+            raw_payload_sha256: "a".repeat(64)
+          } }
+        },
+        business: null,
+        revenue_action: null
+      },
+      {
+        case: sample,
+        opportunity: {
+          id: sample.opportunity_id,
+          metadata: { data_origin: "SAMPLE_DEMO" }
+        },
+        business: null,
+        revenue_action: null
+      }
+    ],
+    totalCount: 2,
+    generatedAt: EVALUATED_AT
+  });
+
+  assert.deepEqual(queue.entries.map(entry => entry.data_origin).sort(), [
+    "IMPORTED_CUSTOMER",
+    "SAMPLE_DEMO"
+  ]);
+  assert.equal(JSON.stringify(queue).includes("private-crm"), false);
+  assert.equal(JSON.stringify(queue).includes("private-source-id"), false);
+  assert.equal(JSON.stringify(queue).includes("raw_payload_sha256"), false);
 });
 
 test("operating queue preserves historical source identity without fabricating current opportunity context", () => {

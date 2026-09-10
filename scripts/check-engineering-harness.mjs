@@ -180,6 +180,11 @@ function validateE2eContract() {
     'writeCollection(storeDir, "revenue_leak_cases", [])',
     "E2E seed must include empty revenue_leak_cases"
   );
+  requireText(
+    lifecycle,
+    'writeCollection(storeDir, "pilot_evidence_events", [])',
+    "E2E seed must include empty pilot_evidence_events"
+  );
 }
 
 function validateDatabaseFoundationContract() {
@@ -217,6 +222,9 @@ function validateDatabaseFoundationContract() {
   );
   const revenueLeakCaseMigration = readFile(
     "database/migrations/012_revenue_leak_case_foundation.sql"
+  );
+  const pilotEvidenceMigration = readFile(
+    "database/migrations/013_privacy_minimized_pilot_evidence.sql"
   );
   const migrationFiles = fs
     .readdirSync(path.join(rootDir, "database", "migrations"))
@@ -334,6 +342,16 @@ function validateDatabaseFoundationContract() {
     "Migration 012 must protect immutable RevenueLeakCase evidence"
   );
   requireText(
+    pilotEvidenceMigration,
+    "create table tge.pilot_evidence_events",
+    "Migration 013 must add privacy-minimized pilot evidence storage"
+  );
+  requireText(
+    pilotEvidenceMigration,
+    "Pilot evidence is append-only.",
+    "Migration 013 must protect append-only pilot evidence"
+  );
+  requireText(
     databaseTest,
     "TGE_TEST_DATABASE_URL",
     "Database tests must require an explicit real PostgreSQL URL"
@@ -360,7 +378,8 @@ function validateDatabaseFoundationContract() {
       "009_revenue_action_cancellation_integrity.sql",
       "010_auth_membership_and_invitations.sql",
       "011_canonical_import_commit.sql",
-      "012_revenue_leak_case_foundation.sql"
+      "012_revenue_leak_case_foundation.sql",
+      "013_privacy_minimized_pilot_evidence.sql"
     ])
   ) {
     failures.push(

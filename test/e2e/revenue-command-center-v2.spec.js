@@ -439,8 +439,81 @@ test("shows explicit scan suppression/exclusion truth and refreshes the queue", 
   await page.getByRole("button", { name: "Scan stalled opportunities" }).click();
   await expect(page.locator(".rcc2-scan-summary")).toContainText("Suppressed 1");
   await expect(page.locator(".rcc2-scan-summary")).toContainText("Excluded 0");
+  await expect(page.locator(".rcc2-scan-summary")).toContainText("Potential revenue leak detected");
+  await expect(page.locator(".rcc2-scan-summary")).toContainText("No eligible stalled-opportunity leak");
+  await expect(page.locator(".rcc2-scan-summary")).toContainText("Evidence unavailable");
+  await expect(page.locator(".rcc2-scan-summary")).toContainText("Evidence stale or untrustworthy");
+  await expect(page.locator(".rcc2-scan-summary")).toContainText("Evidence suppressed by Data Health");
+  await expect(page.locator(".rcc2-scan-summary")).toContainText("NEXT_ACTION_PRESENT");
+  await expect(page.locator(".rcc2-scan-summary")).toContainText("COMMERCIAL_VALUE_INVALID");
   await expect.poll(() => queueReads).toBeGreaterThanOrEqual(2);
 });
+
+test("explains no-opportunity and no-leak scan states without inferring success", async ({ page }) => {
+  const reference = Date.now();
+  let mode = "EMPTY";
+  await page.route(`${apiBaseUrl}/api/revenue-leak-cases/operating-queue`, route =>
+    json(route, 200, queueResponse([], reference))
+  );
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/scan-stalled-opportunities`,
+    route => json(route, 200, scanStateResponse(mode, reference))
+  );
+
+  await page.goto("/#opportunities");
+  await page.getByRole("button", { name: "Scan stalled opportunities" }).click();
+  await expect(page.getByText(/No canonical opportunities were available/)).toBeVisible();
+
+  mode = "NO_LEAK";
+  await page.getByRole("button", { name: "Scan stalled opportunities" }).click();
+  await expect(page.getByText(/No eligible stalled-opportunity leak was detected/))
+    .toBeVisible();
+  await expect(page.getByLabel("Complete explicit scan outcomes"))
+    .toContainText("NEXT_ACTION_PRESENT");
+});
+
+function scanStateResponse(mode, reference) {
+  const noLeak = mode === "NO_LEAK";
+  return {
+    ok: true,
+    evaluated_at: new Date(reference).toISOString(),
+    detector: { id: "stalled-opportunity", version: "1" },
+    scope: "TENANT_VISIBLE_CANONICAL_OPPORTUNITIES",
+    summary: {
+      complete: true,
+      limit: 100,
+      total_opportunities: noLeak ? 1 : 0,
+      evaluated_count: noLeak ? 1 : 0,
+      unevaluated_count: 0,
+      overflow_count: 0,
+      invalid_record_count: 0,
+      excluded_count: 0,
+      reconciliation: {
+        detected_count: 0,
+        created_count: 0,
+        replayed_count: 0,
+        superseded_count: 0
+      },
+      outcomes: {
+        ELIGIBLE_LEAK_DETECTED: { count: 0, reasons: {} },
+        ELIGIBLE_NO_LEAK: noLeak
+          ? { count: 1, reasons: { NEXT_ACTION_PRESENT: 1 } }
+          : { count: 0, reasons: {} },
+        INSUFFICIENT_EVIDENCE: { count: 0, reasons: {} },
+        STALE_OR_UNTRUSTWORTHY_SOURCE: { count: 0, reasons: {} },
+        DATA_HEALTH_SUPPRESSED: { count: 0, reasons: {} }
+      }
+    },
+    results: noLeak ? [{
+      opportunity_id: "no-leak-opportunity",
+      outcome: "ELIGIBLE_NO_LEAK",
+      reason_code: "NEXT_ACTION_PRESENT",
+      disposition: "READ_ONLY",
+      case_id: null,
+      superseded_case_id: null
+    }] : []
+  };
+}
 
 test("reconciles an ambiguous handoff from durable queue truth without a duplicate POST", async ({ page }) => {
   const reference = Date.now();

@@ -9,6 +9,13 @@ const {
 const {
   buildPipelineMetrics
 } = require("../opportunities/opportunityEngine");
+const {
+  buildPilotEvidenceEvent
+} = require("../pilotEvidence/pilotEvidenceDomain");
+const {
+  classifyOpportunityDataOrigin
+} = require("../pilotEvidence/dataOrigin");
+const { requireTenantContext } = require("../persistence/tenantContext");
 
 const ERROR_STATUS = Object.freeze({
   OPPORTUNITY_NOT_FOUND: 404,
@@ -95,13 +102,14 @@ function createPostgresRevenueActionService({
 
   return Object.freeze({
     forTenant(context) {
-      const repositories = persistence.forTenant(context);
-      return createTenantService(repositories, { createId, clock });
+      const trusted = requireTenantContext(context);
+      const repositories = persistence.forTenant(trusted);
+      return createTenantService(repositories, trusted, { createId, clock });
     }
   });
 }
 
-function createTenantService(repositories, { createId, clock }) {
+function createTenantService(repositories, context, { createId, clock }) {
   async function buildRefresh(scoped, opportunityId) {
     const prospects = await scoped.prospects.list();
     const opportunities = await scoped.opportunities.list();
@@ -141,6 +149,56 @@ function createTenantService(repositories, { createId, clock }) {
     };
   }
 
+  async function observeActionMilestone(scoped, eventType, action) {
+    if (
+      typeof scoped.revenueLeakCases?.findByRevenueActionId !== "function"
+      || typeof scoped.pilotEvidence?.append !== "function"
+    ) return null;
+    const linkedCase = await scoped.revenueLeakCases.findByRevenueActionId(
+      action.id
+    );
+    if (!linkedCase || linkedCase.opportunity_id !== action.opportunity_id) {
+      return null;
+    }
+    const opportunity = await scoped.opportunities.findById(
+      linkedCase.opportunity_id
+    );
+    const origin = classifyOpportunityDataOrigin(opportunity);
+    if (origin.kind !== "IMPORTED_CUSTOMER") return null;
+    const committed = await scoped.imports.findCommit(origin.importBatchId);
+    if (
+      committed?.outcome !== "COMMITTED"
+      || committed?.batch?.status !== "COMMITTED"
+      || !committed.rows?.some(row => row.targetId === linkedCase.opportunity_id)
+    ) return null;
+    const facts = {
+      case_id: linkedCase.id,
+      import_batch_id: origin.importBatchId,
+      revenue_action_id: action.id,
+      action_status: eventType === "ACTION_APPROVED" ? "APPROVED" : "EXECUTED",
+      ...(eventType === "ACTION_EXECUTED" ? {
+        execution_effect_type: action.execution_type === "INTERNAL_TASK"
+          ? "INTERNAL_TASK"
+          : "COMMUNICATION_MANUAL_CONFIRMATION"
+      } : {})
+    };
+    const occurredAt = eventType === "ACTION_APPROVED"
+      ? action.approved_at
+      : action.executed_at;
+    const digest = crypto.createHash("sha256")
+      .update(`${eventType}:${linkedCase.id}:${action.id}`)
+      .digest("hex");
+    return scoped.pilotEvidence.append(buildPilotEvidenceEvent({
+      eventType,
+      facts
+    }, {
+      tenantId: context.tenantId,
+      subjectId: context.subjectId,
+      occurredAt,
+      id: `pilot-action:${digest}`
+    }));
+  }
+
   async function transition(id, request) {
     try {
       return await repositories.transaction(async scoped => {
@@ -153,6 +211,9 @@ function createTenantService(repositories, { createId, clock }) {
             ERROR_STATUS[result.conflict.code] || 409,
             result.conflict.details || {}
           );
+        }
+        if (request.to === "APPROVED" && result.record.status === "APPROVED") {
+          await observeActionMilestone(scoped, "ACTION_APPROVED", result.record);
         }
         const refreshed = await buildRefresh(
           scoped,
@@ -248,6 +309,13 @@ function createTenantService(repositories, { createId, clock }) {
               result.conflict.message,
               ERROR_STATUS[result.conflict.code] || 409,
               result.conflict.details || {}
+            );
+          }
+          if (result.record.status === "EXECUTED") {
+            await observeActionMilestone(
+              scoped,
+              "ACTION_EXECUTED",
+              result.record
             );
           }
           const refreshed = await buildRefresh(

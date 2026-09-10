@@ -5,6 +5,9 @@ const {
   normalizeCommercialValue,
   normalizeTimestamp
 } = require("./revenueLeakCaseDomain");
+const {
+  classifyOpportunityDataOrigin
+} = require("../pilotEvidence/dataOrigin");
 
 const PORTFOLIO_SCAN_LIMIT = 100;
 const OPERATING_QUEUE_LIMIT = 100;
@@ -179,6 +182,7 @@ function buildEntry(context, generatedAt) {
     ? commercialValue.amount === "0" ? "KNOWN_ZERO" : "KNOWN_POSITIVE"
     : commercialValue.classification;
   const opportunityId = requireText(record.opportunity_id, "case.opportunity_id");
+  const dataOrigin = classifyOpportunityDataOrigin(context.opportunity).kind;
   const opportunity = canonicalOpportunity(context.opportunity, opportunityId);
   const business = canonicalBusiness(context.business, opportunity);
   const urgency = deriveUrgency(record, generatedAt);
@@ -222,6 +226,7 @@ function buildEntry(context, generatedAt) {
         : normalizeTimestamp(record.due_at, "case.due_at")
     },
     historical_opportunity_id: opportunityId,
+    data_origin: dataOrigin,
     opportunity: opportunity === null
       ? null
       : {

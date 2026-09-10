@@ -292,6 +292,7 @@ export function seedE2eStore(storeDir) {
   writeCollection(storeDir, "tasks", []);
   writeCollection(storeDir, "revenue_actions", []);
   writeCollection(storeDir, "revenue_leak_cases", []);
+  writeCollection(storeDir, "pilot_evidence_events", []);
 }
 
 export function cleanupPlaywrightStore(config) {

@@ -17,6 +17,9 @@ const { createTenantContext } = require("../src/persistence/tenantContext");
 const legacyRevenueActionService = require(
   "../src/revenueActions/revenueActionService"
 );
+const legacyRevenueActionRepository = require(
+  "../src/revenueActions/revenueActionRepository"
+);
 const {
   LOCAL_REVENUE_LEAK_TENANT_ID
 } = require("../src/revenueLeakCases/jsonRevenueLeakCaseRepository");
@@ -35,7 +38,7 @@ function isoDaysBefore(days) {
   return new Date(Date.parse(FIXED_NOW) - days * DAY_MS).toISOString();
 }
 
-function seedEligibleOpportunity() {
+function seedEligibleOpportunity({ imported = false } = {}) {
   writeCollection("prospects", []);
   writeCollection("opportunities", [{
     id: "opp-handoff",
@@ -48,7 +51,15 @@ function seedEligibleOpportunity() {
     value: "42000.500000",
     currency: "AUD",
     created_at: isoDaysBefore(60),
-    updated_at: isoDaysBefore(1)
+    updated_at: isoDaysBefore(1),
+    ...(imported ? {
+      metadata: { import: {
+        batch_id: "batch-handoff",
+        source_system: "pilot-crm",
+        source_record_id: "private-source-record",
+        raw_payload_sha256: "a".repeat(64)
+      } }
+    } : {})
   }]);
   writeCollection("activities", [{
     id: "activity-handoff",
@@ -61,6 +72,7 @@ function seedEligibleOpportunity() {
   writeCollection("tasks", []);
   writeCollection("revenue_actions", []);
   writeCollection("revenue_leak_cases", []);
+  writeCollection("pilot_evidence_events", []);
 }
 
 function replaceOpportunity(changes) {
@@ -192,6 +204,170 @@ test("case handoff composes one existing RevenueAction and one immutable link", 
       1
     );
   });
+});
+
+test("imported-customer handoff, approval, and execution append one bounded fact each", async () => {
+  seedEligibleOpportunity({ imported: true });
+  const service = localService();
+  const detected = await createDetectedCase(service);
+  const handoff = await service.createRevenueActionForCase(detected.id);
+  const actionId = handoff.data.revenue_action.id;
+
+  legacyRevenueActionService.prepareRevenueAction(actionId);
+  legacyRevenueActionService.approveRevenueAction(actionId);
+  legacyRevenueActionService.approveRevenueAction(actionId);
+  legacyRevenueActionService.executeRevenueAction(actionId);
+  legacyRevenueActionService.executeRevenueAction(actionId);
+
+  const evidence = readCollection("pilot_evidence_events");
+  assert.deepEqual(evidence.map(event => event.event_type), [
+    "PORTFOLIO_SCAN_COMPLETED",
+    "REVENUE_ACTION_MATERIALIZED_LINKED",
+    "ACTION_APPROVED",
+    "ACTION_EXECUTED"
+  ]);
+  assert.equal(new Set(evidence.map(event => event.semantic_key)).size, 4);
+  assert.equal(JSON.stringify(evidence).includes("Handoff Roofing"), false);
+  assert.equal(JSON.stringify(evidence).includes("private-source-record"), false);
+  assert.deepEqual(evidence.at(-1).facts, {
+    case_id: detected.id,
+    import_batch_id: "batch-handoff",
+    revenue_action_id: actionId,
+    action_status: "EXECUTED",
+    execution_effect_type: "INTERNAL_TASK"
+  });
+});
+
+test("execution evidence failure cannot rewrite completed JSON action or effects", async () => {
+  seedEligibleOpportunity({ imported: true });
+  const service = localService();
+  const detected = await createDetectedCase(service);
+  const handoff = await service.createRevenueActionForCase(detected.id);
+  const actionId = handoff.data.revenue_action.id;
+
+  legacyRevenueActionService.prepareRevenueAction(actionId);
+  legacyRevenueActionService.approveRevenueAction(actionId);
+  const validEvidence = readCollection("pilot_evidence_events");
+  const corruptedEvidence = structuredClone(validEvidence);
+  corruptedEvidence[0].facts.customer_content = "PRIVATE CUSTOMER CELL";
+  writeCollection("pilot_evidence_events", corruptedEvidence);
+
+  assert.throws(
+    () => legacyRevenueActionService.executeRevenueAction(actionId),
+    error => error.code === "PILOT_EVIDENCE_PERSISTENCE_UNAVAILABLE"
+  );
+
+  const executed = readCollection("revenue_actions")[0];
+  const taskEffects = readCollection("tasks").filter(
+    task => task.metadata?.revenue_action_id === actionId
+  );
+  const activityEffects = readCollection("activities").filter(
+    activity => activity.metadata?.revenue_action_id === actionId
+  );
+  assert.equal(executed.status, "EXECUTED");
+  assert.equal(executed.audit.filter(entry => entry.transition === "EXECUTED").length, 1);
+  assert.equal(executed.audit.some(entry => entry.transition === "FAILED"), false);
+  assert.equal(taskEffects.length, 1);
+  assert.equal(activityEffects.length, 1);
+
+  writeCollection("pilot_evidence_events", validEvidence);
+  const repaired = legacyRevenueActionService.executeRevenueAction(actionId);
+  assert.equal(repaired.ok, true);
+  assert.equal(repaired.duplicate, true);
+  assert.equal(readCollection("tasks").filter(
+    task => task.metadata?.revenue_action_id === actionId
+  ).length, 1);
+  assert.equal(readCollection("activities").filter(
+    activity => activity.metadata?.revenue_action_id === actionId
+  ).length, 1);
+  assert.equal(readCollection("pilot_evidence_events").filter(
+    event => event.event_type === "ACTION_EXECUTED"
+  ).length, 1);
+});
+
+test("true JSON execution-effect failures still persist FAILED truth", async () => {
+  seedEligibleOpportunity({ imported: true });
+  const service = localService();
+  const detected = await createDetectedCase(service);
+  const handoff = await service.createRevenueActionForCase(detected.id);
+  const actionId = handoff.data.revenue_action.id;
+  legacyRevenueActionService.prepareRevenueAction(actionId);
+  legacyRevenueActionService.approveRevenueAction(actionId);
+
+  const createTask = legacyRevenueActionRepository.createTaskForRevenueAction;
+  legacyRevenueActionRepository.createTaskForRevenueAction = () => {
+    throw new Error("simulated effect failure");
+  };
+  let result;
+  try {
+    result = legacyRevenueActionService.executeRevenueAction(actionId);
+  } finally {
+    legacyRevenueActionRepository.createTaskForRevenueAction = createTask;
+  }
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "REVENUE_ACTION_EXECUTION_FAILED");
+  const failed = readCollection("revenue_actions")[0];
+  assert.equal(failed.status, "FAILED");
+  assert.equal(failed.execution_result.error, "EXECUTION_EFFECT_FAILED");
+  assert.equal(failed.audit.at(-1).transition, "FAILED");
+  assert.equal(readCollection("pilot_evidence_events").some(
+    event => event.event_type === "ACTION_EXECUTED"
+  ), false);
+});
+
+test("local action evidence replay accepts reordered facts without duplicates", async () => {
+  seedEligibleOpportunity({ imported: true });
+  const service = localService();
+  const detected = await createDetectedCase(service);
+  const handoff = await service.createRevenueActionForCase(detected.id);
+  const actionId = handoff.data.revenue_action.id;
+
+  legacyRevenueActionService.prepareRevenueAction(actionId);
+  legacyRevenueActionService.approveRevenueAction(actionId);
+  legacyRevenueActionService.executeRevenueAction(actionId);
+  const evidence = readCollection("pilot_evidence_events");
+  const executedIndex = evidence.findIndex(
+    event => event.event_type === "ACTION_EXECUTED"
+  );
+  evidence[executedIndex].facts = Object.fromEntries(
+    Object.entries(evidence[executedIndex].facts).reverse()
+  );
+  writeCollection("pilot_evidence_events", evidence);
+
+  const replay = legacyRevenueActionService.executeRevenueAction(actionId);
+
+  assert.equal(replay.ok, true);
+  assert.equal(replay.duplicate, true);
+  assert.equal(readCollection("pilot_evidence_events").filter(
+    event => event.event_type === "ACTION_EXECUTED"
+  ).length, 1);
+});
+
+test("local action observers reject malformed evidence without exposing customer content", async () => {
+  seedEligibleOpportunity({ imported: true });
+  const service = localService();
+  const detected = await createDetectedCase(service);
+  const handoff = await service.createRevenueActionForCase(detected.id);
+  const actionId = handoff.data.revenue_action.id;
+  legacyRevenueActionService.prepareRevenueAction(actionId);
+
+  const sentinel = "PRIVATE CUSTOMER CELL";
+  const evidence = readCollection("pilot_evidence_events");
+  evidence[0].facts.customer_content = sentinel;
+  writeCollection("pilot_evidence_events", evidence);
+
+  assert.throws(
+    () => legacyRevenueActionService.approveRevenueAction(actionId),
+    error => error.code === "PILOT_EVIDENCE_PERSISTENCE_UNAVAILABLE"
+      && !error.message.includes(sentinel)
+  );
+  assert.equal(
+    readCollection("pilot_evidence_events").some(event =>
+      event.event_type === "ACTION_APPROVED"
+    ),
+    false
+  );
 });
 
 test("JSON retry repairs an action-only partial write without duplicating the action", async () => {

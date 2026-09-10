@@ -1,4 +1,6 @@
 import React, {
+  useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState
@@ -9,7 +11,8 @@ import {
   commitImportBatch,
   createImportPreview,
   getImportCommit,
-  getImportPreview
+  getImportPreview,
+  getPilotEvidenceStatus
 } from "../lib/api";
 import {
   createImportOperationGuard,
@@ -29,7 +32,7 @@ const SOURCE_COLLECTIONS = [
   ["revenue_actions", "Revenue actions (preview only)"]
 ];
 
-export default function ImportWorkspace() {
+export default function ImportWorkspace({ onContinueToCommandCenter }) {
   const [phase, setPhase] = useState("upload");
   const [sourceCollection, setSourceCollection] = useState("prospects");
   const [file, setFile] = useState(null);
@@ -47,12 +50,42 @@ export default function ImportWorkspace() {
   const [result, setResult] = useState(null);
   const [conflict, setConflict] = useState(null);
   const [unknownOutcome, setUnknownOutcome] = useState(null);
+  const [pilotStatus, setPilotStatus] = useState(null);
+  const [pilotStatusState, setPilotStatusState] = useState("LOADING");
   const operationGuard = useRef(null);
   const attemptedPreviewRequest = useRef(null);
   const attemptedCommit = useRef(null);
+  const mounted = useRef(false);
+  const pilotStatusRequest = useRef(0);
   if (operationGuard.current === null) {
     operationGuard.current = createImportOperationGuard();
   }
+
+  const loadPilotStatus = useCallback(async () => {
+    const requestId = ++pilotStatusRequest.current;
+    setPilotStatusState("LOADING");
+    try {
+      const status = await getPilotEvidenceStatus();
+      if (!mounted.current || requestId !== pilotStatusRequest.current) return null;
+      setPilotStatus(status);
+      setPilotStatusState("READY");
+      return status;
+    } catch {
+      if (!mounted.current || requestId !== pilotStatusRequest.current) return null;
+      setPilotStatusState("ERROR");
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    mounted.current = true;
+    loadPilotStatus();
+    return () => {
+      mounted.current = false;
+      pilotStatusRequest.current += 1;
+      operationGuard.current.invalidate();
+    };
+  }, [loadPilotStatus]);
 
   const headers = preview?.batch?.previewSummary?.headers || [];
   const dataHealth = analysis?.dataHealth;
@@ -326,6 +359,7 @@ export default function ImportWorkspace() {
     setError(null);
     setPhase("result");
     attemptedCommit.current = null;
+    void loadPilotStatus();
   }
 
   function returnToMapping() {
@@ -401,18 +435,35 @@ export default function ImportWorkspace() {
       <ImportSteps phase={phase} />
 
       {phase === "upload" && (
-        <UploadStep
-          error={error}
-          file={file}
-          loading={Boolean(operation)}
-          onFile={setFile}
-          onPreview={createPreview}
-          onReconcile={reconcilePreview}
-          onRetry={retryPreview}
-          sourceCollection={sourceCollection}
-          setSourceCollection={setSourceCollection}
-          unknownOutcome={unknownOutcome}
-        />
+        <>
+          {pilotStatus?.latest_import && (
+            <CommittedDataHealth
+              facts={pilotStatus.latest_import}
+              onContinue={onContinueToCommandCenter}
+              resumed
+            />
+          )}
+          {pilotStatusState === "ERROR" && (
+            <StatusPanel
+              title="Committed import status unavailable"
+              message="Durable pilot status could not be loaded. This does not change canonical import truth."
+            >
+              <button className="text-button" onClick={loadPilotStatus}>Retry status</button>
+            </StatusPanel>
+          )}
+          <UploadStep
+            error={error}
+            file={file}
+            loading={Boolean(operation)}
+            onFile={setFile}
+            onPreview={createPreview}
+            onReconcile={reconcilePreview}
+            onRetry={retryPreview}
+            sourceCollection={sourceCollection}
+            setSourceCollection={setSourceCollection}
+            unknownOutcome={unknownOutcome}
+          />
+        </>
       )}
 
       {phase === "preview" && (
@@ -475,7 +526,15 @@ export default function ImportWorkspace() {
         />
       )}
 
-      {phase === "result" && <ResultStep result={result} onReset={reset} />}
+      {phase === "result" && (
+        <ResultStep
+          facts={matchingCommittedFacts(pilotStatus, result)
+            || committedFactsFromAnalysis(result, analysis, preview)}
+          onContinue={onContinueToCommandCenter}
+          result={result}
+          onReset={reset}
+        />
+      )}
     </div>
   );
 }
@@ -979,7 +1038,7 @@ function UnknownCommitStep({ error, loading, onReconcile, onRetry }) {
   );
 }
 
-function ResultStep({ onReset, result }) {
+function ResultStep({ facts, onContinue, onReset, result }) {
   const summary = result?.summary || {};
   return (
     <section className="card import-panel import-terminal success">
@@ -992,9 +1051,99 @@ function ResultStep({ onReset, result }) {
         <strong>{summary.conflicted || 0} conflicted</strong>
         <strong>{summary.failed || 0} failed</strong>
       </div>
-      <button className="primary" onClick={onReset}>Start another import</button>
+      {facts && <CommittedDataHealth facts={facts} />}
+      <div className="import-footer-actions">
+        <button className="text-button" onClick={onReset}>Start another import</button>
+        <button className="primary" onClick={onContinue}>
+          Continue to Revenue Command Center
+        </button>
+      </div>
     </section>
   );
+}
+
+function CommittedDataHealth({ facts, onContinue, resumed = false }) {
+  const coverage = [
+    ["Source identity", facts.source_identity_covered_count],
+    ["Commercial value", facts.commercial_value_covered_count],
+    ["Stage", facts.stage_covered_count],
+    ["Created timestamp", facts.created_at_covered_count],
+    ["Updated timestamp", facts.updated_at_covered_count],
+    ["Contactable", facts.contactable_count]
+  ].filter(([, value]) => value !== null);
+  return (
+    <section className="committed-data-health" aria-label="Committed Data Health">
+      <div>
+        <span className="eyebrow">COMMITTED DATA HEALTH</span>
+        <h3>Committed Data Health</h3>
+        <p>
+          {resumed ? "Durable first-value continuation restored." : "The reviewed all-row result is retained."}{" "}
+          Coverage describes available evidence; quality describes blocked or conflicting rows.
+        </p>
+      </div>
+      <dl className="committed-health-summary">
+        <div><dt>Collection</dt><dd>{facts.source_collection}</dd></div>
+        <div><dt>Committed</dt><dd>{facts.committed_count}/{facts.total_count}</dd></div>
+        <div><dt>Skipped</dt><dd>{facts.skipped_count}</dd></div>
+        <div><dt>Quality blocked</dt><dd>{facts.quality_blocked_count}</dd></div>
+        <div><dt>Quality conflicts</dt><dd>{facts.quality_conflict_count}</dd></div>
+      </dl>
+      <div className="committed-health-coverage" aria-label="Committed evidence coverage">
+        {coverage.map(([label, value]) => (
+          <span key={label}><strong>{label}</strong> {value}/{facts.total_count}</span>
+        ))}
+        <span><strong>Invalid created timestamps</strong> {facts.created_at_invalid_count ?? 0}</span>
+        <span><strong>Invalid updated timestamps</strong> {facts.updated_at_invalid_count ?? 0}</span>
+      </div>
+      {onContinue && (
+        <button className="primary" onClick={onContinue}>
+          Continue to Revenue Command Center
+        </button>
+      )}
+    </section>
+  );
+}
+
+function matchingCommittedFacts(status, result) {
+  return status?.latest_import?.import_batch_id === result?.batch?.id
+    ? status.latest_import
+    : null;
+}
+
+function committedFactsFromAnalysis(result, analysis, preview) {
+  const health = analysis?.dataHealth;
+  const summary = result?.summary;
+  const collection = preview?.batch?.previewSummary?.sourceCollection;
+  if (!health || !summary || !collection) return null;
+  const timestamp = field => health.timestampCoverage?.[field] || {
+    coveredRows: 0,
+    invalidRows: 0
+  };
+  const covered = field => health.totalRows - (health.missingValueCounts?.[field] || 0);
+  return {
+    import_batch_id: result.batch.id,
+    source_collection: collection,
+    total_count: summary.total,
+    committed_count: summary.committed,
+    skipped_count: summary.skipped,
+    quality_blocked_count: Math.max(
+      0,
+      health.rowsWithBlockingErrors - health.duplicateConflictCount
+    ),
+    quality_conflict_count: health.duplicateConflictCount,
+    source_identity_covered_count: health.sourceIdCoverage.coveredRows,
+    commercial_value_covered_count: collection === "opportunities"
+      ? covered("value")
+      : null,
+    stage_covered_count: collection === "opportunities" ? covered("stage") : null,
+    created_at_covered_count: timestamp("created_at").coveredRows,
+    created_at_invalid_count: timestamp("created_at").invalidRows,
+    updated_at_covered_count: timestamp("updated_at").coveredRows,
+    updated_at_invalid_count: timestamp("updated_at").invalidRows,
+    contactable_count: collection === "prospects"
+      ? health.contactabilityCoverage?.coveredRows ?? 0
+      : null
+  };
 }
 
 function StatusPanel({ children, message, title, tone = "warning" }) {

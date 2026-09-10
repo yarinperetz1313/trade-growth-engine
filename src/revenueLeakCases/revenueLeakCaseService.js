@@ -26,6 +26,12 @@ const {
   PORTFOLIO_SCAN_LIMIT,
   buildRevenueLeakOperatingQueue
 } = require("./revenueLeakOperatingQueue");
+const {
+  buildPilotEvidenceEvent
+} = require("../pilotEvidence/pilotEvidenceDomain");
+const {
+  classifyOpportunityDataOrigin
+} = require("../pilotEvidence/dataOrigin");
 const legacyRevenueActionService = require(
   "../revenueActions/revenueActionService"
 );
@@ -384,12 +390,30 @@ function createTenantService(
           : "CREATED";
     }
     const results = evaluations.map(result => result.item);
+    const summary = summarizeScan(results, total);
+    await scoped.pilotEvidence.append(buildPilotEvidenceEvent({
+      eventType: "PORTFOLIO_SCAN_COMPLETED",
+      facts: {
+        evaluated_count: summary.evaluated_count,
+        eligible_leak_count: summary.outcomes.ELIGIBLE_LEAK_DETECTED.count,
+        eligible_no_leak_count: summary.outcomes.ELIGIBLE_NO_LEAK.count,
+        insufficient_evidence_count: summary.outcomes.INSUFFICIENT_EVIDENCE.count,
+        stale_source_count: summary.outcomes.STALE_OR_UNTRUSTWORTHY_SOURCE.count,
+        data_health_suppressed_count: summary.outcomes.DATA_HEALTH_SUPPRESSED.count,
+        excluded_count: summary.excluded_count
+      }
+    }, {
+      tenantId: context.tenantId,
+      subjectId: context.subjectId,
+      occurredAt: evaluatedAt,
+      id: `pilot-scan:${evaluatedAt}`
+    }));
     return {
       ok: true,
       evaluated_at: evaluatedAt,
       detector: { id: "stalled-opportunity", version: "1" },
       scope: "TENANT_VISIBLE_CANONICAL_OPPORTUNITIES",
-      summary: summarizeScan(results, total),
+      summary,
       results
     };
   }
@@ -511,6 +535,45 @@ function createTenantService(
       ? await scoped.revenueActions.findById(record.revenue_action_id)
       : await revenueActionAuthority.getRevenueAction(record.revenue_action_id);
     return validateLinkedAction(record, action);
+  }
+
+  async function importedOpportunityEvidence(scoped, record, candidate = null) {
+    const opportunity = candidate || await scoped.opportunities.findById(
+      record.opportunity_id
+    );
+    const origin = classifyOpportunityDataOrigin(opportunity);
+    if (origin.kind !== "IMPORTED_CUSTOMER") return null;
+    if (persistence.adapter === "postgres") {
+      const committed = await scoped.imports.findCommit(origin.importBatchId);
+      if (
+        committed?.outcome !== "COMMITTED"
+        || committed?.batch?.status !== "COMMITTED"
+        || !committed.rows?.some(row => row.targetId === record.opportunity_id)
+      ) return null;
+    }
+    return origin;
+  }
+
+  async function observeLinkedAction(scoped, record, action, opportunity = null) {
+    const origin = await importedOpportunityEvidence(scoped, record, opportunity);
+    if (!origin) return null;
+    const digest = crypto.createHash("sha256")
+      .update(`${record.id}:${action.id}`)
+      .digest("hex");
+    return scoped.pilotEvidence.append(buildPilotEvidenceEvent({
+      eventType: "REVENUE_ACTION_MATERIALIZED_LINKED",
+      facts: {
+        case_id: record.id,
+        import_batch_id: origin.importBatchId,
+        revenue_action_id: action.id,
+        action_status: "RECOMMENDED"
+      }
+    }, {
+      tenantId: context.tenantId,
+      subjectId: context.subjectId,
+      occurredAt: record.revenue_action_linked_at,
+      id: `pilot-link:${digest}`
+    }));
   }
 
   async function validateCurrentCase(
@@ -641,6 +704,7 @@ function createTenantService(
     }
     if (record.revenue_action_id) {
       const action = await loadExistingLinkedAction(scoped, record);
+      await observeLinkedAction(scoped, record, action, loaded.opportunity);
       return {
         ok: true,
         data: { case: record, revenue_action: action },
@@ -701,6 +765,7 @@ function createTenantService(
       at: linkedAt
     });
     if (!linked) return caseNotFound();
+    await observeLinkedAction(scoped, linked.record, action, loaded.opportunity);
     return {
       ok: true,
       data: { case: linked.record, revenue_action: action },
@@ -788,7 +853,11 @@ function createTenantService(
           opportunities: persistence.repositories.opportunities,
           activities: persistence.repositories.activities,
           tasks: persistence.repositories.tasks,
-          revenueLeakCases: repository
+          revenueLeakCases: repository,
+          pilotEvidence: bindJsonRepository(
+            persistence.repositories.pilotEvidence,
+            context
+          )
         };
         return scanWithRepositories(scoped, evaluatedAt);
       });
@@ -833,7 +902,11 @@ function createTenantService(
           opportunities: persistence.repositories.opportunities,
           activities: persistence.repositories.activities,
           tasks: persistence.repositories.tasks,
-          revenueLeakCases: repository
+          revenueLeakCases: repository,
+          pilotEvidence: bindJsonRepository(
+            persistence.repositories.pilotEvidence,
+            context
+          )
         }, id, evaluatedAt);
       });
     },
