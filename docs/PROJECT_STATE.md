@@ -2,6 +2,27 @@
 
 _Last locally audited on 2026-09-10. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
+Post-merge [GitHub Verify run 34440327842](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/34440327842)
+failed integration at **349 passed / 7 failed** because an engineering-harness
+negative self-test rewrote tracked repository files in place during parallel
+`node:test` execution. Its temporary replacement of the Auth0
+`algorithms: ["RS256"]` contract with unquoted test text made seven concurrent
+Pilot-runtime test files load syntactically invalid JavaScript; this was a test
+isolation race, not a runtime assertion failure. The bounded remediation runs
+every harness-negative mutation in a disposable copied repository with an
+independent Git index. A synchronized process regression reproduced the exact
+`SyntaxError: Unexpected identifier 'BY'` before the fix and now requires the
+live authentication source to parse and every live tracked-file hash to remain
+unchanged while the isolated real harness fails closed. Assisted Pilot Safety
+Gate V1 Slice 2 remains unstarted. Local remediation evidence is focused
+harness/isolation **6/6**, five parallel harness-plus-Pilot stress iterations
+at **20/20 each** (**100/100** aggregate), and repeated `npm run verify:fast`
+with the engineering harness plus integration **357/357**. An earlier fast-gate
+attempt had one transient public-config `fetch failed` result (**356/357**); the
+exact file immediately passed **10/10**, and the complete repeated gate passed.
+These results do not add database, managed-browser, provider, or delivery
+evidence.
+
 ## Current verified shape
 Trade Growth Engine is a Vite React + Express local-first CRM. `src/index.js` starts the server, `src/api/` exposes thin structured HTTP boundaries, and `web/main.jsx` provides hash-routed UI. Local JSON persistence flows through `src/services/localStore.js`; tests and E2E use isolated stores. The [Legacy JSON Compatibility Contract](architecture/LEGACY_JSON_COMPATIBILITY.md) and deterministic fixtures characterize that adapter for the future persistence cutover.
 

@@ -15,6 +15,7 @@ test("engineering harness gate passes for the repository contract", () => {
 });
 
 test("engineering harness gate rejects removal of every Pilot Readiness contract rule", () => {
+  const fixtureRoot = createHarnessFixture();
   const contractRemovals = [
     {
       relativePath: "docs/execution-plans/README.md",
@@ -162,30 +163,70 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
       error: /Migration 013 must protect append-only pilot evidence/
     }
   ];
+  const requestedContractPath =
+    process.env.TGE_HARNESS_TEST_CONTRACT_PATH;
+  const removalsToTest = requestedContractPath
+    ? contractRemovals.filter(
+        contractRemoval => contractRemoval.relativePath === requestedContractPath
+      )
+    : contractRemovals;
 
-  for (const contractRemoval of contractRemovals) {
-    const filePath = path.join(repositoryRoot, contractRemoval.relativePath);
-    const originalContents = fs.readFileSync(filePath, "utf8");
+  if (requestedContractPath) {
+    assert.equal(
+      removalsToTest.length,
+      1,
+      `unknown harness contract fixture: ${requestedContractPath}`
+    );
+  }
 
-    try {
+  try {
+    for (const contractRemoval of removalsToTest) {
+      const filePath = path.join(fixtureRoot, contractRemoval.relativePath);
+      const originalContents = fs.readFileSync(filePath, "utf8");
+
       fs.writeFileSync(
         filePath,
         originalContents.replaceAll(contractRemoval.expected, "REMOVED BY TEST")
       );
+      try {
+        waitForConcurrentMutationObserver(contractRemoval.relativePath);
 
-      const result = runHarness();
+        const result = runHarness({}, fixtureRoot);
 
-      assert.notEqual(result.status, 0, contractRemoval.relativePath);
-      assert.match(result.stderr, contractRemoval.error);
-    } finally {
-      fs.writeFileSync(filePath, originalContents);
+        assert.notEqual(result.status, 0, contractRemoval.relativePath);
+        assert.match(result.stderr, contractRemoval.error);
+      } finally {
+        fs.writeFileSync(filePath, originalContents);
+      }
     }
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
 });
 
+function waitForConcurrentMutationObserver(relativePath) {
+  const readyPath = process.env.TGE_HARNESS_TEST_MUTATION_READY_PATH;
+  const releasePath = process.env.TGE_HARNESS_TEST_MUTATION_RELEASE_PATH;
+
+  if (!readyPath && !releasePath) {
+    return;
+  }
+
+  assert.ok(readyPath && releasePath, "mutation observer requires both marker paths");
+  fs.writeFileSync(readyPath, `${relativePath}\n`);
+
+  const deadline = Date.now() + 15_000;
+  const waitState = new Int32Array(new SharedArrayBuffer(4));
+  while (!fs.existsSync(releasePath)) {
+    assert.ok(Date.now() < deadline, "timed out waiting for mutation observer");
+    Atomics.wait(waitState, 0, 0, 10);
+  }
+}
+
 test("engineering harness gate rejects an untracked machine path", () => {
+  const fixtureRoot = createHarnessFixture();
   const fixturePath = path.join(
-    repositoryRoot,
+    fixtureRoot,
     "test",
     ".tmp-untracked-machine-path.mjs"
   );
@@ -197,7 +238,7 @@ test("engineering harness gate rejects an untracked machine path", () => {
   );
 
   try {
-    const result = runHarness();
+    const result = runHarness({}, fixtureRoot);
 
     assert.notEqual(result.status, 0);
     assert.match(
@@ -205,18 +246,13 @@ test("engineering harness gate rejects an untracked machine path", () => {
       /developer-machine absolute path found in test\/\.tmp-untracked-machine-path\.mjs/
     );
   } finally {
-    fs.rmSync(fixturePath, { force: true });
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
 });
 
 test("engineering harness gate rejects tracked CI artifact output", () => {
-  const artifactsDirectory = path.join(repositoryRoot, "test-artifacts");
-  const artifactsDirectoryExisted = fs.existsSync(artifactsDirectory);
-  const temporaryIndexDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), "tge-harness-index-")
-  );
-  const temporaryIndexPath = path.join(temporaryIndexDir, "index");
-  const gitIndexPath = gitPath("index");
+  const fixtureRoot = createHarnessFixture();
+  const artifactsDirectory = path.join(fixtureRoot, "test-artifacts");
   const artifactFileName = `.tmp-harness-fixture-${randomUUID()}.txt`;
   const artifactPath = path.join(artifactsDirectory, artifactFileName);
   const artifactRelativePath = path.posix.join(
@@ -227,15 +263,15 @@ test("engineering harness gate rejects tracked CI artifact output", () => {
   try {
     fs.mkdirSync(artifactsDirectory, { recursive: true });
     fs.writeFileSync(artifactPath, "fixture\n");
-    fs.copyFileSync(gitIndexPath, temporaryIndexPath);
 
     const addResult = runGit(
       ["add", "--force", "--", artifactRelativePath],
-      { GIT_INDEX_FILE: temporaryIndexPath }
+      {},
+      fixtureRoot
     );
     assert.equal(addResult.status, 0, addResult.stderr || addResult.stdout);
 
-    const result = runHarness({ GIT_INDEX_FILE: temporaryIndexPath });
+    const result = runHarness({}, fixtureRoot);
 
     assert.notEqual(result.status, 0);
     assert.match(
@@ -243,11 +279,7 @@ test("engineering harness gate rejects tracked CI artifact output", () => {
       /tracked runtime\/generated output: test-artifacts\/.tmp-harness-fixture-[^.]+\.txt/
     );
   } finally {
-    fs.rmSync(artifactPath, { force: true });
-    if (!artifactsDirectoryExisted) {
-      fs.rmSync(artifactsDirectory, { recursive: true, force: true });
-    }
-    fs.rmSync(temporaryIndexDir, { recursive: true, force: true });
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
 });
 
@@ -307,23 +339,54 @@ function loadPlaywrightConfig(storeDir, artifactDir, env = {}) {
   );
 }
 
-function runHarness(env = {}) {
+function createHarnessFixture() {
+  const fixtureRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "tge-harness-fixture-")
+  );
+  try {
+    const trackedResult = runGit(["ls-files", "-z"]);
+    assert.equal(
+      trackedResult.status,
+      0,
+      trackedResult.stderr || trackedResult.stdout
+    );
+
+    for (const relativePath of trackedResult.stdout.split("\0").filter(Boolean)) {
+      const sourcePath = path.join(repositoryRoot, relativePath);
+      const fixturePath = path.join(fixtureRoot, relativePath);
+      const sourceStat = fs.lstatSync(sourcePath);
+      fs.mkdirSync(path.dirname(fixturePath), { recursive: true });
+
+      if (sourceStat.isSymbolicLink()) {
+        fs.symlinkSync(fs.readlinkSync(sourcePath), fixturePath);
+      } else {
+        fs.copyFileSync(sourcePath, fixturePath);
+        fs.chmodSync(fixturePath, sourceStat.mode);
+      }
+    }
+
+    const initResult = runGit(["init", "--quiet"], {}, fixtureRoot);
+    assert.equal(initResult.status, 0, initResult.stderr || initResult.stdout);
+    const addResult = runGit(["add", "--force", "--all"], {}, fixtureRoot);
+    assert.equal(addResult.status, 0, addResult.stderr || addResult.stdout);
+    return fixtureRoot;
+  } catch (error) {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function runHarness(env = {}, root = repositoryRoot) {
   return spawnSync(process.execPath, ["scripts/check-engineering-harness.mjs"], {
-    cwd: repositoryRoot,
+    cwd: root,
     encoding: "utf8",
     env: { ...process.env, ...env }
   });
 }
 
-function gitPath(pathspec) {
-  const result = runGit(["rev-parse", "--git-path", pathspec]);
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  return path.resolve(repositoryRoot, result.stdout.trim());
-}
-
-function runGit(args, env = {}) {
+function runGit(args, env = {}, root = repositoryRoot) {
   return spawnSync("git", args, {
-    cwd: repositoryRoot,
+    cwd: root,
     encoding: "utf8",
     env: { ...process.env, ...env }
   });

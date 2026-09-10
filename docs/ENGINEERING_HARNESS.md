@@ -48,6 +48,13 @@ For local database verification, start the pinned disposable service with `docke
 
 The Node test suite executes this gate too, so a broken gate is itself a test failure. These checks intentionally do not enforce file-size, style, or speculative architecture rules.
 
+Harness-negative self-tests run the real checker against a copied tracked-file
+snapshot with its own temporary Git index. Contract removals, untracked-path
+fixtures, and tracked-artifact fixtures must never be written into the live
+worktree. A synchronized cross-process regression verifies that all live
+tracked-file hashes remain stable while the isolated checker observes and
+rejects a removed contract.
+
 ## E2E and CI contract
 
 Use only `npm run test:e2e`. It creates a marked temporary `TGE_E2E_STORE_DIR`, seeds deterministic collections (including `revenue_actions: []`), and removes that store after success, failure, signals, or supported parent errors. It never uses developer `data/*.json`.
