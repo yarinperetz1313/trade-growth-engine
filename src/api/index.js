@@ -58,6 +58,7 @@ function createApiRouter({
   pilotEvidenceRouter = pilotEvidence,
   revenueLeakCasesRouter = revenueLeakCases,
   revenueActionsRouter = revenueActions,
+  tenantOffboardingRouter = null,
   postgresCoreRouter = null
 } = {}) {
   const router =
@@ -116,6 +117,12 @@ if (revenueLeakCasesRouter) {
 if (pilotEvidenceRouter) {
   router.use(
     pilotEvidenceRouter
+  );
+}
+
+if (tenantOffboardingRouter) {
+  router.use(
+    tenantOffboardingRouter
   );
 }
 

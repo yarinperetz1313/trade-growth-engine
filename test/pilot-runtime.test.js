@@ -31,7 +31,7 @@ function fakePool({
   memberships = [],
   readinessError = null,
   readinessRow = {
-    schema_version: "014",
+    schema_version: "015",
     runtime_role_member: true,
     login_nonprivileged: true,
     required_relations_available: true
@@ -307,9 +307,9 @@ test("secure readiness requires the exact migration marker, runtime role, and me
 
   for (const readinessRow of [
     { schema_version: "013", runtime_role_member: true, login_nonprivileged: true, required_relations_available: true },
-    { schema_version: "014", runtime_role_member: false, login_nonprivileged: true, required_relations_available: true },
-    { schema_version: "014", runtime_role_member: true, login_nonprivileged: false, required_relations_available: true },
-    { schema_version: "014", runtime_role_member: true, login_nonprivileged: true, required_relations_available: false }
+    { schema_version: "015", runtime_role_member: false, login_nonprivileged: true, required_relations_available: true },
+    { schema_version: "015", runtime_role_member: true, login_nonprivileged: false, required_relations_available: true },
+    { schema_version: "015", runtime_role_member: true, login_nonprivileged: true, required_relations_available: false }
   ]) {
     const failedFixture = fakePool({ readinessRow });
     const failed = createPilotRuntime({
@@ -422,7 +422,7 @@ test("readiness probes remain single-flight through timeout and cannot outlive c
     for (const gate of gates) {
       gate.resolve({
         rows: [{
-          schema_version: "014",
+          schema_version: "015",
           runtime_role_member: true,
           login_nonprivileged: true,
           required_relations_available: true

@@ -45,6 +45,9 @@ const {
 const {
   createPostgresPilotEvidenceRepository
 } = require("../../pilotEvidence/postgresPilotEvidenceRepository");
+const {
+  createPostgresTenantOffboardingRepository
+} = require("./tenantOffboardingRepository");
 
 const ACTIVE_ACTION_STATUSES = [
   "RECOMMENDED",
@@ -232,6 +235,10 @@ function createPostgresRepositories({
       context,
       scoped => scoped.imports.findAnalysisEvidence(batchId)
     ),
+    findRawCleanupStatus: (context, batchId) => run(
+      context,
+      scoped => scoped.imports.findRawCleanupStatus(batchId)
+    ),
     commitCanonical: (context, request) => run(
       context,
       scoped => scoped.imports.commitCanonical(request)
@@ -279,6 +286,16 @@ function createPostgresRepositories({
     list: context => run(
       context,
       scoped => scoped.pilotEvidence.list()
+    )
+  };
+  publicRepositories.tenantOffboarding = {
+    request: (context, input) => run(
+      context,
+      scoped => scoped.tenantOffboarding.request(input)
+    ),
+    status: context => run(
+      context,
+      scoped => scoped.tenantOffboarding.status()
     )
   };
 
@@ -719,6 +736,10 @@ function createPostgresRepositories({
       transaction.client,
       transaction.tenantId,
       transaction.subjectId
+    );
+    scoped.tenantOffboarding = createPostgresTenantOffboardingRepository(
+      transaction.client,
+      transaction.tenantId
     );
     scoped.opportunities.listForStalledScan = options =>
       listOpportunitiesForStalledScan(

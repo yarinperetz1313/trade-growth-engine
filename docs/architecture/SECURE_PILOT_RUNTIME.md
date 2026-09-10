@@ -2,9 +2,11 @@
 
 This contract defines the first supported production-like application bootstrap.
 It composes the already-implemented Auth0, membership, PostgreSQL, import, and
-Revenue Command Center boundaries without changing their domain semantics. It
-does not provision a provider, migrate data, add retention deletion, or certify
-external Auth0/SMTP behavior.
+Revenue Command Center boundaries without changing their domain semantics.
+Slice 2 adds the separately specified [raw-import expiry and tenant offboarding
+boundary](PILOT_READINESS_FOUNDATION.md#import-safety-retention-and-deletion). This runtime still does
+not provision a provider, migrate legacy data, or certify external Auth0/SMTP
+behavior.
 
 ## Entrypoints and modes
 
@@ -54,10 +56,13 @@ The pilot bootstrap constructs dependencies in this order:
 5. create the existing invitation service with sensitive membership mutation
    and server provisioning denied until dedicated policies are injected in a
    later approved deployment slice;
-6. create `Auth0TokenVerifier` and the Auth0 runtime;
-7. compose the existing auth-to-persistence `TenantContext` bridge, tenant-bound
-   core, import, RevenueAction, RevenueLeakCase, and pilot-evidence APIs; and
-8. open the HTTP listener and begin bounded secure-dependency probes.
+6. create the tenant-offboarding service, denied until a dedicated
+   reauthentication/MFA-ready sensitive-action policy is injected;
+7. create `Auth0TokenVerifier` and the Auth0 runtime;
+8. compose the existing auth-to-persistence `TenantContext` bridge, tenant-bound
+   core, import, tenant-offboarding, RevenueAction, RevenueLeakCase, and
+   pilot-evidence APIs; and
+9. open the HTTP listener and begin bounded secure-dependency probes.
 
 The API validates the bearer identity and resolves exactly one active membership
 before minting the separately branded persistence context. Request body, query,
@@ -106,8 +111,10 @@ keeps sole ownership of its underlying work until that work settles, so interval
 ticks cannot overlap it. An owned pool error immediately invalidates readiness
 and emits only a stable lifecycle code. Failed probes keep readiness false and
 are retried at a bounded interval only after prior work has settled. Migration
-`014_secure_pilot_runtime_readiness.sql` has SHA-256
-`699cb9c1e7fc4319f71cf7e98e99934706f9f75a8f0f00ae9c22ff90c5c9ea10`.
+`014_secure_pilot_runtime_readiness.sql` introduced the probe. Migration
+`015_raw_import_expiry_tenant_offboarding.sql` advances its expected schema
+version and required-relation checks while preserving the same least-privilege
+role proof.
 
 ## Browser and packaging
 
@@ -138,6 +145,7 @@ remain explicitly owned according to their injected cleanup contract.
 A ready response is local runtime evidence only. It does not prove Auth0 AU
 tenant/plan location, real JWKS reachability before a bearer is verified, email
 OTP/SMTP delivery, custom-domain configuration, invitation provisioning,
-backup/restore, Australian cloud placement, privacy approval, or the deferred
-raw-evidence retention/deletion policy. Those remain release gates in the
-[Pilot Production Gate](../operations/PILOT_PRODUCTION_GATE.md).
+backup/restore, Australian cloud placement, privacy approval, maintenance
+scheduling/credentials, production cleanup execution, or a legally approved
+canonical tenant-data deletion policy. Those remain release gates in the [Pilot
+Production Gate](../operations/PILOT_PRODUCTION_GATE.md).

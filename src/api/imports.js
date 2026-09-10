@@ -62,6 +62,16 @@ function createImportsRouter({
     res.json({ ok: true, data: analysis });
   }));
 
+  if (typeof service.readRawCleanupStatus === "function") {
+    router.get("/api/import-batches/:batchId/cleanup", route(async (req, res) => {
+      const status = await service.readRawCleanupStatus({
+        ...(await contexts(req)),
+        batchId: req.params.batchId
+      });
+      res.json({ ok: true, data: status });
+    }));
+  }
+
   router.post("/api/import-batches/:batchId/commit", route(async (req, res) => {
     const committed = await service.commitBatch({
       ...(await contexts(req)),

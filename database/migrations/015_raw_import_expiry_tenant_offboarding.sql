@@ -1,0 +1,971 @@
+set local role tge_owner;
+
+alter table tge.import_batches
+  add column raw_cleanup_state text not null default 'PENDING',
+  add column raw_cleanup_attempts integer not null default 0,
+  add column raw_cleanup_started_at timestamptz,
+  add column raw_cleanup_completed_at timestamptz,
+  add column raw_cleanup_failure_code text,
+  add column raw_cleanup_retryable boolean not null default false;
+
+alter table tge.import_batches
+  add constraint import_batches_raw_exact_expiry_check
+    check (raw_expires_at = created_at + interval '7 days'),
+  add constraint import_batches_raw_cleanup_state_check check (
+    raw_cleanup_state in ('PENDING', 'IN_PROGRESS', 'SUCCEEDED', 'FAILED')
+  ),
+  add constraint import_batches_raw_cleanup_attempts_check
+    check (raw_cleanup_attempts >= 0),
+  add constraint import_batches_raw_cleanup_truth_check check (
+    (
+      raw_cleanup_state = 'PENDING'
+      and raw_cleanup_attempts = 0
+      and raw_cleanup_started_at is null
+      and raw_cleanup_completed_at is null
+      and raw_cleanup_failure_code is null
+      and raw_cleanup_retryable = false
+    )
+    or (
+      raw_cleanup_state = 'IN_PROGRESS'
+      and raw_cleanup_attempts > 0
+      and raw_cleanup_started_at is not null
+      and raw_cleanup_completed_at is null
+      and raw_cleanup_failure_code is null
+      and raw_cleanup_retryable = false
+    )
+    or (
+      raw_cleanup_state = 'SUCCEEDED'
+      and raw_cleanup_attempts > 0
+      and raw_cleanup_started_at is not null
+      and raw_cleanup_completed_at is not null
+      and raw_cleanup_failure_code is null
+      and raw_cleanup_retryable = false
+    )
+    or (
+      raw_cleanup_state = 'FAILED'
+      and raw_cleanup_attempts > 0
+      and raw_cleanup_started_at is not null
+      and raw_cleanup_completed_at is null
+      and raw_cleanup_failure_code = 'RAW_IMPORT_CLEANUP_FAILED'
+      and raw_cleanup_retryable = true
+    )
+  );
+
+create index import_batches_raw_cleanup_due_idx
+  on tge.import_batches(raw_expires_at, tenant_id, id)
+  where raw_cleanup_state in ('PENDING', 'FAILED');
+
+create function tge.guard_runtime_import_retention_clock()
+returns trigger
+language plpgsql
+set search_path = pg_catalog
+as $function$
+declare
+  authoritative_at timestamptz;
+  runtime_session boolean;
+begin
+  runtime_session := (
+    pg_catalog.pg_has_role(session_user, 'tge_runtime', 'member')
+    and coalesce((
+      select not rolsuper
+      from pg_catalog.pg_roles
+      where rolname = session_user
+    ), false)
+  );
+  if not runtime_session then return new; end if;
+  authoritative_at := clock_timestamp();
+  new.created_at := authoritative_at;
+  new.updated_at := authoritative_at;
+  new.authorization_verified_at := authoritative_at;
+  new.raw_expires_at := authoritative_at + interval '7 days';
+  new.metadata_retain_until := authoritative_at + interval '12 months';
+  new.raw_cleanup_state := 'PENDING';
+  new.raw_cleanup_attempts := 0;
+  new.raw_cleanup_started_at := null;
+  new.raw_cleanup_completed_at := null;
+  new.raw_cleanup_failure_code := null;
+  new.raw_cleanup_retryable := false;
+  return new;
+end
+$function$;
+
+create trigger import_batches_runtime_retention_clock
+before insert on tge.import_batches
+for each row execute function tge.guard_runtime_import_retention_clock();
+
+revoke all on function tge.guard_runtime_import_retention_clock()
+  from public, tge_runtime;
+
+drop policy tenant_scope on tge.import_staging_records;
+
+create policy tenant_insert on tge.import_staging_records
+  for insert
+  with check (tenant_id = tge.current_tenant_id());
+
+create policy tenant_select_unexpired on tge.import_staging_records
+  for select
+  using (
+    tenant_id = tge.current_tenant_id()
+    and exists (
+      select 1
+      from tge.import_batches batch
+      where batch.tenant_id = import_staging_records.tenant_id
+        and batch.id = import_staging_records.import_batch_id
+        and batch.raw_expires_at > clock_timestamp()
+        and batch.raw_cleanup_state in ('PENDING', 'FAILED')
+    )
+  );
+
+-- Runtime has no direct UPDATE grant. This policy exists for the established
+-- tenant-bound security-definer commit functions, whose row locks and outcome
+-- writes must remain available only while raw evidence is unexpired.
+create policy tenant_update_unexpired on tge.import_staging_records
+  for update
+  using (
+    tenant_id = tge.current_tenant_id()
+    and exists (
+      select 1
+      from tge.import_batches batch
+      where batch.tenant_id = import_staging_records.tenant_id
+        and batch.id = import_staging_records.import_batch_id
+        and batch.raw_expires_at > clock_timestamp()
+        and batch.raw_cleanup_state in ('PENDING', 'FAILED')
+    )
+  )
+  with check (
+    tenant_id = tge.current_tenant_id()
+    and exists (
+      select 1
+      from tge.import_batches batch
+      where batch.tenant_id = import_staging_records.tenant_id
+        and batch.id = import_staging_records.import_batch_id
+        and batch.raw_expires_at > clock_timestamp()
+        and batch.raw_cleanup_state in ('PENDING', 'FAILED')
+    )
+  );
+
+create policy maintenance_scope on tge.import_batches
+  for all
+  using (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'))
+  with check (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'));
+
+create policy maintenance_scope on tge.import_staging_records
+  for all
+  using (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'))
+  with check (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'));
+
+create policy maintenance_scope on tge.tenants
+  for all
+  using (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'))
+  with check (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'));
+
+create policy maintenance_scope on tge.tenant_memberships
+  for all
+  using (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'))
+  with check (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'));
+
+create policy maintenance_scope on tge.assisted_invitations
+  for all
+  using (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'))
+  with check (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'));
+
+create function tge.deletion_evidence_count(value jsonb)
+returns boolean
+language sql
+immutable
+set search_path = pg_catalog
+as $function$
+  select jsonb_typeof(value) = 'number'
+    and value::text ~ '^(0|[1-9][0-9]{0,9})$'
+    and (value::text)::numeric <= 1000000000
+$function$;
+
+create function tge.deletion_evidence_facts_valid(
+  kind text,
+  value jsonb
+)
+returns boolean
+language plpgsql
+immutable
+set search_path = pg_catalog, tge
+as $function$
+declare
+  key text;
+  expected text[];
+begin
+  expected := case kind
+    when 'RAW_IMPORT_EVIDENCE' then array[
+      'raw_import_rows_scrubbed',
+      'canonical_records_retained',
+      'audit_events_retained',
+      'external_actions_performed'
+    ]
+    when 'TENANT_OFFBOARDING' then array[
+      'raw_import_batches_scrubbed',
+      'raw_import_rows_scrubbed',
+      'memberships_revoked',
+      'invitations_deleted',
+      'canonical_records_retained',
+      'audit_events_retained',
+      'pilot_evidence_events_retained',
+      'external_actions_performed'
+    ]
+    else null
+  end;
+  if expected is null
+    or jsonb_typeof(value) <> 'object'
+    or coalesce((
+      select array_agg(key_name order by key_name)
+      from jsonb_object_keys(value) key_name
+    ), array[]::text[]) is distinct from (
+      select array_agg(required order by required)
+      from unnest(expected) required
+    )
+    or value->'external_actions_performed' is distinct from 'false'::jsonb then
+    return false;
+  end if;
+  foreach key in array expected loop
+    if key <> 'external_actions_performed'
+      and tge.deletion_evidence_count(value->key) is not true then
+      return false;
+    end if;
+  end loop;
+  return true;
+end
+$function$;
+
+create table tge.data_deletion_evidence (
+  tenant_id uuid not null,
+  id uuid not null default gen_random_uuid(),
+  evidence_type text not null check (
+    evidence_type in ('RAW_IMPORT_EVIDENCE', 'TENANT_OFFBOARDING')
+  ),
+  status text not null check (status in ('SUCCEEDED', 'FAILED')),
+  resource_reference_hash text not null check (
+    resource_reference_hash ~ '^[0-9a-f]{64}$'
+  ),
+  attempt_number integer not null check (attempt_number > 0),
+  failure_code text check (
+    failure_code is null or failure_code in (
+      'RAW_IMPORT_CLEANUP_FAILED', 'TENANT_OFFBOARDING_FAILED'
+    )
+  ),
+  retryable boolean not null,
+  facts jsonb not null check (
+    tge.deletion_evidence_facts_valid(evidence_type, facts) is true
+  ),
+  occurred_at timestamptz not null,
+  retain_until timestamptz not null,
+  created_at timestamptz not null default clock_timestamp(),
+  primary key (tenant_id, id),
+  unique (tenant_id, evidence_type, resource_reference_hash, attempt_number),
+  foreign key (tenant_id) references tge.tenants(id)
+    on update restrict on delete restrict,
+  check (retain_until >= occurred_at + interval '12 months'),
+  check (
+    (status = 'SUCCEEDED' and failure_code is null and retryable = false)
+    or (status = 'FAILED' and failure_code is not null and retryable = true)
+  )
+);
+
+alter table tge.data_deletion_evidence owner to tge_owner;
+alter table tge.data_deletion_evidence enable row level security;
+alter table tge.data_deletion_evidence force row level security;
+
+create policy tenant_scope on tge.data_deletion_evidence
+  for select
+  using (tenant_id = tge.current_tenant_id());
+
+create policy maintenance_scope on tge.data_deletion_evidence
+  for all
+  using (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'))
+  with check (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'));
+
+create function tge.guard_data_deletion_evidence()
+returns trigger
+language plpgsql
+set search_path = pg_catalog
+as $function$
+begin
+  if tg_op = 'DELETE' then
+    raise exception using errcode = '23514', message = 'Deletion evidence is immutable.';
+  end if;
+  if tg_op = 'UPDATE' then
+    raise exception using errcode = '23514', message = 'Deletion evidence is immutable.';
+  end if;
+  return new;
+end
+$function$;
+
+create trigger data_deletion_evidence_immutable
+before update or delete on tge.data_deletion_evidence
+for each row execute function tge.guard_data_deletion_evidence();
+
+create table tge.tenant_offboarding_requests (
+  tenant_id uuid primary key,
+  request_id uuid not null unique default gen_random_uuid(),
+  state text not null check (
+    state in ('PENDING', 'IN_PROGRESS', 'OFFBOARDED_ACCESS_REVOKED', 'FAILED')
+  ),
+  scope text not null check (scope = 'ACCESS_AND_RAW_EVIDENCE_ONLY'),
+  requested_by_subject_hash text not null check (
+    requested_by_subject_hash ~ '^[0-9a-f]{64}$'
+  ),
+  requested_at timestamptz not null,
+  attempt_count integer not null default 0 check (attempt_count >= 0),
+  last_attempt_at timestamptz,
+  completed_at timestamptz,
+  failure_code text check (
+    failure_code is null or failure_code = 'TENANT_OFFBOARDING_FAILED'
+  ),
+  retryable boolean not null default false,
+  deletion_evidence jsonb check (
+    deletion_evidence is null
+    or tge.deletion_evidence_facts_valid(
+      'TENANT_OFFBOARDING', deletion_evidence
+    ) is true
+  ),
+  retain_until timestamptz not null,
+  created_at timestamptz not null,
+  updated_at timestamptz not null,
+  foreign key (tenant_id) references tge.tenants(id)
+    on update restrict on delete restrict,
+  check (retain_until >= requested_at + interval '12 months'),
+  check (
+    (state = 'PENDING' and attempt_count = 0 and last_attempt_at is null
+      and completed_at is null and failure_code is null and retryable = false
+      and deletion_evidence is null)
+    or (state = 'IN_PROGRESS' and attempt_count > 0 and last_attempt_at is not null
+      and completed_at is null and failure_code is null and retryable = false
+      and deletion_evidence is null)
+    or (state = 'OFFBOARDED_ACCESS_REVOKED' and attempt_count > 0
+      and last_attempt_at is not null and completed_at is not null
+      and failure_code is null and retryable = false
+      and deletion_evidence is not null)
+    or (state = 'FAILED' and attempt_count > 0 and last_attempt_at is not null
+      and completed_at is null and failure_code = 'TENANT_OFFBOARDING_FAILED'
+      and retryable = true and deletion_evidence is null)
+  )
+);
+
+alter table tge.tenant_offboarding_requests owner to tge_owner;
+alter table tge.tenant_offboarding_requests enable row level security;
+alter table tge.tenant_offboarding_requests force row level security;
+
+create policy tenant_scope on tge.tenant_offboarding_requests
+  for select
+  using (tenant_id = tge.current_tenant_id());
+
+create policy tenant_request_insert on tge.tenant_offboarding_requests
+  for insert
+  with check (tenant_id = tge.current_tenant_id());
+
+create policy maintenance_scope on tge.tenant_offboarding_requests
+  for all
+  using (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'))
+  with check (pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member'));
+
+create function tge.scrub_import_batch_internal(
+  target_tenant_id uuid,
+  target_batch_id text,
+  cleanup_at timestamptz
+)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = pg_catalog, tge
+as $function$
+declare
+  scrubbed_rows integer;
+  canonical_count integer;
+  audit_count integer;
+  current_attempt integer;
+  result_summary jsonb;
+begin
+  if not pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member')
+    or coalesce((
+      select rolsuper from pg_catalog.pg_roles where rolname = session_user
+    ), true)
+    or target_tenant_id is null
+    or target_batch_id is null
+    or cleanup_at is null then
+    raise exception using errcode = '42501', message = 'Maintenance operation denied.';
+  end if;
+
+  perform set_config('app.tenant_id', target_tenant_id::text, true);
+  perform set_config('app.subject_id', 'urn:tge:maintenance', true);
+
+  select raw_cleanup_attempts into current_attempt
+  from tge.import_batches
+  where tenant_id = target_tenant_id and id = target_batch_id
+  for update;
+  if not found then
+    raise exception using errcode = '23514', message = 'Raw cleanup target is unavailable.';
+  end if;
+
+  update tge.import_staging_records
+  set raw_payload = null,
+      conflict_details = null,
+      metadata = jsonb_build_object('raw_evidence_deleted', true),
+      updated_at = cleanup_at
+  where tenant_id = target_tenant_id
+    and import_batch_id = target_batch_id
+    and (raw_payload is not null or conflict_details is not null
+      or metadata is distinct from jsonb_build_object('raw_evidence_deleted', true));
+  get diagnostics scrubbed_rows = row_count;
+
+  select
+    (select count(*) from tge.prospects where tenant_id = target_tenant_id)
+      + (select count(*) from tge.opportunities where tenant_id = target_tenant_id)
+      + (select count(*) from tge.tasks where tenant_id = target_tenant_id)
+      + (select count(*) from tge.activities where tenant_id = target_tenant_id)
+      + (select count(*) from tge.revenue_actions where tenant_id = target_tenant_id)
+      + (select count(*) from tge.revenue_leak_cases where tenant_id = target_tenant_id),
+    (select count(*) from tge.audit_events where tenant_id = target_tenant_id)
+  into canonical_count, audit_count;
+
+  result_summary := jsonb_build_object(
+    'raw_import_rows_scrubbed', scrubbed_rows,
+    'canonical_records_retained', canonical_count,
+    'audit_events_retained', audit_count,
+    'external_actions_performed', false
+  );
+
+  update tge.import_batches
+  set status = case when status = 'COMMITTED' then status else 'EXPIRED' end,
+      source_filename = '[deleted]',
+      raw_storage_key = null,
+      preview_summary = jsonb_build_object(
+        'format', coalesce(preview_summary->>'format', 'CSV'),
+        'sourceCollection', preview_summary->'sourceCollection',
+        'rowCount', preview_summary->'rowCount',
+        'columnCount', preview_summary->'columnCount',
+        'rawEvidenceAvailable', false
+      ),
+      conflict_summary = case when conflict_summary is null then null else
+        jsonb_strip_nulls(jsonb_build_object(
+          'outcome', conflict_summary->'outcome',
+          'summary', conflict_summary->'summary',
+          'inputFingerprint', conflict_summary->'inputFingerprint',
+          'requestFingerprint', conflict_summary->'requestFingerprint',
+          'lifecycleStatus', conflict_summary->'lifecycleStatus'
+        )) end,
+      commit_metadata = case when commit_metadata is null then null else
+        jsonb_strip_nulls(jsonb_build_object(
+          'inputFingerprint', commit_metadata->'inputFingerprint',
+          'requestFingerprint', commit_metadata->'requestFingerprint',
+          'targetCollection', commit_metadata->'targetCollection',
+          'pilotEvidenceFacts', commit_metadata->'pilotEvidenceFacts',
+          'result', jsonb_build_object(
+            'outcome', coalesce(commit_metadata#>'{result,outcome}', '"COMMITTED"'::jsonb),
+            'batch', jsonb_build_object('id', id, 'status', status),
+            'rows', '[]'::jsonb,
+            'summary', coalesce(commit_metadata#>'{result,summary}', '{}'::jsonb),
+            'reconciled', true,
+            'rawEvidenceAvailable', false
+          )
+        )) end,
+      raw_cleanup_state = 'SUCCEEDED',
+      raw_cleanup_completed_at = cleanup_at,
+      raw_cleanup_failure_code = null,
+      raw_cleanup_retryable = false,
+      updated_at = cleanup_at
+  where tenant_id = target_tenant_id and id = target_batch_id;
+
+  insert into tge.data_deletion_evidence (
+    tenant_id, evidence_type, status, resource_reference_hash,
+    attempt_number, failure_code, retryable, facts, occurred_at,
+    retain_until, created_at
+  ) values (
+    target_tenant_id,
+    'RAW_IMPORT_EVIDENCE',
+    'SUCCEEDED',
+    encode(sha256(convert_to(target_tenant_id::text || ':' || target_batch_id, 'UTF8')), 'hex'),
+    current_attempt,
+    null,
+    false,
+    result_summary,
+    cleanup_at,
+    cleanup_at + interval '12 months',
+    cleanup_at
+  );
+  return result_summary;
+end
+$function$;
+
+create function tge.process_due_raw_import_cleanup(requested_limit integer)
+returns table (
+  batch_id text,
+  cleanup_state text,
+  retryable boolean,
+  attempt_count integer,
+  failure_code text
+)
+language plpgsql
+volatile
+security definer
+set search_path = pg_catalog, tge
+as $function$
+declare
+  candidate record;
+  attempted_at timestamptz;
+  failed_facts jsonb;
+  retained_canonical_count integer;
+  retained_audit_count integer;
+begin
+  if not pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member')
+    or coalesce((
+      select rolsuper from pg_catalog.pg_roles where rolname = session_user
+    ), true)
+    or requested_limit is null or requested_limit < 1 or requested_limit > 100 then
+    raise exception using errcode = '42501', message = 'Maintenance operation denied.';
+  end if;
+
+  for candidate in
+    select batch.tenant_id, batch.id
+    from tge.import_batches batch
+    where batch.raw_expires_at <= clock_timestamp()
+      and batch.raw_cleanup_state in ('PENDING', 'FAILED')
+    order by batch.raw_expires_at, batch.tenant_id, batch.id
+    for update skip locked
+    limit requested_limit
+  loop
+    attempted_at := clock_timestamp();
+    perform set_config('app.tenant_id', candidate.tenant_id::text, true);
+    update tge.import_batches
+    set raw_cleanup_state = 'IN_PROGRESS',
+        raw_cleanup_attempts = raw_cleanup_attempts + 1,
+        raw_cleanup_started_at = attempted_at,
+        raw_cleanup_completed_at = null,
+        raw_cleanup_failure_code = null,
+        raw_cleanup_retryable = false,
+        updated_at = attempted_at
+    where tenant_id = candidate.tenant_id and id = candidate.id;
+
+    begin
+      perform tge.scrub_import_batch_internal(
+        candidate.tenant_id, candidate.id, attempted_at
+      );
+    exception when others then
+      select
+        (select count(*) from tge.prospects where tenant_id = candidate.tenant_id)
+          + (select count(*) from tge.opportunities where tenant_id = candidate.tenant_id)
+          + (select count(*) from tge.tasks where tenant_id = candidate.tenant_id)
+          + (select count(*) from tge.activities where tenant_id = candidate.tenant_id)
+          + (select count(*) from tge.revenue_actions where tenant_id = candidate.tenant_id)
+          + (select count(*) from tge.revenue_leak_cases where tenant_id = candidate.tenant_id),
+        (select count(*) from tge.audit_events where tenant_id = candidate.tenant_id)
+      into retained_canonical_count, retained_audit_count;
+      failed_facts := jsonb_build_object(
+        'raw_import_rows_scrubbed', 0,
+        'canonical_records_retained', retained_canonical_count,
+        'audit_events_retained', retained_audit_count,
+        'external_actions_performed', false
+      );
+      update tge.import_batches
+      set raw_cleanup_state = 'FAILED',
+          raw_cleanup_completed_at = null,
+          raw_cleanup_failure_code = 'RAW_IMPORT_CLEANUP_FAILED',
+          raw_cleanup_retryable = true,
+          updated_at = clock_timestamp()
+      where tenant_id = candidate.tenant_id and id = candidate.id;
+      insert into tge.data_deletion_evidence (
+        tenant_id, evidence_type, status, resource_reference_hash,
+        attempt_number, failure_code, retryable, facts, occurred_at,
+        retain_until, created_at
+      ) select
+        candidate.tenant_id,
+        'RAW_IMPORT_EVIDENCE',
+        'FAILED',
+        encode(sha256(convert_to(candidate.tenant_id::text || ':' || candidate.id, 'UTF8')), 'hex'),
+        batch.raw_cleanup_attempts,
+        'RAW_IMPORT_CLEANUP_FAILED',
+        true,
+        failed_facts,
+        attempted_at,
+        attempted_at + interval '12 months',
+        attempted_at
+      from tge.import_batches batch
+      where batch.tenant_id = candidate.tenant_id and batch.id = candidate.id;
+    end;
+
+    select batch.id, batch.raw_cleanup_state, batch.raw_cleanup_retryable,
+      batch.raw_cleanup_attempts, batch.raw_cleanup_failure_code
+    into batch_id, cleanup_state, retryable, attempt_count, failure_code
+    from tge.import_batches batch
+    where batch.tenant_id = candidate.tenant_id and batch.id = candidate.id;
+    return next;
+  end loop;
+end
+$function$;
+
+create function tge.request_tenant_offboarding(requested_confirmation text)
+returns table (
+  request_id uuid,
+  state text,
+  scope text,
+  retryable boolean,
+  requested_at timestamptz,
+  completed_at timestamptz,
+  deletion_evidence jsonb
+)
+language plpgsql
+volatile
+security definer
+set search_path = pg_catalog, tge
+as $function$
+declare
+  authoritative_tenant uuid := tge.current_tenant_id();
+  authoritative_subject text := tge.current_subject_id();
+  authoritative_issuer text := tge.current_identity_issuer();
+  authoritative_at timestamptz := clock_timestamp();
+begin
+  if requested_confirmation is distinct from 'OFFBOARD_ACCESS_AND_RAW_EVIDENCE'
+    or authoritative_tenant is null
+    or coalesce(btrim(authoritative_subject), '') = ''
+    or coalesce(btrim(authoritative_issuer), '') = ''
+    or not pg_catalog.pg_has_role(session_user, 'tge_runtime', 'member')
+    or coalesce((
+      select roles.rolsuper from pg_catalog.pg_roles roles
+      where roles.rolname = session_user
+    ), true)
+    or not exists (
+      select 1
+      from tge.tenant_memberships membership
+      where membership.tenant_id = authoritative_tenant
+        and membership.identity_issuer = authoritative_issuer
+        and membership.subject_id = authoritative_subject
+        and membership.role = 'OWNER'
+        and membership.status = 'ACTIVE'
+    ) then
+    raise exception using
+      errcode = '42501',
+      message = 'Tenant offboarding request denied.';
+  end if;
+
+  insert into tge.tenant_offboarding_requests (
+    tenant_id, state, scope, requested_by_subject_hash, requested_at,
+    retain_until, created_at, updated_at
+  ) values (
+    authoritative_tenant,
+    'PENDING',
+    'ACCESS_AND_RAW_EVIDENCE_ONLY',
+    encode(sha256(convert_to(authoritative_issuer || ':' || authoritative_subject, 'UTF8')), 'hex'),
+    authoritative_at,
+    authoritative_at + interval '12 months',
+    authoritative_at,
+    authoritative_at
+  ) on conflict (tenant_id) do nothing;
+
+  return query
+  select request.request_id, request.state, request.scope, request.retryable,
+    request.requested_at, request.completed_at, request.deletion_evidence
+  from tge.tenant_offboarding_requests request
+  where request.tenant_id = authoritative_tenant;
+end
+$function$;
+
+create function tge.process_pending_tenant_offboarding(requested_limit integer)
+returns table (
+  request_id uuid,
+  state text,
+  scope text,
+  retryable boolean,
+  failure_code text
+)
+language plpgsql
+volatile
+security definer
+set search_path = pg_catalog, tge
+as $function$
+declare
+  candidate record;
+  attempted_at timestamptz;
+  completed timestamp with time zone;
+  import_batch record;
+  scrub_summary jsonb;
+  facts jsonb;
+  raw_batch_count integer;
+  raw_row_count integer;
+  membership_count integer;
+  invitation_count integer;
+  canonical_count integer;
+  audit_count integer;
+  pilot_count integer;
+begin
+  if not pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member')
+    or coalesce((
+      select rolsuper from pg_catalog.pg_roles where rolname = session_user
+    ), true)
+    or requested_limit is null or requested_limit < 1 or requested_limit > 100 then
+    raise exception using errcode = '42501', message = 'Maintenance operation denied.';
+  end if;
+
+  for candidate in
+    select request.tenant_id, request.request_id
+    from tge.tenant_offboarding_requests request
+    where request.state in ('PENDING', 'FAILED')
+      and (request.state = 'PENDING' or request.retryable = true)
+    order by request.requested_at, request.tenant_id
+    for update skip locked
+    limit requested_limit
+  loop
+    attempted_at := clock_timestamp();
+    perform set_config('app.tenant_id', candidate.tenant_id::text, true);
+    perform set_config('app.subject_id', 'urn:tge:maintenance', true);
+    update tge.tenant_offboarding_requests request
+    set state = 'IN_PROGRESS',
+        attempt_count = attempt_count + 1,
+        last_attempt_at = attempted_at,
+        completed_at = null,
+        failure_code = null,
+        retryable = false,
+        deletion_evidence = null,
+        updated_at = attempted_at
+    where request.tenant_id = candidate.tenant_id;
+
+    begin
+      raw_batch_count := 0;
+      raw_row_count := 0;
+      for import_batch in
+        select batch.id
+        from tge.import_batches batch
+        where batch.tenant_id = candidate.tenant_id
+          and batch.raw_cleanup_state <> 'SUCCEEDED'
+        order by batch.created_at, batch.id
+        for update
+      loop
+        update tge.import_batches batch
+        set raw_cleanup_state = 'IN_PROGRESS',
+            raw_cleanup_attempts = raw_cleanup_attempts + 1,
+            raw_cleanup_started_at = attempted_at,
+            raw_cleanup_completed_at = null,
+            raw_cleanup_failure_code = null,
+            raw_cleanup_retryable = false,
+            updated_at = attempted_at
+        where batch.tenant_id = candidate.tenant_id
+          and batch.id = import_batch.id;
+        scrub_summary := tge.scrub_import_batch_internal(
+          candidate.tenant_id, import_batch.id, attempted_at
+        );
+        raw_batch_count := raw_batch_count + 1;
+        raw_row_count := raw_row_count
+          + coalesce((scrub_summary->>'raw_import_rows_scrubbed')::integer, 0);
+      end loop;
+
+      select
+        (select count(*) from tge.prospects where tenant_id = candidate.tenant_id)
+          + (select count(*) from tge.opportunities where tenant_id = candidate.tenant_id)
+          + (select count(*) from tge.tasks where tenant_id = candidate.tenant_id)
+          + (select count(*) from tge.activities where tenant_id = candidate.tenant_id)
+          + (select count(*) from tge.revenue_actions where tenant_id = candidate.tenant_id)
+          + (select count(*) from tge.revenue_leak_cases where tenant_id = candidate.tenant_id),
+        (select count(*) from tge.audit_events where tenant_id = candidate.tenant_id),
+        (select count(*) from tge.pilot_evidence_events where tenant_id = candidate.tenant_id)
+      into canonical_count, audit_count, pilot_count;
+
+      delete from tge.assisted_invitations invitation
+      where invitation.tenant_id = candidate.tenant_id;
+      get diagnostics invitation_count = row_count;
+      delete from tge.tenant_memberships membership
+      where membership.tenant_id = candidate.tenant_id;
+      get diagnostics membership_count = row_count;
+
+      update tge.tenants tenant
+      set slug = 'offboarded-' || tenant.id::text,
+          name = 'Offboarded tenant',
+          metadata = jsonb_build_object(
+            'offboarding_state', 'OFFBOARDED_ACCESS_REVOKED'
+          ),
+          updated_at = attempted_at
+      where tenant.id = candidate.tenant_id;
+
+      facts := jsonb_build_object(
+        'raw_import_batches_scrubbed', raw_batch_count,
+        'raw_import_rows_scrubbed', raw_row_count,
+        'memberships_revoked', membership_count,
+        'invitations_deleted', invitation_count,
+        'canonical_records_retained', canonical_count,
+        'audit_events_retained', audit_count,
+        'pilot_evidence_events_retained', pilot_count,
+        'external_actions_performed', false
+      );
+      completed := clock_timestamp();
+      update tge.tenant_offboarding_requests request
+      set state = 'OFFBOARDED_ACCESS_REVOKED',
+          completed_at = completed,
+          failure_code = null,
+          retryable = false,
+          deletion_evidence = facts,
+          updated_at = completed
+      where request.tenant_id = candidate.tenant_id;
+
+      insert into tge.data_deletion_evidence (
+        tenant_id, evidence_type, status, resource_reference_hash,
+        attempt_number, failure_code, retryable, facts, occurred_at,
+        retain_until, created_at
+      ) select
+        request.tenant_id,
+        'TENANT_OFFBOARDING',
+        'SUCCEEDED',
+        encode(sha256(convert_to(request.tenant_id::text || ':' || request.request_id::text, 'UTF8')), 'hex'),
+        request.attempt_count,
+        null,
+        false,
+        facts,
+        completed,
+        completed + interval '12 months',
+        completed
+      from tge.tenant_offboarding_requests request
+      where request.tenant_id = candidate.tenant_id;
+    exception when others then
+      select
+        (select count(*) from tge.prospects where tenant_id = candidate.tenant_id)
+          + (select count(*) from tge.opportunities where tenant_id = candidate.tenant_id)
+          + (select count(*) from tge.tasks where tenant_id = candidate.tenant_id)
+          + (select count(*) from tge.activities where tenant_id = candidate.tenant_id)
+          + (select count(*) from tge.revenue_actions where tenant_id = candidate.tenant_id)
+          + (select count(*) from tge.revenue_leak_cases where tenant_id = candidate.tenant_id),
+        (select count(*) from tge.audit_events where tenant_id = candidate.tenant_id),
+        (select count(*) from tge.pilot_evidence_events where tenant_id = candidate.tenant_id)
+      into canonical_count, audit_count, pilot_count;
+      facts := jsonb_build_object(
+        'raw_import_batches_scrubbed', 0,
+        'raw_import_rows_scrubbed', 0,
+        'memberships_revoked', 0,
+        'invitations_deleted', 0,
+        'canonical_records_retained', canonical_count,
+        'audit_events_retained', audit_count,
+        'pilot_evidence_events_retained', pilot_count,
+        'external_actions_performed', false
+      );
+      update tge.tenant_offboarding_requests request
+      set state = 'FAILED',
+          completed_at = null,
+          failure_code = 'TENANT_OFFBOARDING_FAILED',
+          retryable = true,
+          deletion_evidence = null,
+          updated_at = clock_timestamp()
+      where request.tenant_id = candidate.tenant_id;
+
+      insert into tge.data_deletion_evidence (
+        tenant_id, evidence_type, status, resource_reference_hash,
+        attempt_number, failure_code, retryable, facts, occurred_at,
+        retain_until, created_at
+      ) select
+        request.tenant_id,
+        'TENANT_OFFBOARDING',
+        'FAILED',
+        encode(sha256(convert_to(request.tenant_id::text || ':' || request.request_id::text, 'UTF8')), 'hex'),
+        request.attempt_count,
+        'TENANT_OFFBOARDING_FAILED',
+        true,
+        facts,
+        attempted_at,
+        attempted_at + interval '12 months',
+        attempted_at
+      from tge.tenant_offboarding_requests request
+      where request.tenant_id = candidate.tenant_id;
+    end;
+
+    select request.request_id, request.state, request.scope,
+      request.retryable, request.failure_code
+    into request_id, state, scope, retryable, failure_code
+    from tge.tenant_offboarding_requests request
+    where request.tenant_id = candidate.tenant_id;
+    return next;
+  end loop;
+end
+$function$;
+
+create or replace function tge.lock_import_commit_batch(
+  requested_tenant_id uuid,
+  requested_batch_id text
+)
+returns setof tge.import_batches
+language sql
+volatile
+security definer
+set search_path = pg_catalog, tge
+as $function$
+  select batch.*
+  from tge.import_batches batch
+  where requested_tenant_id is not null
+    and requested_tenant_id is not distinct from tge.current_tenant_id()
+    and requested_batch_id is not null
+    and btrim(requested_batch_id) <> ''
+    and batch.tenant_id = requested_tenant_id
+    and batch.id = requested_batch_id
+    and batch.raw_expires_at > clock_timestamp()
+    and batch.raw_cleanup_state in ('PENDING', 'FAILED')
+  for update
+$function$;
+
+create or replace function tge.pilot_runtime_readiness()
+returns table (
+  schema_version text,
+  runtime_role_member boolean,
+  login_nonprivileged boolean,
+  required_relations_available boolean
+)
+language sql
+stable
+set search_path = pg_catalog
+as $$
+  select
+    '015'::text as schema_version,
+    pg_has_role(session_user, 'tge_runtime', 'member') as runtime_role_member,
+    (
+      not coalesce(roles.rolsuper, true)
+      and not coalesce(roles.rolbypassrls, true)
+      and not coalesce(roles.rolcreatedb, true)
+      and not coalesce(roles.rolcreaterole, true)
+      and not coalesce(roles.rolreplication, true)
+      and not exists (
+        select 1
+        from pg_catalog.pg_roles granted_roles
+        where granted_roles.rolname not in (session_user, 'tge_runtime')
+          and pg_catalog.pg_has_role(session_user, granted_roles.oid, 'member')
+      )
+    ) as login_nonprivileged,
+    (
+      to_regclass('tge.tenant_memberships') is not null
+      and to_regclass('tge.import_batches') is not null
+      and to_regclass('tge.import_staging_records') is not null
+      and to_regclass('tge.data_deletion_evidence') is not null
+      and to_regclass('tge.tenant_offboarding_requests') is not null
+      and to_regclass('tge.audit_events') is not null
+      and to_regclass('tge.pilot_evidence_events') is not null
+    ) as required_relations_available
+  from pg_catalog.pg_roles roles
+  where roles.rolname = session_user
+$$;
+
+revoke all on tge.data_deletion_evidence from public, tge_runtime;
+revoke all on tge.tenant_offboarding_requests from public;
+grant select on tge.tenant_offboarding_requests to tge_runtime;
+
+grant usage on schema tge to tge_migrator;
+revoke all on function tge.deletion_evidence_count(jsonb)
+  from public, tge_runtime, tge_migrator;
+revoke all on function tge.deletion_evidence_facts_valid(text, jsonb)
+  from public, tge_runtime, tge_migrator;
+revoke all on function tge.guard_data_deletion_evidence()
+  from public, tge_runtime, tge_migrator;
+revoke all on function tge.scrub_import_batch_internal(uuid, text, timestamptz)
+  from public, tge_runtime, tge_migrator;
+revoke all on function tge.process_due_raw_import_cleanup(integer)
+  from public, tge_runtime;
+revoke all on function tge.process_pending_tenant_offboarding(integer)
+  from public, tge_runtime;
+revoke all on function tge.request_tenant_offboarding(text) from public;
+
+grant execute on function tge.process_due_raw_import_cleanup(integer)
+  to tge_migrator;
+grant execute on function tge.process_pending_tenant_offboarding(integer)
+  to tge_migrator;
+grant execute on function tge.request_tenant_offboarding(text) to tge_runtime;
+grant execute on function tge.pilot_runtime_readiness() to tge_runtime;
+
+revoke execute on all functions in schema tge from public;

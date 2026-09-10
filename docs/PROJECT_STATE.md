@@ -2,6 +2,33 @@
 
 _Last locally audited on 2026-09-10. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
+Assisted Pilot Safety Gate V1 Slice 2 now implements the PostgreSQL-only
+[raw-import expiry and tenant offboarding
+contract](architecture/PILOT_READINESS_FOUNDATION.md#import-safety-retention-and-deletion). Append-only
+migration `015_raw_import_expiry_tenant_offboarding.sql` makes database time the
+authority for the exact seven-day raw deadline, denies expired staged rows,
+adds retry/concurrency-safe targetless cleanup through the existing server-only
+operations role, and records immutable privacy-minimized evidence. The Pilot API
+adds tenant-authorized cleanup status plus an active-OWNER and
+reauthentication/MFA-gated offboarding request. Offboarding atomically scrubs raw
+imports, removes tenant invitation records, and revokes memberships; its truthful
+success state is `OFFBOARDED_ACCESS_REVOKED` with scope
+`ACCESS_AND_RAW_EVIDENCE_ONLY`. Canonical CRM, ID-map reconciliation, audit, and
+Pilot evidence remain intact. Local JSON compatibility and human-controlled
+external-action boundaries are unchanged.
+
+Slice 2 followed red-first delivery. The initial new migration contract was
+**1/6**, service/API was **0/4**, and meaningful PostgreSQL behavior was **0/6**
+before migration `015` and the new boundaries existed. Focused green evidence
+was static/service **45/45**, harness/isolation **14/14**, final
+auth/persistence/offboarding **44/44**, and PostgreSQL expiry/offboarding
+**7/7**. The final full local gate against disposable PostgreSQL 16.15 passed
+the engineering harness, integration **378/378**, database **74/74**, managed
+Chromium **51/51**, and the Vite 8.2.2 production build of 31 modules. Migrations
+`001`–`014` remain byte-identical and `git diff --check` passed. This does not
+prove provider provisioning, production scheduling/credentials/monitoring,
+external destructive actions, or a legal basis for canonical CRM deletion.
+
 Post-merge [GitHub Verify run 34440327842](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/34440327842)
 failed integration at **349 passed / 7 failed** because an engineering-harness
 negative self-test rewrote tracked repository files in place during parallel
@@ -14,7 +41,8 @@ independent Git index. A synchronized process regression reproduced the exact
 `SyntaxError: Unexpected identifier 'BY'` before the fix and now requires the
 live authentication source to parse and every live tracked-file hash to remain
 unchanged while the isolated real harness fails closed. Assisted Pilot Safety
-Gate V1 Slice 2 remains unstarted. Local remediation evidence is focused
+At that remediation checkpoint, Gate V1 Slice 2 remained unstarted. Local
+remediation evidence was focused
 harness/isolation **6/6**, five parallel harness-plus-Pilot stress iterations
 at **20/20 each** (**100/100** aggregate), and repeated `npm run verify:fast`
 with the engineering harness plus integration **357/357**. An earlier fast-gate
@@ -114,7 +142,7 @@ Commit `8f1b373` fixed PostgreSQL role-creation parameter typing with explicit t
 
 PR-3 and PR-4 are complete and merged through [PR #16](https://github.com/yarinperetz1313/trade-growth-engine/pull/16) at `b0a8e36`, which closed [Issue #2](https://github.com/yarinperetz1313/trade-growth-engine/issues/2) and [Issue #5](https://github.com/yarinperetz1313/trade-growth-engine/issues/5). PR-3 supplies tenant-aware PostgreSQL repositories, transaction-scoped persistence, and transactional RevenueAction execution while preserving JSON as the default local/test adapter and preserving unknown JSON-compatible values. Its migrations remain append-only and unchanged at `005`–`009`. PR-4 adds exact Auth0 validation, active-membership authorization, immutable auth `TenantContext`, centralized role policy, assisted invitations, browser PKCE boundaries, and the renumbered append-only migration `010_auth_membership_and_invitations.sql`.
 
-The server validates the independently branded PR-4 auth context, mints a separate trusted PR-3 persistence context from only its tenant ID and subject, and injects it into the PostgreSQL routers and transactions. Auth-enabled business APIs still return `503 TENANT_PERSISTENCE_UNAVAILABLE` when the PostgreSQL adapter/bridge is absent. Production provisioning, import retention deletion, and JSON cutover do not exist yet. A provisioned Auth0 AU tenant, SMTP/domain evidence, and real external-email OTP E2E remain release gates.
+The server validates the independently branded PR-4 auth context, mints a separate trusted PR-3 persistence context from its tenant ID, identity issuer, and subject, and injects it into the PostgreSQL routers and transactions. Auth-enabled business APIs still return `503 TENANT_PERSISTENCE_UNAVAILABLE` when the PostgreSQL adapter/bridge is absent. Production cleanup scheduling/credentials, canonical tenant-data deletion, production provisioning, and JSON cutover do not exist yet. A provisioned Auth0 AU tenant, SMTP/domain evidence, and real external-email OTP E2E remain release gates.
 
 Pilot Readiness PR-5A supplies the bounded CSV-only import contract, parser,
 OWNER/ADMIN staging service, tenant-scoped PostgreSQL batch/staging/audit
@@ -128,8 +156,8 @@ row, reconciles the existing ID map, appends bounded audit evidence, and
 transitions only `PREVIEWED` to `COMMITTED`. Migration `011` adds global source
 identity and typed-target uniqueness plus narrow lifecycle functions without
 broad import mutation grants. All three slices preserve exact raw cells and
-distinct unknown value states and perform no external actions. XLSX, controlled
-retention deletion, and JSON cutover remain later Issue #13 work.
+distinct unknown value states before the later seven-day expiry and perform no
+external actions. XLSX and JSON cutover remain later Issue #13 work.
 
 PR-5D adds the hash-routed browser CSV import workspace over those existing
 contracts: upload, bounded raw-evidence preview, deterministic mapping review
@@ -138,9 +166,8 @@ result. Contract-mocked managed Playwright fixtures cover loading, empty,
 general error, unauthorized, conflict, outcome-unknown reconciliation/retry,
 success, and adversarial unknown/blank/zero/nonnumeric evidence. Existing
 PostgreSQL suites remain authoritative for server persistence, auth, tenant
-isolation, commit, retry, reconciliation, and audit behavior. Raw-evidence
-retention/deletion acceptance and implementation are **DEFERRED to a separate
-reviewed follow-up**; PR-5D does not claim them complete.
+isolation, commit, retry, reconciliation, and audit behavior. Slice 2's separate
+raw-expiry contract adds no browser behavior and does not alter PR-5D's evidence.
 
 PR-5D final-review remediation gates production Auth0 callback consumption on a
 structurally complete OAuth code/state response, scrubs the consumed callback URL
@@ -397,14 +424,15 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - **PR-2 is complete**: schema/security/migrations `001`–`004`, tests, and CI are present, and GitHub Actions run `33304131266` passed the full PostgreSQL 16.15 gate. This completion does not imply production repositories, Auth0 middleware, provisioning, import execution, or JSON cutover. Vendor decisions still gate provisioning and release.
 - **PR-3 and PR-4 are complete and merged through PR #16 at `b0a8e36`**: tenant-aware PostgreSQL repositories and transactional RevenueAction persistence consume the membership-derived auth boundary through a server-only trusted-context bridge. The underlying combined state at `9fe7cea` is verified by [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854), which passed the complete combined gate. Real Auth0 AU/SMTP acceptance remains deployment-gated; that combined PR-3/PR-4 verification did not cover the later PR-5 work summarized below.
 - **The Product Truth audit/fix work unit is complete through PR #17 at `5231838`**, and Issue #7 is closed. Its repository-backed UI corrections and managed Product Truth coverage do not establish external-provider, provisioning, import, or cutover evidence.
-- **PR-5A implements CSV contract, limits, immutable staging, and bounded preview; PR-5B implements draft mapping, validation, and Data Health analysis; PR-5C implements controlled atomic canonical commit and ID-map reconciliation; PR-5D implements the contract-mocked browser workflow and adversarial state coverage.** Raw-evidence retention/deletion acceptance is explicitly deferred to a separate reviewed follow-up; cutover and production provisioning remain unimplemented.
+- **PR-5A implements CSV contract, limits, immutable staging, and bounded preview; PR-5B implements draft mapping, validation, and Data Health analysis; PR-5C implements controlled atomic canonical commit and ID-map reconciliation; PR-5D implements the contract-mocked browser workflow and adversarial state coverage.** Slice 2 now implements the separate seven-day raw-evidence expiry/cleanup contract; cutover and production provisioning remain unimplemented.
 - **Assisted Pilot Safety Gate V1 PR-1 is complete as a local checkpoint:** the
   fail-closed Pilot entrypoint, migration `014` readiness contract, protected
   startup gate, PostgreSQL-only authenticated composition, portable commands,
   validated browser API origin, strict runtime-only role-membership allowlist,
   normalized pool-error boundary, and bounded non-overlapping shutdown are
-  implemented and proportionally verified. Provider provisioning and later
-  milestone slices remain unstarted.
+  implemented and proportionally verified. Slice 2 extends the expected schema
+  to migration `015`; provider provisioning and later milestone slices remain
+  unstarted.
 - **Issue #8 RevenueLeakCase foundation implements the bounded domain,
   JSON/PostgreSQL repositories, tenant-bound API, migration `012`, and focused
   contract/database evidence for `STALLED_OPPORTUNITY`. The current follow-on

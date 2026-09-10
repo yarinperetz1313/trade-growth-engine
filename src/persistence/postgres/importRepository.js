@@ -177,6 +177,17 @@ function createImportRepository(
       };
     },
 
+    async findRawCleanupStatus(batchId) {
+      const result = await client.query(
+        `select batch.*,
+           batch.raw_expires_at <= clock_timestamp() as raw_cleanup_due
+         from tge.import_batches batch
+         where batch.tenant_id = $1 and batch.id = $2`,
+        [tenantId, batchId]
+      );
+      return result.rows[0] ? mapBatch(result.rows[0]) : null;
+    },
+
     async commitCanonical(request) {
       validateRepositoryCommitRequest(request);
       const batchResult = await client.query(
@@ -1080,6 +1091,21 @@ function mapBatch(row) {
     committedAt: timestamp(row.committed_at),
     rawExpiresAt: timestamp(row.raw_expires_at),
     metadataRetainUntil: timestamp(row.metadata_retain_until),
+    rawCleanup: {
+      state: row.raw_cleanup_state,
+      due: row.raw_cleanup_due === true,
+      attempts: Number(row.raw_cleanup_attempts || 0),
+      retryable: row.raw_cleanup_retryable === true,
+      ...(row.raw_cleanup_started_at
+        ? { startedAt: timestamp(row.raw_cleanup_started_at) }
+        : {}),
+      ...(row.raw_cleanup_completed_at
+        ? { completedAt: timestamp(row.raw_cleanup_completed_at) }
+        : {}),
+      ...(row.raw_cleanup_failure_code
+        ? { failureCode: row.raw_cleanup_failure_code }
+        : {})
+    },
     createdAt: timestamp(row.created_at)
   };
 }

@@ -178,6 +178,28 @@ function createImportService({
     return buildImportAnalysis(evidence, input);
   }
 
+  async function readRawCleanupStatus({
+    authorizationContext,
+    persistenceContext,
+    batchId
+  }) {
+    const { trustedPersistence } = authorize(
+      authorizationContext,
+      persistenceContext
+    );
+    validateBatchId(batchId);
+    const batch = await persistence
+      .forTenant(trustedPersistence)
+      .imports.findRawCleanupStatus(batchId);
+    if (!batch) unavailable();
+    return {
+      batchId: batch.id,
+      status: batch.status,
+      rawExpiresAt: batch.rawExpiresAt,
+      cleanup: batch.rawCleanup
+    };
+  }
+
   async function commitBatch({
     authorizationContext,
     persistenceContext,
@@ -245,6 +267,7 @@ function createImportService({
     analyzePreview,
     commitBatch,
     createPreview,
+    readRawCleanupStatus,
     readCommit,
     readPreview
   });

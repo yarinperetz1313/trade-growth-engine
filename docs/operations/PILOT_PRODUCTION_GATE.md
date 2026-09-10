@@ -13,16 +13,21 @@ Do not provision or invite external users until every applicable gate below has 
 | Imports and retention | Staged CSV/XLSX checks enforce limits and explicit ambiguity resolution; raw files: **7 days**; audit metadata: **12 months**; committed CRM data follows the approved tenant deletion policy. |
 | Revenue actions | Deterministic recommendation/evidence, explicit manual approval, and no external automatic send remain intact while later database mutations become transactional. |
 
-The seven-day raw-file target above is policy intent, not completed acceptance
-evidence. Raw-evidence retention/deletion acceptance and implementation are
-**DEFERRED to a separate reviewed follow-up**; the PR-5D browser workflow does
-not close this production gate.
+The [raw-import expiry and tenant offboarding
+contract](../architecture/PILOT_READINESS_FOUNDATION.md#import-safety-retention-and-deletion) implements
+the local database authority, exact seven-day denial, retry-safe physical scrub,
+and minimized deletion evidence. Production scheduling, separate maintenance
+credentials, monitoring, alerting, and observed cleanup execution are not yet
+proven. Canonical tenant-data deletion also remains blocked on approved
+legal/contractual retention policy; access/raw-evidence offboarding must not be
+represented as full tenant deletion.
 
 The repository now contains the explicit fail-closed bootstrap described by the
 [Secure Pilot Runtime](../architecture/SECURE_PILOT_RUNTIME.md). Its readiness
 endpoint proves only local code, runtime-role database access, migration/schema,
 and membership lookup usability. It does not close any provider, topology,
-backup, privacy, retention, provisioning, or real Auth0/SMTP/OTP gate below.
+backup, privacy, production-maintenance, provisioning, or real Auth0/SMTP/OTP
+gate below.
 
 ## Provisioning and vendor gates
 

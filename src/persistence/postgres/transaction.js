@@ -103,10 +103,21 @@ async function withTenantTransaction(
   try {
     await client.query("BEGIN");
     transactionStarted = true;
-    await client.query(
-      "SELECT tge.set_request_context($1::uuid, $2::text)",
-      [trustedContext.tenantId, trustedContext.subjectId]
-    );
+    if (trustedContext.identityIssuer) {
+      await client.query(
+        "SELECT tge.set_request_context($1::uuid, $2::text, $3::text)",
+        [
+          trustedContext.tenantId,
+          trustedContext.identityIssuer,
+          trustedContext.subjectId
+        ]
+      );
+    } else {
+      await client.query(
+        "SELECT tge.set_request_context($1::uuid, $2::text)",
+        [trustedContext.tenantId, trustedContext.subjectId]
+      );
+    }
 
     attemptedResult = await operation({
       client,

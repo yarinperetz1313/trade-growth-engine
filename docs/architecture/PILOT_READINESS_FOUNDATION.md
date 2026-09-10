@@ -37,7 +37,7 @@ RevenueAction semantics remain deterministic and manually approved: no automated
 
 PR-2 implements the schema/security foundation without switching runtime persistence. Migration `001` remains unchanged and quarantined in `public`; migration `002` bootstraps the non-login owner/migrator/runtime roles before creating `tge` objects as `tge_owner`, and migration `003` plus every later migration executes under that owner role. The runner refuses to infer an applied `001` from pre-existing legacy objects; an audited baseline is required instead. Legacy operational identifiers remain text IDs in `(tenant_id, id)` keys. Tenant relationships use composite foreign keys with `RESTRICT`, and imported records retain raw payload, source timestamps, and source ordinal.
 
-Forced RLS reads transaction-local `app.tenant_id` and `app.subject_id`. These custom settings are trusted server-only inputs set only after PR-4 validates identity and membership and the server bridges the branded auth context into a separately branded PR-3 persistence context; they are not accepted API fields. RLS is defense in depth and does not replace repository predicates or PR-4 authorization. The runtime role is non-bypass and receives no access to the legacy `public` tables, migrations, role/schema administration, truncation, or mutation/deletion of import and audit evidence.
+Forced RLS reads transaction-local `app.tenant_id`, `app.identity_issuer`, and `app.subject_id`. These custom settings are trusted server-only inputs set only after PR-4 validates identity and membership and the server bridges the branded auth context into a separately branded PR-3 persistence context; they are not accepted API fields. RLS is defense in depth and does not replace repository predicates or PR-4 authorization. The runtime role is non-bypass and receives no access to the legacy `public` tables, migrations, role/schema administration, truncation, or direct mutation/deletion of import and audit evidence.
 
 ## Import safety, retention, and deletion
 
@@ -47,20 +47,69 @@ analysis is specified in [deterministic import mapping and Data Health](IMPORT_M
 PR-5C's atomic commit and existing-ID-map reconciliation are specified in
 [controlled canonical import commit](CANONICAL_IMPORT_COMMIT.md). PR-5D's
 contract-mocked browser and adversarial evidence coverage is specified in the
-[browser CSV import workflow](BROWSER_IMPORT_WORKFLOW.md). Raw-evidence
-retention/deletion acceptance and implementation are **DEFERRED to a separate
-reviewed follow-up** and are not completed by PR-5D.
+[browser CSV import workflow](BROWSER_IMPORT_WORKFLOW.md). Assisted Pilot Safety
+Gate V1 Slice 2 implements the separate raw-import expiry and tenant offboarding
+contract below.
 
 Imports are tenant-scoped and staged: CSV/XLSX upload → preview → explicit commit. Exact duplicates are skipped; ambiguous records require explicit user resolution; imports never merge into or overwrite existing CRM data implicitly. Every PR-2 ID-map row references its exact staging source and exactly one real tenant-owned prospect, opportunity, task, activity, or RevenueAction through a typed foreign key. Runtime may only select and insert batch, staging, ID-map, and audit evidence.
 
 PR-5C adds only the narrow `PREVIEWED → COMMITTED` transition and row outcomes
 needed for canonical commit through append-only migration `011`; runtime keeps
-no unrestricted import `UPDATE` or `DELETE`. Retention expiry and deletion
-transitions remain deliberately deferred to a later authorized slice.
+no unrestricted import `UPDATE` or `DELETE`. Migration `015` adds the exact
+database-authored expiry, targetless cleanup, minimized evidence, and narrow
+access/raw-evidence offboarding operations without broadening runtime authority.
 
 Validate MIME type, file signature, file size, row count, sheet count, cell count, decompression expansion, and parser resource limits before preview or commit. Treat spreadsheet formula-like values as data: neutralize formula injection on export/display paths and never evaluate formulas as executable content.
 
-Store audit events and import metadata for **12 months**. Retain raw files for **7 days**, then delete them. Committed CRM data follows the tenant deletion policy rather than the raw-file retention policy; that policy must define its legal/contractual hold and deletion evidence before Pilot release.
+Store audit events and import metadata for **12 months**. Raw staged evidence is
+denied at an exact database-authored **7-day** deadline and then physically scrubbed by retry-safe operations. Committed CRM data follows the tenant deletion
+policy rather than raw retention. This slice preserves it; legal/contractual
+approval is still required before any canonical tenant-data deletion.
+
+Migration `015_raw_import_expiry_tenant_offboarding.sql` replaces every
+runtime-supplied import creation, authorization, expiry, and metadata-retention
+time with one database `clock_timestamp()`, an exact seven-day raw deadline, and
+the existing twelve-month metadata horizon. At the deadline, forced RLS makes
+staged raw rows unavailable to runtime preview, analysis, and canonical-commit
+functions. Physical cleanup then moves through `PENDING`, `IN_PROGRESS`,
+`SUCCEEDED`, or retryable `FAILED`. Tenant-authorized users can read the bounded
+state at `GET /api/import-batches/:batchId/cleanup`.
+
+Only the existing server-only `tge_migrator` operations authority can execute
+the targetless cleanup processors. They accept a fixed result limit but no
+tenant, batch, role, target, or clock, and claim database-selected work with
+`FOR UPDATE SKIP LOCKED`. Cleanup removes staged raw payloads/conflict details,
+source filename/storage location, and raw-derived batch metadata. It preserves
+committed canonical CRM, ID-map reconciliation, audit history, Pilot evidence,
+and the `COMMITTED` state. The runtime role receives no new direct import
+`UPDATE` or `DELETE` grant.
+
+Tenant offboarding accepts exactly the confirmation
+`OFFBOARD_ACCESS_AND_RAW_EVIDENCE`. Both server and database independently
+require a trusted active OWNER; the server additionally requires an injected
+reauthentication/MFA-ready sensitive-action policy. Tenant, issuer, subject,
+role, target, and request time come only from trusted context/database state.
+ADMIN, MEMBER, forged, cross-tenant, and nonexistent cases use generic denial.
+
+The request is idempotent. A separate targetless operations function atomically
+scrubs outstanding raw imports, removes tenant invitation records, revokes database
+memberships, and minimizes the tenant label. Crashes roll back; handled failures
+are retryable. Success is deliberately `OFFBOARDED_ACCESS_REVOKED` with scope
+`ACCESS_AND_RAW_EVIDENCE_ONLY`, not full tenant deletion. Canonical CRM and
+required immutable evidence remain until an approved legal/contractual policy
+authorizes anything broader.
+
+Each handled cleanup/offboarding attempt appends immutable typed deletion
+evidence retained for at least twelve months. It contains bounded counts,
+SHA-256 resource references, stable states/failure codes, attempt numbers,
+database times, retryability, and
+`external_actions_performed: false`—never raw cells, uploaded content,
+filenames, tokens, DSNs, contact details, or arbitrary customer payloads.
+`npm run maintenance:cleanup` uses a separate
+`TGE_MAINTENANCE_DATABASE_URL`, invokes both targetless processors with a fixed
+bound, and prints aggregate states only. Scheduling, credential provisioning,
+monitoring, alerting, production execution, and destructive provider actions
+remain external gates.
 
 ## Configuration boundary
 

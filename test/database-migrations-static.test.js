@@ -32,7 +32,8 @@ test("migration 001 remains byte-for-byte unchanged and migrations are append-on
     "011_canonical_import_commit.sql",
     "012_revenue_leak_case_foundation.sql",
     "013_privacy_minimized_pilot_evidence.sql",
-    "014_secure_pilot_runtime_readiness.sql"
+    "014_secure_pilot_runtime_readiness.sql",
+    "015_raw_import_expiry_tenant_offboarding.sql"
   ]);
   assert.equal(Buffer.byteLength(initialMigration), 2752);
   assert.equal(

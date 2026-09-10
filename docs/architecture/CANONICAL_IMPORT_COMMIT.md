@@ -108,7 +108,11 @@ contain identities, hashes, and outcome codes—not copied raw cell values.
 Database or injected failures roll back canonical rows, maps, row outcomes,
 audit events, and lifecycle mutation together.
 
-Exact staged `raw_payload` and its hash are never rewritten. Decimal
+Before its seven-day deadline, exact staged `raw_payload` and its hash are not
+rewritten. The separate [raw-import expiry
+contract](PILOT_READINESS_FOUNDATION.md#import-safety-retention-and-deletion) later scrubs raw payload
+without changing committed canonical records or required reconciliation/audit
+evidence. Decimal
 classification and range checks avoid JavaScript `Number` conversion before
 fingerprinting and persistence. Migration `011` constrains the five canonical
 commercial numeric columns to `NUMERIC(20,6)` after a fail-closed preflight that

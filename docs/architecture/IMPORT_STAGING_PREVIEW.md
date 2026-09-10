@@ -116,6 +116,7 @@ grant or lifecycle function.
 
 The preview transaction never accesses prospects, opportunities, tasks,
 activities, or RevenueActions and records `external_action_performed: false`.
-PR-5C provides the separate explicit canonical commit transaction. Raw-evidence
-retention/deletion acceptance and implementation are **DEFERRED to a separate
-reviewed follow-up**; PR-5D does not claim them complete.
+PR-5C provides the separate explicit canonical commit transaction. The later
+[raw-import expiry contract](PILOT_READINESS_FOUNDATION.md#import-safety-retention-and-deletion) denies
+staged rows at the database-authored seven-day deadline and scrubs them through
+narrow retry-safe operations.

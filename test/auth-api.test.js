@@ -216,6 +216,7 @@ test("auth mode bridges its trusted context into PostgreSQL persistence", async 
     assert.deepEqual(result.data, { ok: true, data: [], count: 0 });
     assert.deepEqual(receivedContext, {
       tenantId: TENANT_ID,
+      identityIssuer: ISSUER,
       subjectId: "auth0|owner"
     });
     assert.equal(Object.isFrozen(receivedContext), true);
@@ -255,6 +256,7 @@ test("the server bridge preserves independent auth and persistence context brand
   assert.equal(requirePersistenceTenantContext(persistenceContext), persistenceContext);
   assert.deepEqual(persistenceContext, {
     tenantId: TENANT_ID,
+    identityIssuer: ISSUER,
     subjectId: "auth0|owner"
   });
 });
