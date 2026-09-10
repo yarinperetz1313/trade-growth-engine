@@ -201,13 +201,21 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 test("timed-out harness subprocess cleans owned resources and terminates its descendant", async () => {
   const coordinatorDirectory = createOwnedTempDirectory("tge-harness-timeout-");
   const manifestPath = path.join(coordinatorDirectory, "resources.json");
+  const readinessWaitingPath = path.join(
+    coordinatorDirectory,
+    "readiness-waiting"
+  );
   let resources;
   let child;
+  let childRejectionAssertion;
+  let timeoutArmed = false;
 
   try {
     const childEnvironment = {
       ...process.env,
       TGE_HARNESS_TEST_CONTRACT_PATH: "src/auth/authentication.js",
+      TGE_HARNESS_TEST_READINESS_RELEASE_FD: "3",
+      TGE_HARNESS_TEST_READINESS_WAITING_PATH: readinessWaitingPath,
       TGE_HARNESS_TEST_SIGNAL_MANIFEST_PATH: manifestPath,
       TGE_HARNESS_TEST_TIMEOUT_DESCENDANT: "1"
     };
@@ -216,20 +224,37 @@ test("timed-out harness subprocess cleans owned resources and terminates its des
       cwd: repositoryRoot,
       detached: process.platform !== "win32",
       env: childEnvironment,
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe", "pipe"]
+    });
+    let startTimeout;
+    const timeoutStartPromise = new Promise(resolve => {
+      startTimeout = resolve;
     });
     const childResultPromise = collectChildResult(child, {
       ownsProcessGroup: process.platform !== "win32",
+      onTimeoutArmed() {
+        timeoutArmed = true;
+      },
+      timeoutStartPromise,
       timeoutMs: 500
     });
-    const childRejectionAssertion = assert.rejects(
+    childRejectionAssertion = assert.rejects(
       childResultPromise,
       /timed out waiting for harness test child to exit/
     );
+    void childRejectionAssertion.catch(() => {});
 
+    await waitForFile(readinessWaitingPath);
+    assert.equal(
+      timeoutArmed,
+      false,
+      "the fixture timeout was armed before explicit readiness"
+    );
+    child.stdio[3].end("release\n");
     await waitForFile(manifestPath);
     resources = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
     await waitForFile(resources.descendantHeartbeatPath);
+    startTimeout();
     await childRejectionAssertion;
     const heartbeatSize = fs.statSync(resources.descendantHeartbeatPath).size;
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -251,6 +276,9 @@ test("timed-out harness subprocess cleans owned resources and terminates its des
     try {
       if (child && child.exitCode === null && child.signalCode === null) {
         signalOwnedChild(child, "SIGKILL", process.platform !== "win32");
+      }
+      if (childRejectionAssertion) {
+        await childRejectionAssertion.catch(() => {});
       }
       if (resources?.descendantPid) {
         try {
@@ -507,12 +535,14 @@ async function waitForFile(filePath) {
 function collectChildResult(
   child,
   {
+    onTimeoutArmed = () => {},
     ownsProcessGroup = false,
     platform = process.platform,
     processKill = process.kill,
     spawnProcess = spawn,
     terminationGraceMs = 500,
     terminationRecoveryMs = 1_000,
+    timeoutStartPromise,
     timeoutMs = 20_000
   } = {}
 ) {
@@ -523,7 +553,18 @@ function collectChildResult(
     let recoveryTimer;
     let settled = false;
     let timedOut = false;
-    const timeout = setTimeout(() => {
+    let timeout;
+    let timeoutArmed = false;
+    const armTimeout = () => {
+      if (settled || timeoutArmed) {
+        return;
+      }
+      timeoutArmed = true;
+      onTimeoutArmed();
+      timeout = setTimeout(handleTimeout, timeoutMs);
+    };
+
+    function handleTimeout() {
       timedOut = true;
       const forceKillAt = Date.now() + terminationGraceMs;
       const recoveryDeadline = forceKillAt + terminationRecoveryMs;
@@ -595,7 +636,13 @@ function collectChildResult(
       }
 
       recover();
-    }, timeoutMs);
+    }
+
+    if (timeoutStartPromise) {
+      void timeoutStartPromise.then(armTimeout, error => settle(reject, error));
+    } else {
+      armTimeout();
+    }
 
     function settle(settler, value) {
       if (settled) {

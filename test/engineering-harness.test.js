@@ -19,7 +19,7 @@ test("engineering harness gate passes for the repository contract", () => {
 });
 
 test("engineering harness gate rejects removal of every Pilot Readiness contract rule", async () => {
-  const fixtureRoot = createHarnessFixture();
+  let fixtureRoot;
   let signalMarkerDirectory;
   const contractRemovals = [
     {
@@ -185,6 +185,8 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
   }
 
   try {
+    await waitForTestReadinessRelease();
+    fixtureRoot = createHarnessFixture();
     const signalManifestPath =
       process.env.TGE_HARNESS_TEST_SIGNAL_MANIFEST_PATH;
     if (signalManifestPath) {
@@ -249,9 +251,49 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
     if (signalMarkerDirectory) {
       cleanupOwnedDirectory(signalMarkerDirectory);
     }
-    cleanupOwnedDirectory(fixtureRoot);
+    if (fixtureRoot) {
+      cleanupOwnedDirectory(fixtureRoot);
+    }
   }
 });
+
+async function waitForTestReadinessRelease() {
+  const releaseFd = process.env.TGE_HARNESS_TEST_READINESS_RELEASE_FD;
+  const waitingPath = process.env.TGE_HARNESS_TEST_READINESS_WAITING_PATH;
+
+  if (!releaseFd && !waitingPath) {
+    return;
+  }
+
+  assert.ok(releaseFd && waitingPath, "readiness delay requires a pipe and marker");
+  const descriptor = Number(releaseFd);
+  assert.ok(
+    Number.isInteger(descriptor) && descriptor >= 3,
+    "readiness delay requires an inherited pipe descriptor"
+  );
+  fs.writeFileSync(waitingPath, "waiting\n");
+
+  await new Promise((resolve, reject) => {
+    const releaseStream = fs.createReadStream(null, {
+      autoClose: true,
+      fd: descriptor
+    });
+    const timeout = setTimeout(() => {
+      releaseStream.destroy();
+      reject(new Error("timed out waiting for test readiness release"));
+    }, 5_000);
+
+    releaseStream.once("data", () => {
+      clearTimeout(timeout);
+      releaseStream.destroy();
+      resolve();
+    });
+    releaseStream.once("error", error => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+  });
+}
 
 async function waitForConcurrentMutationObserver(relativePath) {
   const readyPath = process.env.TGE_HARNESS_TEST_MUTATION_READY_PATH;
