@@ -1,6 +1,170 @@
 # Project State
 
-_Last locally audited on 2026-09-10. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+_Last locally audited on 2026-09-11. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+
+Assisted Pilot Safety Gate V1 Slice 2 now implements the PostgreSQL-only
+[raw-import expiry and tenant offboarding
+contract](architecture/PILOT_READINESS_FOUNDATION.md#import-safety-retention-and-deletion). Append-only
+migration `015_raw_import_expiry_tenant_offboarding.sql` makes database time the
+authority for the exact 168-elapsed-hour raw deadline, denies expired staged
+rows, adds retry/concurrency-safe targetless cleanup through a distinct
+processor-only `tge_maintenance` role with no owner/migrator path, and records
+immutable privacy-minimized evidence. The Pilot API
+adds tenant-authorized cleanup status plus an active-OWNER and
+reauthentication/MFA-gated offboarding request. Offboarding atomically scrubs raw
+imports, removes tenant invitation records, and revokes memberships; its truthful
+success state is `OFFBOARDED_ACCESS_REVOKED` with scope
+`ACCESS_AND_RAW_EVIDENCE_ONLY`. Canonical CRM, ID-map reconciliation, audit, and
+Pilot evidence remain intact. Local JSON compatibility and human-controlled
+external-action boundaries are unchanged.
+
+The bounded independent High-review remediation adds a terminal tenant write
+barrier ordered before offboarding batch discovery, rejects direct runtime
+staging inserts into expired, cleaned, committed, failed, and otherwise
+non-writable batches, preserves all existing tenant metadata while setting only
+`metadata.offboarding_state`, and requires exact tenant/issuer/subject equality
+at the server sensitive-action boundary. Offboarding still minimizes only tenant
+`slug` and `name`, and does not broaden deletion into canonical or immutable
+evidence.
+
+Slice 2 followed red-first delivery. The initial new migration contract was
+**1/6**, service/API was **0/4**, and meaningful PostgreSQL behavior was **0/6**
+before migration `015` and the new boundaries existed. Focused green evidence
+was static/service **45/45**, harness/isolation **14/14**, final
+auth/persistence/offboarding **44/44**, and PostgreSQL expiry/offboarding
+**7/7**. The final full local gate against disposable PostgreSQL 16.15 passed
+the engineering harness, integration **378/378**, database **74/74**, managed
+Chromium **51/51**, and the Vite 8.2.2 production build of 31 modules. Migrations
+`001`–`014` remain byte-identical and `git diff --check` passed. This does not
+prove provider provisioning, production scheduling/credentials/monitoring,
+external destructive actions, or a legal basis for canonical CRM deletion.
+
+The six-finding High-review remediation was also delivered red-first. Before
+the remediation, the new migration assertions were **6/9**, the offboarding
+service assertions were **4/5**, and the disposable-PostgreSQL behavior was
+**6/10**: the maintenance authority was still the migrator, the deadline used a
+calendar-day interval, terminal/staging write guards and the overlap lock were
+absent, tenant metadata was replaced, and a wrong subject was accepted. The
+remediated focused static/service tests are **14/14**, the affected
+auth/import/persistence set is **69/69**, and the focused PostgreSQL suite is
+**11/11**. The proportional final gate passed the engineering harness plus
+integration **381/381**, the complete PostgreSQL suite **78/78**, the
+harness/migration-static pair **22/22**, `git diff --check`, and the unchanged
+SHA-256 values for migrations `001`–`014`. Browser E2E and the production build
+were not repeated because this bounded remediation changes no browser or web
+production source.
+
+The final bounded lock-order remediation closes the cleanup/offboarding
+inversion found at `878c913`. A state-synchronized PostgreSQL regression paused
+cleanup after its batch claim and proved offboarding was queued behind it before
+releasing the barrier; starting code deterministically returned cleanup
+`SUCCEEDED` but offboarding `FAILED`. Migration `015` now makes tenant row
+acquisition precede cleanup, scrub, and canonical-import batch locks while
+retaining targetless `SKIP LOCKED` selection and processor-only authority.
+Focused migration/service tests pass **15/15**, affected auth/import/persistence
+tests pass **85/85**, and the complete affected PostgreSQL file passes
+**12/12** with both operations successful, no failed evidence, no raw evidence
+after offboarding, preserved canonical/audit/Pilot truth, and no cross-tenant
+leakage. The proportional gates pass the engineering harness plus integration
+**382/382** and the complete PostgreSQL suite **79/79**. Migrations `001`–`014`
+remain byte-identical and `git diff --check` passes. The six prior High-review
+findings remain closed. Browser E2E and the production build were not repeated
+because no browser or web-production code changed.
+
+The final bounded terminal-access remediation closes two later review findings.
+Invitation creation now revalidates the exact active OWNER identity through a
+no-target runtime function and holds the tenant row before inserting its child;
+invitation consumption takes the same terminal-aware tenant lock before locking
+the invitation or activating membership. A terminal tenant therefore cannot
+retain a concurrently created invitation or regain membership from residual
+invitation evidence. PostgreSQL preview and analysis batch reads also compute
+`rawCleanup.due` from database time exactly like the dedicated cleanup status;
+an absent value is no longer rewritten as `false`. At starting checkpoint
+`9d91861`, the new repository/migration assertions were **22/25** and the two
+state-synchronized PostgreSQL invitation races were **0/2**: offboarding did not
+wait, one invitation survived terminal state, and consumption recreated one
+active membership. The remediated focused auth/import/migration set passes
+**36/36**, affected auth/import/persistence passes **89/89**, the complete
+affected PostgreSQL file passes **15/15**, the engineering harness plus
+integration passes **386/386**, and the complete PostgreSQL suite passes
+**82/82** on PostgreSQL 16.15. The standalone harness and `git diff --check`
+pass, and migrations `001`–`014` remain byte-identical to `origin/main`.
+Browser E2E and production build were intentionally not repeated because no
+browser or web-production source changed.
+
+The bounded staging/maintenance concurrency remediation closes the final two
+fresh High-review findings at `5ac47b4`. A state-synchronized canonical commit
+regression proved a runtime staging insert could validate `PREVIEWED`, wait
+behind canonical finalization, and then persist a `PENDING` row after the batch
+became `COMMITTED`. The staging guard now takes the established tenant lock and
+then locks and revalidates the batch row, retaining tenant-before-child ordering
+and the existing trigger-only least-privilege boundary. A second regression
+runs two actual production maintenance commands across two tenants, using
+advisory barriers and `pg_blocking_pids` to reproduce the cleanup-lock retention
+cycle without timing sleeps. The command now commits cleanup before beginning
+offboarding, so each processor retains its existing targetless database
+authority while no cleanup tenant locks cross into offboarding. Product RED was
+**0/1** for each finding. Focused GREEN is **1/1** each; migration/service is
+**17/17**; affected auth/import/persistence is **147/147**; the complete affected
+PostgreSQL 16.15 file is **17/17**; the engineering harness plus integration is
+**387/387**; and the complete PostgreSQL suite is **84/84**. The standalone
+harness and harness/migration-static pair **22/22** pass, `git diff --check` is
+clean, and migrations `001`–`014` retain their exact starting SHA-256 values.
+All previously closed Slice 2 invariants remain covered. Browser E2E and
+production build were not run because no browser or web-production source
+changed.
+
+The final bounded database invitation-guard remediation closes the remaining
+fresh P1 at `97b6f4c`. The least-privilege runtime login could call the terminal
+barrier and receive `false`, then bypass the repository and directly insert a
+`PENDING` invitation for that terminal tenant. A migration-015-only trigger now
+validates the inserted tenant and creator against trusted request context and
+requires the existing active-OWNER, terminal-aware shared tenant lock before
+the child insert. Starting direct-runtime and state-synchronized overlap
+regressions were each **0/1**: direct SQL left one terminal invitation, and
+offboarding did not wait for an overlapping direct insert. Both are now
+**1/1**. Focused auth/invitation/migration tests pass **61/61**, the affected
+PostgreSQL 16.15 file passes **18/18**, the engineering harness plus integration
+passes **388/388**, and the complete PostgreSQL suite passes **85/85**.
+Migrations `001`–`014` remain byte-identical and the runtime role retains only
+its existing narrow table privileges; the trigger function is not directly
+executable by runtime, migrator, or maintenance roles. Browser E2E and the
+production build were not run because no browser or web-production source
+changed.
+
+The bounded final security/migration remediation closes the two fresh findings
+at `1da7a3d` and supersedes the preceding Slice 2 “final review” wording. The
+runtime-executable migration-011 import helpers were reassessed directly under
+the least-privilege login. Migration `015` now replaces the only reintroduction
+path, `record_import_commit_lifecycle_conflict`, with a tenant-before-batch
+terminal lock, exact tenant/issuer/subject and active OWNER/ADMIN membership
+checks, unexpired/non-cleaned lifecycle predicates, and closed conflict-summary
+keys. Cleaned/EXPIRED batches and terminal-offboarded tenants cannot restore
+`conflict_summary`, commit metadata, staged metadata, or an arbitrary sensitive
+marker through any of the six still-executable SECURITY DEFINER import helpers.
+The established `urn:tge:legacy` trusted context remains exact for local
+repository compatibility; Pilot traffic retains its explicit issuer authority.
+
+Migration `015` also replaces the schema-014 calendar-day ceiling with an
+elapsed-time maximum of 168 hours. Existing shorter deadlines are unchanged;
+only a legacy deadline longer than 168 elapsed hours is shortened to that cap,
+and the runtime insert trigger still authors exactly 168 hours from database
+time. A real 001–014 upgrade fixture with a 24-hour deadline applies `015`
+without lengthening it and retains its canonical CRM, audit, Pilot evidence,
+and migration-ledger truth. The identical PostgreSQL RED regressions were
+**0/2** at the starting migration and GREEN **2/2** after correction. Static
+migration checks pass **14/14**, focused import/auth/persistence checks pass
+**115/115**, and the complete affected PostgreSQL 16.15 file passes **20/20**.
+The first complete database run exposed the legacy fixture's absent explicit
+issuer context at **86/87**. Resolving that path to its canonical legacy issuer
+passed the isolated contract **1/1**; the now-terminal `EXPIRED` expectation was
+also removed, and the corrected complete database suite passes **87/87**.
+`npm run verify:fast` passes the engineering harness plus integration
+**389/389**, and the standalone final harness passes. Migrations `001`–`014` remain
+byte-identical and migration `015` is
+`1f33b8656dbd2c3a05adc9a540412efcac41a8540673bee0e52e510b0e40fcd5`.
+Browser E2E and production build were not run because no browser or product
+source changed.
 
 Post-merge [GitHub Verify run 34440327842](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/34440327842)
 failed integration at **349 passed / 7 failed** because an engineering-harness
@@ -14,7 +178,8 @@ independent Git index. A synchronized process regression reproduced the exact
 `SyntaxError: Unexpected identifier 'BY'` before the fix and now requires the
 live authentication source to parse and every live tracked-file hash to remain
 unchanged while the isolated real harness fails closed. Assisted Pilot Safety
-Gate V1 Slice 2 remains unstarted. Local remediation evidence is focused
+At that remediation checkpoint, Gate V1 Slice 2 remained unstarted. Local
+remediation evidence was focused
 harness/isolation **6/6**, five parallel harness-plus-Pilot stress iterations
 at **20/20 each** (**100/100** aggregate), and repeated `npm run verify:fast`
 with the engineering harness plus integration **357/357**. An earlier fast-gate
@@ -114,7 +279,7 @@ Commit `8f1b373` fixed PostgreSQL role-creation parameter typing with explicit t
 
 PR-3 and PR-4 are complete and merged through [PR #16](https://github.com/yarinperetz1313/trade-growth-engine/pull/16) at `b0a8e36`, which closed [Issue #2](https://github.com/yarinperetz1313/trade-growth-engine/issues/2) and [Issue #5](https://github.com/yarinperetz1313/trade-growth-engine/issues/5). PR-3 supplies tenant-aware PostgreSQL repositories, transaction-scoped persistence, and transactional RevenueAction execution while preserving JSON as the default local/test adapter and preserving unknown JSON-compatible values. Its migrations remain append-only and unchanged at `005`–`009`. PR-4 adds exact Auth0 validation, active-membership authorization, immutable auth `TenantContext`, centralized role policy, assisted invitations, browser PKCE boundaries, and the renumbered append-only migration `010_auth_membership_and_invitations.sql`.
 
-The server validates the independently branded PR-4 auth context, mints a separate trusted PR-3 persistence context from only its tenant ID and subject, and injects it into the PostgreSQL routers and transactions. Auth-enabled business APIs still return `503 TENANT_PERSISTENCE_UNAVAILABLE` when the PostgreSQL adapter/bridge is absent. Production provisioning, import retention deletion, and JSON cutover do not exist yet. A provisioned Auth0 AU tenant, SMTP/domain evidence, and real external-email OTP E2E remain release gates.
+The server validates the independently branded PR-4 auth context, mints a separate trusted PR-3 persistence context from its tenant ID, identity issuer, and subject, and injects it into the PostgreSQL routers and transactions. Auth-enabled business APIs still return `503 TENANT_PERSISTENCE_UNAVAILABLE` when the PostgreSQL adapter/bridge is absent. Production cleanup scheduling/credentials, canonical tenant-data deletion, production provisioning, and JSON cutover do not exist yet. A provisioned Auth0 AU tenant, SMTP/domain evidence, and real external-email OTP E2E remain release gates.
 
 Pilot Readiness PR-5A supplies the bounded CSV-only import contract, parser,
 OWNER/ADMIN staging service, tenant-scoped PostgreSQL batch/staging/audit
@@ -128,8 +293,8 @@ row, reconciles the existing ID map, appends bounded audit evidence, and
 transitions only `PREVIEWED` to `COMMITTED`. Migration `011` adds global source
 identity and typed-target uniqueness plus narrow lifecycle functions without
 broad import mutation grants. All three slices preserve exact raw cells and
-distinct unknown value states and perform no external actions. XLSX, controlled
-retention deletion, and JSON cutover remain later Issue #13 work.
+distinct unknown value states before the later seven-day expiry and perform no
+external actions. XLSX and JSON cutover remain later Issue #13 work.
 
 PR-5D adds the hash-routed browser CSV import workspace over those existing
 contracts: upload, bounded raw-evidence preview, deterministic mapping review
@@ -138,9 +303,8 @@ result. Contract-mocked managed Playwright fixtures cover loading, empty,
 general error, unauthorized, conflict, outcome-unknown reconciliation/retry,
 success, and adversarial unknown/blank/zero/nonnumeric evidence. Existing
 PostgreSQL suites remain authoritative for server persistence, auth, tenant
-isolation, commit, retry, reconciliation, and audit behavior. Raw-evidence
-retention/deletion acceptance and implementation are **DEFERRED to a separate
-reviewed follow-up**; PR-5D does not claim them complete.
+isolation, commit, retry, reconciliation, and audit behavior. Slice 2's separate
+raw-expiry contract adds no browser behavior and does not alter PR-5D's evidence.
 
 PR-5D final-review remediation gates production Auth0 callback consumption on a
 structurally complete OAuth code/state response, scrubs the consumed callback URL
@@ -397,14 +561,15 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - **PR-2 is complete**: schema/security/migrations `001`–`004`, tests, and CI are present, and GitHub Actions run `33304131266` passed the full PostgreSQL 16.15 gate. This completion does not imply production repositories, Auth0 middleware, provisioning, import execution, or JSON cutover. Vendor decisions still gate provisioning and release.
 - **PR-3 and PR-4 are complete and merged through PR #16 at `b0a8e36`**: tenant-aware PostgreSQL repositories and transactional RevenueAction persistence consume the membership-derived auth boundary through a server-only trusted-context bridge. The underlying combined state at `9fe7cea` is verified by [GitHub Actions Verify run 33493292854](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33493292854), which passed the complete combined gate. Real Auth0 AU/SMTP acceptance remains deployment-gated; that combined PR-3/PR-4 verification did not cover the later PR-5 work summarized below.
 - **The Product Truth audit/fix work unit is complete through PR #17 at `5231838`**, and Issue #7 is closed. Its repository-backed UI corrections and managed Product Truth coverage do not establish external-provider, provisioning, import, or cutover evidence.
-- **PR-5A implements CSV contract, limits, immutable staging, and bounded preview; PR-5B implements draft mapping, validation, and Data Health analysis; PR-5C implements controlled atomic canonical commit and ID-map reconciliation; PR-5D implements the contract-mocked browser workflow and adversarial state coverage.** Raw-evidence retention/deletion acceptance is explicitly deferred to a separate reviewed follow-up; cutover and production provisioning remain unimplemented.
+- **PR-5A implements CSV contract, limits, immutable staging, and bounded preview; PR-5B implements draft mapping, validation, and Data Health analysis; PR-5C implements controlled atomic canonical commit and ID-map reconciliation; PR-5D implements the contract-mocked browser workflow and adversarial state coverage.** Slice 2 now implements the separate seven-day raw-evidence expiry/cleanup contract; cutover and production provisioning remain unimplemented.
 - **Assisted Pilot Safety Gate V1 PR-1 is complete as a local checkpoint:** the
   fail-closed Pilot entrypoint, migration `014` readiness contract, protected
   startup gate, PostgreSQL-only authenticated composition, portable commands,
   validated browser API origin, strict runtime-only role-membership allowlist,
   normalized pool-error boundary, and bounded non-overlapping shutdown are
-  implemented and proportionally verified. Provider provisioning and later
-  milestone slices remain unstarted.
+  implemented and proportionally verified. Slice 2 extends the expected schema
+  to migration `015`; provider provisioning and later milestone slices remain
+  unstarted.
 - **Issue #8 RevenueLeakCase foundation implements the bounded domain,
   JSON/PostgreSQL repositories, tenant-bound API, migration `012`, and focused
   contract/database evidence for `STALLED_OPPORTUNITY`. The current follow-on

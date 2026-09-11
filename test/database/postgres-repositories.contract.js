@@ -3712,7 +3712,7 @@ function registerPostgresRepositoryContractTests({
     const tenant = await createTenant("canonical-import-lifecycle-conflicts");
     const privateRaw = "private-lifecycle-cell";
 
-    for (const status of ["STAGED", "READY", "FAILED", "EXPIRED"]) {
+    for (const status of ["STAGED", "READY", "FAILED"]) {
       const batchId = `canonical-${status.toLowerCase()}-${randomUUID()}`;
       await stageCsvBatch(
         repositories,

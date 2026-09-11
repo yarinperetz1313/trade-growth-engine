@@ -66,7 +66,8 @@ function bindTenantRepositories(repositories, context) {
     "revenueActions",
     "revenueLeakCases",
     "pilotEvidence",
-    "imports"
+    "imports",
+    "tenantOffboarding"
   ]) {
     bound[name] = Object.fromEntries(
       Object.entries(repositories[name]).map(([method, operation]) => [

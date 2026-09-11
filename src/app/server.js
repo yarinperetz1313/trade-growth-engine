@@ -21,6 +21,9 @@ const {
   createImportsRouter
 } = require("../api/imports");
 const {
+  createTenantOffboardingRouter
+} = require("../api/tenantOffboarding");
+const {
   assertTrustedTenantContext
 } = require("../auth/authorization");
 const {
@@ -46,6 +49,7 @@ function bridgeAuthTenantContext(authTenantContext) {
   const trustedAuthContext = assertTrustedTenantContext(authTenantContext);
   return createPersistenceTenantContext({
     tenantId: trustedAuthContext.tenantId,
+    identityIssuer: trustedAuthContext.issuer,
     subjectId: trustedAuthContext.subject
   });
 }
@@ -67,7 +71,8 @@ function createApp({
   revenueActionService,
   resolveAuthorizationContext,
   resolveTenantContext,
-  secureReadiness = null
+  secureReadiness = null,
+  tenantOffboardingService
 } = {}) {
   if (persistence && revenueActionService) {
     throw new TypeError(
@@ -124,6 +129,7 @@ function createApp({
         resolvePersistenceContext: requestTenantContext
       })
       : null;
+    const injectedTenantOffboardingService = tenantOffboardingService || null;
     api = createApiRouter({
       healthRouter,
       importsRouter,
@@ -143,7 +149,14 @@ function createApp({
       revenueActionsRouter: createRevenueActionsRouter({
         service: injectedService,
         resolveTenantContext: requestTenantContext
-      })
+      }),
+      tenantOffboardingRouter: injectedTenantOffboardingService
+        ? createTenantOffboardingRouter({
+          service: injectedTenantOffboardingService,
+          resolveAuthorizationContext: requestAuthorizationContext,
+          resolvePersistenceContext: requestTenantContext
+        })
+        : null
     });
   }
 

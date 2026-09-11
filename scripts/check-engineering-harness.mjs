@@ -229,6 +229,9 @@ function validateDatabaseFoundationContract() {
   const securePilotRuntimeMigration = readFile(
     "database/migrations/014_secure_pilot_runtime_readiness.sql"
   );
+  const rawExpiryOffboardingMigration = readFile(
+    "database/migrations/015_raw_import_expiry_tenant_offboarding.sql"
+  );
   const migrationFiles = fs
     .readdirSync(path.join(rootDir, "database", "migrations"))
     .filter(fileName => /^\d{3}_[a-z0-9_]+\.sql$/.test(fileName))
@@ -360,6 +363,16 @@ function validateDatabaseFoundationContract() {
     "Migration 014 must expose the bounded secure runtime readiness probe"
   );
   requireText(
+    rawExpiryOffboardingMigration,
+    "create function tge.process_due_raw_import_cleanup",
+    "Migration 015 must provide targetless raw-import cleanup"
+  );
+  requireText(
+    rawExpiryOffboardingMigration,
+    "create function tge.process_pending_tenant_offboarding",
+    "Migration 015 must provide targetless tenant offboarding"
+  );
+  requireText(
     databaseTest,
     "TGE_TEST_DATABASE_URL",
     "Database tests must require an explicit real PostgreSQL URL"
@@ -388,7 +401,8 @@ function validateDatabaseFoundationContract() {
       "011_canonical_import_commit.sql",
       "012_revenue_leak_case_foundation.sql",
       "013_privacy_minimized_pilot_evidence.sql",
-      "014_secure_pilot_runtime_readiness.sql"
+      "014_secure_pilot_runtime_readiness.sql",
+      "015_raw_import_expiry_tenant_offboarding.sql"
     ])
   ) {
     failures.push(
@@ -644,7 +658,11 @@ function validatePilotReadinessContract() {
     {
       name: "audit and import retention",
       document: "foundation",
-      requirements: ["12 months", "raw files for **7 days**, then delete them"]
+      requirements: [
+        "12 months",
+        "exact database-authored **7-day** deadline",
+        "physically scrubbed by retry-safe operations"
+      ]
     },
     {
       name: "Melbourne backup and tenant-recovery objectives",

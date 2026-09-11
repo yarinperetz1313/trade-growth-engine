@@ -63,7 +63,8 @@ function createImportRepository(
          ) values (
            $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $12
          )
-         returning *`,
+         returning *,
+           raw_expires_at <= clock_timestamp() as raw_cleanup_due`,
         [
           tenantId,
           batch.id,
@@ -139,8 +140,10 @@ function createImportRepository(
 
     async findPreview(batchId) {
       const batch = await client.query(
-        `select * from tge.import_batches
-         where tenant_id = $1 and id = $2`,
+        `select batch.*,
+           batch.raw_expires_at <= clock_timestamp() as raw_cleanup_due
+         from tge.import_batches batch
+         where batch.tenant_id = $1 and batch.id = $2`,
         [tenantId, batchId]
       );
       if (!batch.rows[0]) return null;
@@ -160,8 +163,10 @@ function createImportRepository(
 
     async findAnalysisEvidence(batchId) {
       const batch = await client.query(
-        `select * from tge.import_batches
-         where tenant_id = $1 and id = $2`,
+        `select batch.*,
+           batch.raw_expires_at <= clock_timestamp() as raw_cleanup_due
+         from tge.import_batches batch
+         where batch.tenant_id = $1 and batch.id = $2`,
         [tenantId, batchId]
       );
       if (!batch.rows[0]) return null;
@@ -175,6 +180,17 @@ function createImportRepository(
         batch: mapBatch(batch.rows[0]),
         records: records.rows.map(mapRecord)
       };
+    },
+
+    async findRawCleanupStatus(batchId) {
+      const result = await client.query(
+        `select batch.*,
+           batch.raw_expires_at <= clock_timestamp() as raw_cleanup_due
+         from tge.import_batches batch
+         where batch.tenant_id = $1 and batch.id = $2`,
+        [tenantId, batchId]
+      );
+      return result.rows[0] ? mapBatch(result.rows[0]) : null;
     },
 
     async commitCanonical(request) {
@@ -1080,6 +1096,23 @@ function mapBatch(row) {
     committedAt: timestamp(row.committed_at),
     rawExpiresAt: timestamp(row.raw_expires_at),
     metadataRetainUntil: timestamp(row.metadata_retain_until),
+    rawCleanup: {
+      state: row.raw_cleanup_state,
+      ...(typeof row.raw_cleanup_due === "boolean"
+        ? { due: row.raw_cleanup_due }
+        : {}),
+      attempts: Number(row.raw_cleanup_attempts || 0),
+      retryable: row.raw_cleanup_retryable === true,
+      ...(row.raw_cleanup_started_at
+        ? { startedAt: timestamp(row.raw_cleanup_started_at) }
+        : {}),
+      ...(row.raw_cleanup_completed_at
+        ? { completedAt: timestamp(row.raw_cleanup_completed_at) }
+        : {}),
+      ...(row.raw_cleanup_failure_code
+        ? { failureCode: row.raw_cleanup_failure_code }
+        : {})
+    },
     createdAt: timestamp(row.created_at)
   };
 }

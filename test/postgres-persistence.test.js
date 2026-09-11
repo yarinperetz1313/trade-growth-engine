@@ -144,6 +144,33 @@ test("tenant transactions use one checked-out client and roll back operation fai
   ]);
 });
 
+test("bridged tenant transactions set issuer-bound database context", async () => {
+  const context = createTenantContext({
+    tenantId: "a0e8a2a0-9c44-4d84-9263-7d417ac00b8e",
+    identityIssuer: "https://pilot.au.auth0.com/",
+    subjectId: "auth0|owner"
+  });
+  const events = [];
+  const client = {
+    async query(sql, params) {
+      events.push([sql, params]);
+      return { rows: [] };
+    },
+    release() {}
+  };
+
+  await withTenantTransaction(
+    { async connect() { return client; } },
+    context,
+    async () => "done"
+  );
+
+  assert.deepEqual(events[1], [
+    "SELECT tge.set_request_context($1::uuid, $2::text, $3::text)",
+    [context.tenantId, context.identityIssuer, context.subjectId]
+  ]);
+});
+
 test("tenant transactions surface rejected COMMIT as an unknown outcome with the attempted result", async () => {
   const context = createTenantContext({
     tenantId: "a0e8a2a0-9c44-4d84-9263-7d417ac00b8e",

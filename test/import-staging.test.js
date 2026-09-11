@@ -63,7 +63,14 @@ function fakePersistence() {
                 sourceFilename: draft.batch.sourceFilename,
                 sourceSha256: draft.batch.sourceSha256,
                 authorizedBySubjectId: draft.batch.authorizedBySubjectId,
-                previewSummary: draft.batch.previewSummary
+                previewSummary: draft.batch.previewSummary,
+                rawExpiresAt: draft.batch.rawExpiresAt,
+                rawCleanup: {
+                  state: "PENDING",
+                  due: false,
+                  attempts: 0,
+                  retryable: false
+                }
               },
               records: structuredClone(draft.records)
             };
@@ -77,6 +84,12 @@ function fakePersistence() {
           async findAnalysisEvidence(batchId) {
             calls.push(["findAnalysisEvidence", batchId]);
             return structuredClone(previews.get(`${context.tenantId}:${batchId}`) || null);
+          },
+          async findRawCleanupStatus(batchId) {
+            calls.push(["findRawCleanupStatus", batchId]);
+            return structuredClone(
+              previews.get(`${context.tenantId}:${batchId}`)?.batch || null
+            );
           }
         },
         prospects: forbidden("prospects"),
@@ -228,6 +241,48 @@ test("preview reads are admin-only and cross-tenant equals nonexistent", async (
       error => error.code === "IMPORT_BATCH_UNAVAILABLE" && error.status === 404
     );
   }
+});
+
+test("raw cleanup status is tenant-bound and exposes only lifecycle state", async () => {
+  const persistence = fakePersistence();
+  const service = createImportService({
+    persistence,
+    clock: () => new Date("2026-09-10T00:00:00.000Z"),
+    idFactory: () => "cleanup-status-a"
+  });
+  const ownerA = await authContext();
+  const persistenceA = bridgeAuthTenantContext(ownerA);
+  await service.createPreview({
+    authorizationContext: ownerA,
+    persistenceContext: persistenceA,
+    input: { sourceCollection: "prospects", upload: upload("id,note\n1,private") }
+  });
+
+  assert.deepEqual(await service.readRawCleanupStatus({
+    authorizationContext: ownerA,
+    persistenceContext: persistenceA,
+    batchId: "cleanup-status-a"
+  }), {
+    batchId: "cleanup-status-a",
+    status: "PREVIEWED",
+    rawExpiresAt: "2026-09-17T00:00:00.000Z",
+    cleanup: {
+      state: "PENDING",
+      due: false,
+      attempts: 0,
+      retryable: false
+    }
+  });
+
+  const ownerB = await authContext({ tenantId: TENANT_B });
+  await assert.rejects(
+    service.readRawCleanupStatus({
+      authorizationContext: ownerB,
+      persistenceContext: bridgeAuthTenantContext(ownerB),
+      batchId: "cleanup-status-a"
+    }),
+    error => error.code === "IMPORT_BATCH_UNAVAILABLE" && error.status === 404
+  );
 });
 
 test("analysis returns a reviewable draft over all staged rows without canonical access or persistence", async () => {

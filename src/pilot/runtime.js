@@ -9,6 +9,9 @@ const { InvitationService } = require("../auth/invitations");
 const { PostgresAuthRepository } = require("../auth/postgresAuthRepository");
 const { createAuthRuntime } = require("../auth/runtime");
 const { createPersistence } = require("../persistence/createPersistence");
+const {
+  createTenantOffboardingService
+} = require("../tenantOffboarding/tenantOffboardingService");
 
 const REQUIRED_ENVIRONMENT = Object.freeze([
   "PORT",
@@ -21,7 +24,7 @@ const REQUIRED_ENVIRONMENT = Object.freeze([
   "TGE_AUTH0_CALLBACK_URL",
   "TGE_AUTH0_LOGOUT_URL"
 ]);
-const EXPECTED_SCHEMA_VERSION = "014";
+const EXPECTED_SCHEMA_VERSION = "015";
 const DEFAULT_PROBE_INTERVAL_MS = 5000;
 const DEFAULT_OPERATION_TIMEOUT_MS = 3000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10000;
@@ -237,6 +240,7 @@ function denyUnavailablePolicy() {
 }
 
 function createPilotRuntime({
+  assuranceResolver = async () => null,
   config,
   logger = console,
   operationTimeoutMs = DEFAULT_OPERATION_TIMEOUT_MS,
@@ -244,6 +248,7 @@ function createPilotRuntime({
   poolOwned = false,
   probeIntervalMs = DEFAULT_PROBE_INTERVAL_MS,
   shutdownTimeoutMs = DEFAULT_SHUTDOWN_TIMEOUT_MS,
+  sensitiveActionPolicy,
   tokenVerifier
 } = {}) {
   if (!config || config.mode !== "pilot" || !pool?.connect) {
@@ -273,14 +278,21 @@ function createPilotRuntime({
     config: config.auth,
     tokenVerifier: verifier,
     membershipRepository,
-    invitationService
+    invitationService,
+    assuranceResolver
+  });
+  const tenantOffboardingService = createTenantOffboardingService({
+    persistence,
+    sensitiveActionPolicy: sensitiveActionPolicy || deniedPolicies,
+    assuranceResolver
   });
   const app = createApp({
     authRuntime,
     healthRouter: createPilotHealthRouter(readiness),
     onUnhandledError: () => safeLog(logger, "error", "PILOT_REQUEST_FAILED"),
     persistence,
-    secureReadiness: readiness
+    secureReadiness: readiness,
+    tenantOffboardingService
   });
 
   let server = null;

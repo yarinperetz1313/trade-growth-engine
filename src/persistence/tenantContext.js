@@ -16,8 +16,17 @@ function createTenantContext(input) {
   const subjectId = typeof input?.subjectId === "string"
     ? input.subjectId.trim()
     : "";
+  const identityIssuer = input?.identityIssuer === undefined
+    ? null
+    : typeof input.identityIssuer === "string"
+      ? input.identityIssuer.trim()
+      : "";
 
-  if (!UUID_PATTERN.test(tenantId) || subjectId.length === 0) {
+  if (
+    !UUID_PATTERN.test(tenantId)
+    || subjectId.length === 0
+    || identityIssuer === ""
+  ) {
     throw new TenantContextError(
       "TENANT_CONTEXT_INVALID",
       "Tenant context requires a valid tenant UUID and non-empty subject."
@@ -26,7 +35,8 @@ function createTenantContext(input) {
 
   const context = Object.freeze({
     tenantId,
-    subjectId
+    subjectId,
+    ...(identityIssuer === null ? {} : { identityIssuer })
   });
   issuedTenantContexts.add(context);
   return context;

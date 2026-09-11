@@ -432,7 +432,13 @@ function loadPlaywrightConfig(storeDir, artifactDir, env = {}) {
 function createHarnessFixture() {
   const fixtureRoot = createOwnedTempDirectory("tge-harness-fixture-");
   try {
-    const trackedResult = runGit(["ls-files", "-z"]);
+    const trackedResult = runGit([
+      "ls-files",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "-z"
+    ]);
     assert.equal(
       trackedResult.status,
       0,

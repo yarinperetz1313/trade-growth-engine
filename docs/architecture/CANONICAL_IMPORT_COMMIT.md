@@ -93,12 +93,14 @@ conflicted attempt recording, and `PREVIEWED → COMMITTED` finalization.
 Finalization verifies row counts, legal dispositions, and authoritative ID-map
 evidence before changing the batch status.
 
-Commit attempts against `STAGED`, `READY`, `FAILED`, or `EXPIRED` batches do
-not broaden lifecycle transitions. They retain their status, store a bounded
+Commit attempts against unexpired `STAGED`, `READY`, or `FAILED` batches do not
+broaden lifecycle transitions. They retain their status, store a bounded
 conflict summary through a narrow security-definer function, and append one
-`IMPORT_COMMIT_CONFLICTED` event without raw cells. A mismatched attempt against
-an already committed batch appends bounded evidence without rewriting the
-committed summary or timestamp.
+`IMPORT_COMMIT_CONFLICTED` event without raw cells. `EXPIRED` batches, batches
+past raw expiry, and batches whose raw-cleanup state is neither `PENDING` nor
+`FAILED` are unavailable before conflict evidence is recorded. A mismatched
+attempt against an already `COMMITTED` batch that remains available appends
+bounded audit evidence without rewriting the committed summary or timestamp.
 
 Successful results report `committed`, `skipped`, `conflicted`, and `failed`
 counts that reconcile to every staged row. Conflicted or validation-failed
@@ -108,7 +110,11 @@ contain identities, hashes, and outcome codes—not copied raw cell values.
 Database or injected failures roll back canonical rows, maps, row outcomes,
 audit events, and lifecycle mutation together.
 
-Exact staged `raw_payload` and its hash are never rewritten. Decimal
+Before its seven-day deadline, exact staged `raw_payload` and its hash are not
+rewritten. The separate [raw-import expiry
+contract](PILOT_READINESS_FOUNDATION.md#import-safety-retention-and-deletion) later scrubs raw payload
+without changing committed canonical records or required reconciliation/audit
+evidence. Decimal
 classification and range checks avoid JavaScript `Number` conversion before
 fingerprinting and persistence. Migration `011` constrains the five canonical
 commercial numeric columns to `NUMERIC(20,6)` after a fail-closed preflight that

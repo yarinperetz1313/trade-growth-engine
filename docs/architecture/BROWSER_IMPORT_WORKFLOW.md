@@ -61,11 +61,10 @@ contradictory success evidence fails closed before review or confirmation.
 Explicitly unsupported `revenue_actions` retain their contract-defined
 preview-only analysis shape and cannot be presented as a supported draft.
 
-## Explicit deferral
+## Separate retention contract
 
-Raw-evidence retention/deletion acceptance and its implementation are
-**DEFERRED to a separate reviewed follow-up**. PR-5D does not prove seven-day
-deletion, create a deletion lifecycle, change PostgreSQL grants, or claim that
-the production retention gate is complete. XLSX, connectors, generic ETL,
-JSON cutover, and full-stack external-provider browser acceptance also remain
-outside this slice.
+Raw-evidence retention and cleanup are implemented separately by the
+[raw-import expiry contract](PILOT_READINESS_FOUNDATION.md#import-safety-retention-and-deletion). This
+browser flow does not add cleanup controls or change browser behavior. XLSX,
+connectors, generic ETL, JSON cutover, and full-stack external-provider browser
+acceptance remain outside this slice.

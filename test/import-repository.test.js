@@ -205,12 +205,89 @@ test("import preview lookup uses explicit tenant scope and a bounded row sample"
 
   const result = await repositories.imports.findPreview(context, "batch-1");
   assert.equal(result.batch.id, "batch-1");
-  const selects = calls.filter(([sql]) => /^\s*select \*/i.test(sql));
+  const selects = calls.filter(([sql]) => /from tge\.import_(?:batches|staging_records)/i.test(sql));
   assert.equal(selects.length, 2);
-  assert.match(selects[0][0], /where tenant_id = \$1 and id = \$2/i);
+  assert.match(selects[0][0], /where batch\.tenant_id = \$1 and batch\.id = \$2/i);
   assert.match(selects[1][0], /where tenant_id = \$1 and import_batch_id = \$2/i);
   assert.match(selects[1][0], /limit \$3/i);
   assert.equal(selects[1][1][2], 100);
+});
+
+test("generic preview and analysis batch reads compute truthful raw cleanup due state", async () => {
+  const calls = [];
+  const client = {
+    async query(sql, params) {
+      calls.push([sql, params]);
+      if (/from tge\.import_batches/i.test(sql)) {
+        return { rows: [{
+          tenant_id: context.tenantId,
+          id: "expired-batch",
+          status: "PREVIEWED",
+          preview_summary: { headers: [], rowCount: 0 },
+          raw_expires_at: "2026-09-08T00:00:00.000Z",
+          raw_cleanup_state: "PENDING",
+          raw_cleanup_attempts: 0,
+          raw_cleanup_retryable: false,
+          ...(/raw_expires_at\s*<=\s*clock_timestamp\(\)\s+as\s+raw_cleanup_due/i.test(sql)
+            ? { raw_cleanup_due: true }
+            : {})
+        }] };
+      }
+      return { rows: [] };
+    },
+    release() {}
+  };
+  const repositories = createPostgresRepositories({
+    pool: { connect: async () => client }
+  });
+
+  const preview = await repositories.imports.findPreview(context, "expired-batch");
+  const analysis = await repositories.imports.findAnalysisEvidence(
+    context,
+    "expired-batch"
+  );
+
+  assert.equal(preview.batch.rawCleanup.due, true);
+  assert.equal(analysis.batch.rawCleanup.due, true);
+  const batchQueries = calls.filter(([sql]) => /from tge\.import_batches/i.test(sql));
+  assert.equal(batchQueries.length, 2);
+  for (const [sql, params] of batchQueries) {
+    assert.match(
+      sql,
+      /raw_expires_at\s*<=\s*clock_timestamp\(\)\s+as\s+raw_cleanup_due/i
+    );
+    assert.deepEqual(params, [context.tenantId, "expired-batch"]);
+  }
+});
+
+test("generic batch mapping preserves an absent cleanup due value as unknown", async () => {
+  const client = {
+    async query(sql) {
+      if (/from tge\.import_batches/i.test(sql)) {
+        return { rows: [{
+          tenant_id: context.tenantId,
+          id: "unknown-due-batch",
+          status: "PREVIEWED",
+          preview_summary: { rowCount: 0 },
+          raw_cleanup_state: "PENDING",
+          raw_cleanup_attempts: 0,
+          raw_cleanup_retryable: false
+        }] };
+      }
+      return { rows: [] };
+    },
+    release() {}
+  };
+  const repositories = createPostgresRepositories({
+    pool: { connect: async () => client }
+  });
+
+  const preview = await repositories.imports.findPreview(
+    context,
+    "unknown-due-batch"
+  );
+
+  assert.equal(Object.hasOwn(preview.batch.rawCleanup, "due"), false);
 });
 
 test("import analysis evidence reads every staged row in source order and remains tenant-scoped", async () => {
