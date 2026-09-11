@@ -1,6 +1,6 @@
 # Project State
 
-_Last locally audited on 2026-09-11. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+_Last locally audited on 2026-09-12. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
 Assisted Pilot Safety Gate V1 Slice 3 now implements the optional
 [authoritative opportunity currency](architecture/AUTHORITATIVE_OPPORTUNITY_CURRENCY.md)
@@ -43,6 +43,23 @@ focused integration **134/134**, focused PostgreSQL **1/1**, focused managed
 Chromium **2/2**, and one complete local `npm run verify`: harness, integration
 **408/408**, PostgreSQL 16.15 **90/90**, Chromium **53/53**, and the production
 build (**31 modules**).
+
+Slice 3 Recovery Checkpoint 1 closes the remaining legacy replay identity
+anchoring defect without beginning decimal ranking. Every unversioned legacy
+opportunity replay now reconstructs canonical row identity from the locked
+staging payload and reconciles tenant, batch, upload fingerprint,
+headers, row counts, source system/record, target, disposition, raw hash,
+canonical hash, stored result, and committed ID-map evidence before returning a
+stored result. Tampered adjacent hashes or result identity cannot mask changed
+raw/request evidence. Current `CANONICAL_IMPORT_V2_CURRENCY` fingerprints retain
+their strict exact-match path and unknown explicit versions still fail closed.
+Focused RED was **0/8** (the parent plus seven independently exposed tamper
+vectors); GREEN is focused **9/9**, the complete repository file **22/22**, the
+directly affected import/reconciliation set **56/56**, import mapping **14/14**,
+and migration-static **19/19**, with the standalone engineering harness and
+`git diff --check` passing. Migration `016` remains unchanged at SHA-256
+`ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`, and
+migrations `001`–`015` remain byte-identical to checkpoint parent `d42346e`.
 
 Assisted Pilot Safety Gate V1 Slice 2 now implements the PostgreSQL-only
 [raw-import expiry and tenant offboarding

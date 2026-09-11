@@ -228,21 +228,35 @@ function createImportRepository(
       );
       if (lockedBatch.status === "COMMITTED") {
         const fingerprintVersion = lockedBatch.commitMetadata?.fingerprintVersion;
-        const recognizedFingerprintVersion =
+        const storedTargetCollection =
+          lockedBatch.commitMetadata?.targetCollection;
+        const previewSourceCollection =
+          lockedBatch.previewSummary?.sourceCollection;
+        const unversionedCollectionMatches =
           fingerprintVersion === undefined
-          || fingerprintVersion === COMMIT_FINGERPRINT_VERSION;
+          && storedTargetCollection === previewSourceCollection;
+        const legacyOpportunityCommit =
+          unversionedCollectionMatches
+          && storedTargetCollection === "opportunities";
+        const exactVersion =
+          fingerprintVersion === COMMIT_FINGERPRINT_VERSION
+          || (
+            unversionedCollectionMatches
+            && storedTargetCollection !== "opportunities"
+          );
         const exactFingerprint =
-          recognizedFingerprintVersion
+          exactVersion
           && lockedBatch.commitMetadata?.inputFingerprint === inputFingerprint;
-        const legacyReplay = exactFingerprint
-          ? false
-          : await isExactLegacyOpportunityReplay({
+        const legacyReplay = legacyOpportunityCommit
+          ? await isExactLegacyOpportunityReplay({
             batchRow: batchResult.rows[0],
             client,
             input: request.input,
             lockedBatch,
+            prepare: request.prepare,
             tenantId
-          });
+          })
+          : false;
         if (
           lockedBatch.commitIdempotencyKey === request.input.idempotencyKey
           && (
@@ -1046,6 +1060,7 @@ async function isExactLegacyOpportunityReplay({
   client,
   input,
   lockedBatch,
+  prepare,
   tenantId
 }) {
   const metadata = lockedBatch.commitMetadata;
@@ -1055,15 +1070,29 @@ async function isExactLegacyOpportunityReplay({
     !metadata
     || Object.hasOwn(metadata, "fingerprintVersion")
     || batchRow.tenant_id !== tenantId
+    || batchRow.id !== lockedBatch.id
+    || lockedBatch.id !== metadata.result?.batch?.id
+    || lockedBatch.status !== "COMMITTED"
+    || metadata.result?.batch?.status !== "COMMITTED"
+    || typeof batchRow.source_filename !== "string"
+    || batchRow.source_filename.trim() === ""
     || preview?.sourceCollection !== "opportunities"
     || metadata.targetCollection !== "opportunities"
     || metadata.sourceSystem !== input.sourceSystem
     || !/^[a-f0-9]{64}$/.test(lockedBatch.sourceSha256 || "")
+    || preview?.format !== "CSV"
     || !Number.isSafeInteger(preview.rowCount)
-    || metadata.result?.summary?.total !== preview.rowCount
-    || metadata.result?.rows?.length !== preview.rowCount
+    || preview.rowCount < 0
     || !Array.isArray(preview.headers)
-    || !isPlainReviewedMapping(storedMapping)
+    || preview.columnCount !== preview.headers.length
+    || metadata.result?.outcome !== "COMMITTED"
+    || metadata.result?.reconciled !== false
+    || metadata.result?.summary?.total !== preview.rowCount
+    || metadata.result?.summary?.conflicted !== 0
+    || metadata.result?.summary?.failed !== 0
+    || !Array.isArray(metadata.result?.rows)
+    || metadata.result.rows.length !== preview.rowCount
+    || !isExactLegacyReviewedMapping(storedMapping)
   ) return false;
 
   const incoming = withoutUnmappedCurrency(input);
@@ -1106,7 +1135,8 @@ async function isExactLegacyOpportunityReplay({
   if (requestFingerprint !== metadata.requestFingerprint) return false;
 
   const staged = await client.query(
-    `select source_ordinal, raw_payload, raw_payload_sha256, disposition, metadata
+    `select tenant_id, import_batch_id, id, source_collection, source_id,
+       source_ordinal, raw_payload, raw_payload_sha256, disposition, metadata
      from tge.import_staging_records
      where tenant_id = $1 and import_batch_id = $2
      order by source_ordinal
@@ -1114,18 +1144,57 @@ async function isExactLegacyOpportunityReplay({
     [tenantId, lockedBatch.id]
   );
   if (staged.rows.length !== preview.rowCount) return false;
-  const resultByOrdinal = new Map(metadata.result.rows.map(row => [
-    row.sourceOrdinal,
-    row
-  ]));
-  return staged.rows.every(row => {
-    const result = resultByOrdinal.get(Number(row.source_ordinal));
-    return result
-      && row.raw_payload !== null
-      && hashImportEvidence(row.raw_payload) === row.raw_payload_sha256
-      && row.disposition === result.disposition
-      && row.metadata?.canonical_commit?.canonical_payload_sha256
-        === result.canonicalPayloadSha256;
+  if (!staged.rows.every(row => (
+    row.tenant_id === tenantId
+    && row.import_batch_id === lockedBatch.id
+    && row.source_collection === "opportunities"
+    && row.raw_payload !== null
+    && hashImportEvidence(row.raw_payload) === row.raw_payload_sha256
+  ))) return false;
+
+  const evidence = {
+    batch: lockedBatch,
+    records: staged.rows.map(mapRecord)
+  };
+  let plan;
+  try {
+    plan = prepare(evidence);
+  } catch {
+    return false;
+  }
+  if (
+    plan?.outcome !== "READY"
+    || plan.batchId !== lockedBatch.id
+    || plan.sourceCollection !== "opportunities"
+    || plan.sourceSystem !== input.sourceSystem
+    || !Array.isArray(plan.rows)
+    || plan.rows.length !== preview.rowCount
+  ) return false;
+
+  const sourceRecordIds = [...new Set(plan.rows.map(row => row.sourceRecordId))];
+  const identityMaps = sourceRecordIds.length === 0
+    ? { rows: [] }
+    : await client.query(
+      `select * from tge.import_id_map
+       where tenant_id = $1
+         and source_collection = 'opportunities'
+         and source_system = $2
+         and source_record_id = any($3::text[])
+       order by source_record_id, import_batch_id
+       for key share`,
+      [tenantId, input.sourceSystem, sourceRecordIds]
+    );
+  if (identityMaps.rows.length !== sourceRecordIds.length) return false;
+
+  return exactLegacyRowEvidence({
+    batchId: lockedBatch.id,
+    idempotencyKey: lockedBatch.commitIdempotencyKey,
+    identityMaps: identityMaps.rows,
+    planRows: plan.rows,
+    result: metadata.result,
+    stagedRows: staged.rows,
+    sourceSystem: input.sourceSystem,
+    tenantId
   });
 }
 
@@ -1148,7 +1217,10 @@ function withoutUnmappedCurrency(input) {
   };
 }
 
-function isPlainReviewedMapping(value) {
+function isExactLegacyReviewedMapping(value) {
+  const definitions = new Map(LEGACY_OPPORTUNITY_TARGET_FIELDS.map(
+    definition => [definition.targetField, definition]
+  ));
   return value
     && typeof value === "object"
     && !Array.isArray(value)
@@ -1158,7 +1230,127 @@ function isPlainReviewedMapping(value) {
     && typeof value.sourceIdentitySelection === "object"
     && !Array.isArray(value.sourceIdentitySelection)
     && Object.keys(value.sourceIdentitySelection).length === 1
-    && typeof value.sourceIdentitySelection.sourceColumn === "string";
+    && typeof value.sourceIdentitySelection.sourceColumn === "string"
+    && value.sourceIdentitySelection.sourceColumn.length > 0
+    && new Set(value.selections.map(selection => selection?.targetField)).size
+      === value.selections.length
+    && value.selections.every(selection => (
+      selection
+      && typeof selection === "object"
+      && !Array.isArray(selection)
+      && Object.keys(selection).length === 3
+      && definitions.get(selection.targetField)?.declaredType
+        === selection.selectedType
+      && (
+        selection.sourceColumn === null
+        || (
+          typeof selection.sourceColumn === "string"
+          && selection.sourceColumn.length > 0
+        )
+      )
+    ));
+}
+
+function exactLegacyRowEvidence({
+  batchId,
+  idempotencyKey,
+  identityMaps,
+  planRows,
+  result,
+  stagedRows,
+  sourceSystem,
+  tenantId
+}) {
+  const mapsBySource = new Map(identityMaps.map(identityMap => [
+    identityMap.source_record_id,
+    identityMap
+  ]));
+  if (mapsBySource.size !== identityMaps.length) return false;
+  const planByOrdinal = new Map(planRows.map(row => [row.sourceOrdinal, row]));
+  const resultByOrdinal = new Map(result.rows.map(row => [row.sourceOrdinal, row]));
+  if (
+    planByOrdinal.size !== planRows.length
+    || resultByOrdinal.size !== result.rows.length
+  ) return false;
+
+  let committed = 0;
+  let skipped = 0;
+  for (const stagedRow of stagedRows) {
+    const sourceOrdinal = Number(stagedRow.source_ordinal);
+    const planRow = planByOrdinal.get(sourceOrdinal);
+    const resultRow = resultByOrdinal.get(sourceOrdinal);
+    const identityMap = mapsBySource.get(planRow?.sourceRecordId);
+    const canonicalCommit = stagedRow.metadata?.canonical_commit;
+    if (
+      !planRow
+      || !resultRow
+      || !identityMap
+      || planRow.stagingRecordId !== stagedRow.id
+      || planRow.stagingSourceId !== stagedRow.source_id
+      || planRow.sourceRowNumber !== stagedRow.raw_payload.sourceRowNumber
+      || planRow.rawPayloadSha256 !== stagedRow.raw_payload_sha256
+      || identityMap.tenant_id !== tenantId
+      || identityMap.source_collection !== "opportunities"
+      || identityMap.source_system !== sourceSystem
+      || identityMap.source_record_id !== planRow.sourceRecordId
+      || identityMap.canonical_payload_sha256 !== planRow.canonicalPayloadSha256
+      || identityMap.target_opportunity_id !== planRow.canonicalTargetId
+      || identityMap.target_prospect_id !== null
+      || identityMap.target_task_id !== null
+      || identityMap.target_activity_id !== null
+      || identityMap.target_revenue_action_id !== null
+      || canonicalCommit?.source_system !== identityMap.source_system
+      || canonicalCommit?.source_record_id !== identityMap.source_record_id
+      || canonicalCommit?.target_id !== identityMap.target_opportunity_id
+      || canonicalCommit?.canonical_payload_sha256
+        !== identityMap.canonical_payload_sha256
+      || resultRow.sourceRowNumber !== planRow.sourceRowNumber
+      || resultRow.sourceRecordId !== planRow.sourceRecordId
+      || resultRow.targetId !== planRow.canonicalTargetId
+      || resultRow.canonicalPayloadSha256 !== planRow.canonicalPayloadSha256
+      || resultRow.disposition !== stagedRow.disposition
+    ) return false;
+
+    if (planRow.duplicateOfSourceOrdinal != null) {
+      const primary = stagedRows.find(row => (
+        Number(row.source_ordinal) === planRow.duplicateOfSourceOrdinal
+      ));
+      if (
+        stagedRow.disposition !== "EXACT_DUPLICATE"
+        || resultRow.duplicateOfSourceOrdinal !== planRow.duplicateOfSourceOrdinal
+        || canonicalCommit.duplicate_of_source_ordinal
+          !== planRow.duplicateOfSourceOrdinal
+        || !primary
+        || hashImportEvidence(primary.raw_payload.cells)
+          !== hashImportEvidence(stagedRow.raw_payload.cells)
+      ) return false;
+      skipped += 1;
+      continue;
+    }
+
+    if (identityMap.metadata?.raw_payload_sha256 !== stagedRow.raw_payload_sha256) {
+      return false;
+    }
+    if (identityMap.import_batch_id === batchId) {
+      if (
+        stagedRow.disposition !== "COMMITTED"
+        || identityMap.source_id !== stagedRow.source_id
+        || Number(identityMap.source_ordinal) !== sourceOrdinal
+        || identityMap.commit_idempotency_key !== idempotencyKey
+      ) return false;
+      committed += 1;
+    } else {
+      if (
+        stagedRow.disposition !== "EXACT_DUPLICATE"
+        || canonicalCommit.reconciled_import_batch_id
+          !== identityMap.import_batch_id
+        || resultRow.reconciledImportBatchId !== identityMap.import_batch_id
+      ) return false;
+      skipped += 1;
+    }
+  }
+  return result.summary.committed === committed
+    && result.summary.skipped === skipped;
 }
 
 function reviewedColumnsExist(headers, input) {

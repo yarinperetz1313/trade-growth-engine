@@ -135,6 +135,38 @@ modules**). `git diff --check` passes. Migration `016` SHA-256 is
 migrations `001`–`015` remain byte-identical to base
 `9dc155912be7df46c23b2aa30facddeda7b4baa8`.
 
+### Slice 3 Recovery Checkpoint 1 — legacy replay identity anchoring
+
+This recovery checkpoint closes only the P2 legacy replay identity defect. An
+unversioned opportunity commit can no longer take the current-version
+fingerprint shortcut. The compatibility branch reconstructs the canonical plan
+from tenant/batch-scoped locked staging rows, validates the persisted CSV
+preview/header and upload fingerprint, and reconciles every
+source record, target, disposition, raw hash, canonical hash, result-row
+identity, and summary against the authoritative committed ID map. A changed raw
+payload with a recomputed adjacent staging hash therefore conflicts when the
+committed ID-map raw evidence remains unchanged. Current
+`CANONICAL_IMPORT_V2_CURRENCY` replay remains an exact fingerprint match;
+unknown explicit versions remain closed. No migration, schema, currency
+default/inference, FX, ranking, browser, or later-slice behavior changed.
+
+The focused command
+`node --test --test-name-pattern='pre-currency opportunity commit' test/import-repository.test.js`
+was expected RED **0/8**: the parent and all seven subtests showed that tampered
+staging `source_system`, `source_record_id`, `target_id`, stored-result source or
+target identity, recomputed adjacent raw hash, and ID-map raw hash all returned
+`COMMITTED`. After the fix, the focused current/legacy replay command passed
+**9/9**, the complete import repository file passed **22/22**, and the directly
+affected `test/import-repository.test.js`, `test/import-commit.test.js`, and
+`test/import-staging.test.js` set passed **56/56** using dependencies installed
+only in a disposable external directory. `test/import-mapping.test.js` passed
+**14/14**, `test/database-migrations-static.test.js` passed **19/19**, the
+standalone engineering harness passed, and `git diff --check` passed. No
+PostgreSQL service was running and no schema changed, so no PostgreSQL suite was
+started for this checkpoint. Migrations `001`–`015` are byte-identical to parent
+`d42346ec6a026c7d142f16584f86290db14dd52f`; unchanged migration `016` remains
+SHA-256 `ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`.
+
 ## Assisted Pilot Safety Gate V1 Slice 2 bounded plan
 
 ### Grounded policy boundary
@@ -339,6 +371,7 @@ No local mock or deterministic seam may be reported as real Auth0/SMTP proof.
 | Slice 2 final database invitation-guard remediation | Least-privilege runtime direct SQL after terminal offboarding; state-synchronized direct insert/offboarding overlap; focused invitation/auth/migration tests; complete affected PostgreSQL file; `npm run verify:fast`; `npm run test:db`; final harness, migration hash, artifact, ancestry, and diff checks | **EXPECTED RED at `97b6f4c`: 0/1 each.** The terminal barrier returned `false` but direct runtime SQL inserted one `PENDING` terminal invitation; under the forced overlap offboarding did not wait and the direct insert survived terminal state. **PASS:** direct denial and overlap **1/1** each; focused invitation/auth/migration **61/61**; affected PostgreSQL 16.15 **18/18**; engineering harness plus integration **388/388**; complete PostgreSQL **85/85**. Migration `015` alone adds the trigger-enforced active-OWNER/terminal tenant-before-child barrier while retaining repository behavior and the existing runtime table grant. Migrations `001`–`014` remain byte-identical. Browser E2E and production build were intentionally not run because no browser or web-production source changed. |
 | Slice 2 bounded final security/migration remediation | Named PostgreSQL upgrade/helper regressions before and after the migration correction; `node --test test/raw-import-expiry-migration.test.js`; focused import/auth/persistence files; complete affected PostgreSQL file; `npm run test:db`; isolated failing DB contract; corrected `npm run test:db`; `npm run verify:fast`; `npm run test:harness`; migration hashes and final hygiene | **EXPECTED RED at `1da7a3d`: 0/2.** Migration `015` rolled back with `23514` on a schema-014-valid 24-hour deadline, and direct runtime lifecycle conflict SQL succeeded instead of rejecting. **PASS:** identical regressions **2/2**; migration static **14/14**; focused import/auth/persistence **115/115**; affected PostgreSQL 16.15 **20/20**. The first full DB run was **86/87** because the established legacy fixture lacked explicit issuer context at the new exact-context guard. Resolving that path to its canonical issuer passed the isolated contract **1/1**; the now-terminal `EXPIRED` expectation was also removed, and the complete DB suite then passed **87/87**. Engineering harness plus integration passed **389/389**; the standalone final harness also passed. Migration `015` SHA-256 is `1f33b8656dbd2c3a05adc9a540412efcac41a8540673bee0e52e510b0e40fcd5`; migrations `001`–`014` remain byte-identical. Browser E2E and production build were intentionally not run because no browser or product source changed. |
 | Slice 3 full local gate | `TGE_TEST_DATABASE_URL=postgresql://yarinperetz@127.0.0.1:55432/postgres npm run verify` against a disposable Homebrew PostgreSQL 16.15 cluster; `git diff --check`; SHA-256/base comparison of migrations `001`–`015` | **PASS:** engineering harness; integration **404/404**; database **90/90**; managed Chromium **51/51**; Vite 8.2.2 production build **31 modules** with only the existing chunk-size warning; clean diff check; migrations `001`–`015` byte-identical. The first listener-permitted full attempt hit a transient `tuple concurrently updated` catalog race in unchanged migration `002`; the unchanged retry passed completely. This is local evidence only; cleanup and checkpoint are performed after the recorded gate. |
+| Slice 3 Recovery Checkpoint 1 | Focused legacy replay tamper RED/GREEN; complete import repository; directly affected import commit/staging reconciliation; import mapping; migration-static; standalone harness; migration hashes; `git diff --check` | **EXPECTED RED: 0/8** across seven independently exposed identity/raw tamper vectors. **PASS:** focused current/legacy replay **9/9**; repository **22/22**; affected import/reconciliation **56/56**; mapping **14/14**; migration-static **19/19**; harness and diff check. No PostgreSQL service/suite, full Verify, browser, or build was run. Migrations `001`–`015` are byte-identical to `d42346e`; unchanged `016` is `ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`. |
 | PR-5A initial full local gate at `178409c` | `TGE_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/postgres npm run verify` against an isolated PostgreSQL 16.15 cluster | **PASS:** harness; integration **142/142**; database **45/45**; managed Chromium **14/14**; production build. The temporary database cluster was removed after verification. This is historical evidence for that checkpoint. |
 | PR-5A bounded review-fix checkpoint (parent `dc5e3c9`) | `npm run verify:fast` on the code and tests recorded by this document's checkpoint | **PASS:** harness; integration **144/144**. Database, managed Chromium, and production build were not rerun for this bounded transport-error fix. |
 | PR-5C controlled canonical commit | `npm run verify:fast`; `TGE_TEST_DATABASE_URL=postgresql://127.0.0.1:55433/postgres npm run test:db` against disposable PostgreSQL 16.15; `npm run build` | **PASS:** harness; integration **174/174**; database **47/47**; production build (Vite 8.2.2, 22 modules). Browser E2E was intentionally not run because PR-5D/browser flow is outside this slice. The disposable cluster was stopped and removed. |

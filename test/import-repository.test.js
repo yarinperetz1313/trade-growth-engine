@@ -5,6 +5,7 @@ const {
   hashImportEvidence
 } = require("../src/imports/csvParser");
 const {
+  buildCanonicalCommitPlan,
   validateReviewedColumnSelections
 } = require("../src/imports/importCommit");
 const { TARGETS } = require("../src/imports/importMapping");
@@ -625,6 +626,7 @@ test("same committed request reconciles without rebuilding, inserting, mapping, 
           status: "COMMITTED",
           source_filename: "source.csv",
           source_sha256: "a".repeat(64),
+          preview_summary: { sourceCollection: "prospects", rowCount: 1 },
           commit_idempotency_key: "commit-attempt-1",
           commit_metadata: {
             ...(fingerprintVersion ? { fingerprintVersion } : {}),
@@ -633,10 +635,17 @@ test("same committed request reconciles without rebuilding, inserting, mapping, 
               input: {
                 sourceSystem: "pilot-crm",
                 idempotencyKey: "commit-attempt-1",
-                selections: []
+                selections: TARGETS.prospects.fields.map(definition => ({
+                  targetField: definition.targetField,
+                  sourceColumn: null,
+                  selectedType: definition.declaredType
+                })).sort((left, right) => (
+                  left.targetField.localeCompare(right.targetField)
+                ))
               }
             }),
             requestFingerprint: "d".repeat(64),
+            targetCollection: "prospects",
             result: storedResult
           },
           committed_at: "2026-09-02T00:00:00.000Z"
@@ -673,6 +682,24 @@ test("same committed request reconciles without rebuilding, inserting, mapping, 
   ]);
 
   calls.length = 0;
+  fingerprintVersion = "CANONICAL_IMPORT_V2_CURRENCY";
+  const currentVersion = await repositories.imports.commitCanonical(context, {
+    batchId: "batch-1",
+    committedAt: "2026-09-03T00:00:00.000Z",
+    subjectId: context.subjectId,
+    input: {
+      sourceSystem: "pilot-crm",
+      idempotencyKey: "commit-attempt-1",
+      selections: []
+    },
+    validate() {},
+    prepare() {
+      assert.fail("an exact current-version retry must not use legacy reconstruction");
+    }
+  });
+  assert.equal(currentVersion.reconciled, true);
+
+  calls.length = 0;
   fingerprintVersion = "CANONICAL_IMPORT_UNKNOWN";
   const unknownVersion = await repositories.imports.commitCanonical(context, {
     batchId: "batch-1",
@@ -696,7 +723,7 @@ test("same committed request reconciles without rebuilding, inserting, mapping, 
   );
 });
 
-test("pre-currency opportunity commit replays only under the exact legacy semantic vector", async () => {
+test("pre-currency opportunity commit replays only under the exact legacy semantic vector", async t => {
   const legacyInputFingerprint =
     "f98581b0466078897c0cd1b5fce7a36d3015d4668bd932b8365b391c5525890b";
   const legacyRequestFingerprint =
@@ -717,13 +744,50 @@ test("pre-currency opportunity commit replays only under the exact legacy semant
       { targetField: "value", sourceColumn: "value", selectedType: "NUMBER" }
     ]
   };
+  const headers = [
+    "source_id",
+    "id",
+    "business_name",
+    "stage",
+    "value",
+    "changed_value",
+    "currency"
+  ];
+  const rawPayload = {
+    sourceRowNumber: 2,
+    cells: [
+      { columnOrdinal: 0, present: true, raw: "legacy-source", valueKind: "NONNUMERIC" },
+      { columnOrdinal: 1, present: true, raw: "legacy-opp", valueKind: "NONNUMERIC" },
+      { columnOrdinal: 2, present: true, raw: "Legacy Trade", valueKind: "NONNUMERIC" },
+      { columnOrdinal: 3, present: true, raw: "QUALIFIED", valueKind: "NONNUMERIC" },
+      { columnOrdinal: 4, present: true, raw: "100", valueKind: "NUMERIC" },
+      { columnOrdinal: 5, present: true, raw: "200", valueKind: "NUMERIC" },
+      { columnOrdinal: 6, present: true, raw: "", valueKind: "BLANK" }
+    ]
+  };
+  const rawPayloadSha256 = hashImportEvidence(rawPayload);
+  const stagingSourceId = `csv-row:0:${rawPayloadSha256}`;
+  const canonicalPayloadSha256 = hashImportEvidence({
+    canonicalRecord: {
+      id: "legacy-opp",
+      business_name: "Legacy Trade",
+      stage: "QUALIFIED",
+      value: "100"
+    },
+    numericEvidence: {
+      value: { valueKind: "NUMERIC", raw: "100" }
+    },
+    sourceCollection: "opportunities"
+  });
   const storedResult = {
     outcome: "COMMITTED",
     batch: { id: batchId, status: "COMMITTED" },
     rows: [{
       sourceOrdinal: 0,
+      sourceRowNumber: 2,
+      sourceRecordId: "legacy-source",
       targetId: "legacy-opp",
-      canonicalPayloadSha256: "c".repeat(64),
+      canonicalPayloadSha256,
       disposition: "COMMITTED"
     }],
     summary: { total: 1, committed: 1, skipped: 0, conflicted: 0, failed: 0 },
@@ -733,8 +797,10 @@ test("pre-currency opportunity commit replays only under the exact legacy semant
   async function replay({
     batchOverrides = {},
     contextOverride = context,
+    idMapOverrides = {},
     inputOverrides = {},
     metadataOverrides = {},
+    resultRowOverrides = {},
     stagedOverrides = {}
   } = {}) {
     const calls = [];
@@ -753,16 +819,12 @@ test("pre-currency opportunity commit replays only under the exact legacy semant
             source_filename: "legacy.csv",
             source_sha256: "a".repeat(64),
             preview_summary: {
+              format: "CSV",
+              byteCount: 100,
               sourceCollection: "opportunities",
-              headers: [
-                "source_id",
-                "id",
-                "business_name",
-                "stage",
-                "value",
-                "changed_value",
-                "currency"
-              ],
+              headers,
+              columnCount: headers.length,
+              reportedMediaType: "text/csv",
               rowCount: 1
             },
             commit_idempotency_key: input.idempotencyKey,
@@ -775,7 +837,10 @@ test("pre-currency opportunity commit replays only under the exact legacy semant
                 selections: input.selections,
                 sourceIdentitySelection: input.sourceIdentitySelection
               },
-              result: storedResult,
+              result: {
+                ...storedResult,
+                rows: [{ ...storedResult.rows[0], ...resultRowOverrides }]
+              },
               ...metadataOverrides
             },
             metadata_retain_until: "2027-09-01T00:00:00.000Z",
@@ -784,26 +849,46 @@ test("pre-currency opportunity commit replays only under the exact legacy semant
           }] };
         }
         if (/from tge\.import_staging_records/i.test(sql)) {
-          const rawPayload = {
-            sourceRowNumber: 2,
-            cells: [{
-              columnOrdinal: 0,
-              present: true,
-              raw: "legacy-source",
-              valueKind: "NONNUMERIC"
-            }]
-          };
           return { rows: [{
+            tenant_id: context.tenantId,
+            import_batch_id: batchId,
+            id: "row:0",
+            source_collection: "opportunities",
+            source_id: stagingSourceId,
             source_ordinal: 0,
             raw_payload: rawPayload,
-            raw_payload_sha256: hashImportEvidence(rawPayload),
+            raw_payload_sha256: rawPayloadSha256,
             disposition: "COMMITTED",
             metadata: {
+              source_id_kind: "SYNTHETIC_ROW_EVIDENCE",
               canonical_commit: {
-                canonical_payload_sha256: "c".repeat(64)
+                canonical_payload_sha256: canonicalPayloadSha256,
+                source_system: input.sourceSystem,
+                source_record_id: "legacy-source",
+                target_id: "legacy-opp"
               }
             },
             ...stagedOverrides
+          }] };
+        }
+        if (/from tge\.import_id_map/i.test(sql)) {
+          return { rows: [{
+            tenant_id: context.tenantId,
+            import_batch_id: batchId,
+            source_collection: "opportunities",
+            source_id: stagingSourceId,
+            source_ordinal: 0,
+            source_system: input.sourceSystem,
+            source_record_id: "legacy-source",
+            canonical_payload_sha256: canonicalPayloadSha256,
+            commit_idempotency_key: input.idempotencyKey,
+            target_prospect_id: null,
+            target_opportunity_id: "legacy-opp",
+            target_task_id: null,
+            target_activity_id: null,
+            target_revenue_action_id: null,
+            metadata: { raw_payload_sha256: rawPayloadSha256 },
+            ...idMapOverrides
           }] };
         }
         return { rows: [] };
@@ -821,8 +906,8 @@ test("pre-currency opportunity commit replays only under the exact legacy semant
       validate(evidence) {
         validateReviewedColumnSelections(evidence, replayInput);
       },
-      prepare() {
-        assert.fail("a committed legacy retry must not rebuild the canonical plan");
+      prepare(evidence) {
+        return buildCanonicalCommitPlan(evidence, replayInput);
       }
     });
     return { calls, result };
@@ -831,6 +916,15 @@ test("pre-currency opportunity commit replays only under the exact legacy semant
   const exact = await replay();
   assert.equal(exact.result.reconciled, true);
   assert.equal(exact.result.rows[0].targetId, "legacy-opp");
+  const authoritativeMapRead = exact.calls.find(([sql]) => (
+    /from tge\.import_id_map/i.test(sql)
+  ));
+  assert.ok(authoritativeMapRead);
+  assert.deepEqual(authoritativeMapRead[1], [
+    context.tenantId,
+    input.sourceSystem,
+    ["legacy-source"]
+  ]);
   assert.equal(
     exact.calls.some(([sql]) => /insert into tge\.audit_events/i.test(sql)),
     false
@@ -894,6 +988,91 @@ test("pre-currency opportunity commit replays only under the exact legacy semant
     const rejected = await replay(changed);
     assert.equal(rejected.result.outcome, "CONFLICTED");
     assert.equal(rejected.result.reconciled, false);
+  }
+
+  const changedRawPayload = structuredClone(rawPayload);
+  changedRawPayload.cells[5].raw = "materially-changed-unmapped-evidence";
+  changedRawPayload.cells[5].valueKind = "NONNUMERIC";
+  const changedRawPayloadSha256 = hashImportEvidence(changedRawPayload);
+  const tamperedEvidence = [
+    {
+      name: "staging source_system",
+      overrides: {
+        stagedOverrides: {
+          metadata: {
+            source_id_kind: "SYNTHETIC_ROW_EVIDENCE",
+            canonical_commit: {
+              canonical_payload_sha256: canonicalPayloadSha256,
+              source_system: "tampered-crm",
+              source_record_id: "legacy-source",
+              target_id: "legacy-opp"
+            }
+          }
+        }
+      }
+    },
+    {
+      name: "staging source_record_id",
+      overrides: {
+        stagedOverrides: {
+          metadata: {
+            source_id_kind: "SYNTHETIC_ROW_EVIDENCE",
+            canonical_commit: {
+              canonical_payload_sha256: canonicalPayloadSha256,
+              source_system: input.sourceSystem,
+              source_record_id: "tampered-source",
+              target_id: "legacy-opp"
+            }
+          }
+        }
+      }
+    },
+    {
+      name: "staging target_id",
+      overrides: {
+        stagedOverrides: {
+          metadata: {
+            source_id_kind: "SYNTHETIC_ROW_EVIDENCE",
+            canonical_commit: {
+              canonical_payload_sha256: canonicalPayloadSha256,
+              source_system: input.sourceSystem,
+              source_record_id: "legacy-source",
+              target_id: "tampered-target"
+            }
+          }
+        }
+      }
+    },
+    {
+      name: "stored result source identity",
+      overrides: { resultRowOverrides: { sourceRecordId: "tampered-source" } }
+    },
+    {
+      name: "stored result target identity",
+      overrides: { resultRowOverrides: { targetId: "tampered-target" } }
+    },
+    {
+      name: "raw payload with recomputed adjacent hash",
+      overrides: {
+        stagedOverrides: {
+          raw_payload: changedRawPayload,
+          raw_payload_sha256: changedRawPayloadSha256
+        }
+      }
+    },
+    {
+      name: "ID-map raw evidence",
+      overrides: {
+        idMapOverrides: { metadata: { raw_payload_sha256: "f".repeat(64) } }
+      }
+    }
+  ];
+  for (const { name, overrides } of tamperedEvidence) {
+    await t.test(`fails closed on tampered ${name}`, async () => {
+      const rejected = await replay(overrides);
+      assert.equal(rejected.result.outcome, "CONFLICTED");
+      assert.equal(rejected.result.reconciled, false);
+    });
   }
 
   await assert.rejects(
