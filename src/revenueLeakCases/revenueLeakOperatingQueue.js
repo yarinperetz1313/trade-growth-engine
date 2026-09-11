@@ -8,6 +8,10 @@ const {
 const {
   classifyOpportunityDataOrigin
 } = require("../pilotEvidence/dataOrigin");
+const {
+  canonicalDecimalUnits,
+  compareCanonicalDecimals
+} = require("../imports/numericEvidence");
 
 const PORTFOLIO_SCAN_LIMIT = 100;
 const OPERATING_QUEUE_LIMIT = 100;
@@ -435,7 +439,7 @@ function summarizeValues(entries) {
         units: 0n,
         caseCount: 0
       };
-      aggregate.units += decimalUnits(amount);
+      aggregate.units += canonicalDecimalUnits(amount);
       aggregate.caseCount += 1;
       positiveByCurrency.set(currency, aggregate);
     } else if (kind === "KNOWN_ZERO") {
@@ -470,22 +474,10 @@ function summarizeValues(entries) {
   };
 }
 
-function decimalUnits(value) {
-  const [whole, fraction = ""] = value.split(".");
-  return BigInt(whole) * 1000000n
-    + BigInt(fraction.padEnd(6, "0"));
-}
-
 function decimalFromUnits(value) {
   const whole = value / 1000000n;
   const fraction = String(value % 1000000n).padStart(6, "0").replace(/0+$/, "");
   return fraction ? `${whole}.${fraction}` : String(whole);
-}
-
-function compareCanonicalDecimals(left, right) {
-  const leftUnits = decimalUnits(left);
-  const rightUnits = decimalUnits(right);
-  return leftUnits < rightUnits ? -1 : leftUnits > rightUnits ? 1 : 0;
 }
 
 function publicQueue(queue) {

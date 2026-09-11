@@ -26,6 +26,13 @@ const CLASSIFICATION_PRIORITY = {
   STRONG: 4
 };
 
+const {
+  compareCanonicalDecimals
+} = require("../imports/numericEvidence");
+const {
+  knownPositiveCommercialValue
+} = require("../opportunities/commercialValue");
+
 function isFiniteNumber(value) {
   const isNumericString =
     typeof value === "string" &&
@@ -38,10 +45,7 @@ function isFiniteNumber(value) {
 }
 
 function isKnownCommercialValue(value) {
-  return (
-    isFiniteNumber(value) &&
-    Number(value) > 0
-  );
+  return knownPositiveCommercialValue(value) !== null;
 }
 
 function comparableProbability(value) {
@@ -171,13 +175,25 @@ function compareTopActions(left, right) {
     return rightStaleRisk - leftStaleRisk;
   }
 
-  const leftValue =
-    left.value.known ? left.value.amount : -1;
-  const rightValue =
-    right.value.known ? right.value.amount : -1;
+  if (left.value.known !== right.value.known) {
+    return left.value.known ? -1 : 1;
+  }
 
-  if (leftValue !== rightValue) {
-    return rightValue - leftValue;
+  if (left.value.known) {
+    const leftCurrency = left.value.currency;
+    const rightCurrency = right.value.currency;
+    if (leftCurrency !== rightCurrency) {
+      if (leftCurrency === null) return 1;
+      if (rightCurrency === null) return -1;
+      return leftCurrency.localeCompare(rightCurrency);
+    }
+    if (leftCurrency !== null) {
+      const amount = compareCanonicalDecimals(
+        String(right.value.amount),
+        String(left.value.amount)
+      );
+      if (amount !== 0) return amount;
+    }
   }
 
   const leftProbability = comparableProbability(

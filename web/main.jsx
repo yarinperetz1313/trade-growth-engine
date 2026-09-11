@@ -27,8 +27,11 @@ import {
   initializeBrowserAuth
 } from "./lib/auth";
 import {
+  compareOpportunityCommercialValues,
   formatCommercialValue,
-  isKnownCommercialValue
+  hasCrossCurrencyCommercialValues,
+  isKnownCommercialValue,
+  selectBiggestOpportunity
 } from "./lib/commercialValue";
 
 const nav = [
@@ -40,12 +43,6 @@ const nav = [
 ];
 
 const money = formatCommercialValue;
-
-function commercialAmount(value) {
-  return isKnownCommercialValue(value)
-    ? Number(value)
-    : 0;
-}
 
 function fractionalProbability(value) {
   if (
@@ -63,6 +60,10 @@ function fractionalProbability(value) {
     probability <= 1
     ? probability
     : null;
+}
+
+function numericCommercialContribution(value) {
+  return isKnownCommercialValue(value) ? Number(value) : 0;
 }
 
 function pageFromHash() {
@@ -284,24 +285,14 @@ function Dashboard({ onNavigate }) {
           ) -
           Number(
             a.qualification_score || 0
-          ) ||
-          commercialAmount(b.value) -
-          commercialAmount(a.value)
+          ) || compareOpportunityCommercialValues(a, b)
       )
       .slice(0, 4);
 
   const biggestOpportunity =
-    [...activeOpportunities]
-      .filter(item =>
-        isKnownCommercialValue(
-          item.value
-        )
-      )
-      .sort(
-        (a, b) =>
-          commercialAmount(b.value) -
-          commercialAmount(a.value)
-      )[0];
+    selectBiggestOpportunity(activeOpportunities);
+  const biggestOpportunityIsCrossCurrency =
+    hasCrossCurrencyCommercialValues(activeOpportunities);
 
   return (
     <div className="page">
@@ -660,7 +651,9 @@ function Dashboard({ onNavigate }) {
                 )
               }
               text={
-                biggestOpportunity &&
+                biggestOpportunityIsCrossCurrency
+                  ? "A biggest opportunity cannot be inferred across currencies."
+                  : biggestOpportunity &&
                 isKnownCommercialValue(
                   biggestOpportunity.value
                 )
@@ -1071,7 +1064,7 @@ function Pipeline() {
     active.reduce(
       (sum, item) =>
         sum +
-        commercialAmount(item.value),
+        numericCommercialContribution(item.value),
       0
     );
 
@@ -1087,7 +1080,7 @@ function Pipeline() {
             : null);
 
         return sum +
-          commercialAmount(candidate);
+          numericCommercialContribution(candidate);
       },
       0
     );

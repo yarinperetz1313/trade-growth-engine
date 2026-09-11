@@ -167,6 +167,37 @@ started for this checkpoint. Migrations `001`–`015` are byte-identical to pare
 `d42346ec6a026c7d142f16584f86290db14dd52f`; unchanged migration `016` remains
 SHA-256 `ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`.
 
+### Slice 3 Recovery Checkpoint 2 — exact decimal ranking
+
+This checkpoint changes only monetary ranking and RevenueAction basis evidence.
+Browser and server comparators convert representable `NUMERIC(20,6)` literals
+to exact scaled integers, preserve the original amount, apply stable ID ties,
+and compare amounts only inside an authoritative currency group. Dashboard
+Biggest Opportunity reports no inferred winner across multiple currencies.
+Revenue intelligence deterministically groups canonical currencies, puts
+missing currency after canonical evidence without comparing its amount, and
+then applies the existing probability/action/ID fallbacks. RevenueAction basis
+evidence retains exact amount plus optional authoritative currency, so exact
+decimal or currency changes produce different fingerprints while legacy
+number/no-currency fingerprints remain stable. Known-positive, zero, unknown,
+invalid, and missing-currency inputs retain their existing domain-specific
+classification semantics. The RevenueLeakCase operating queue now consumes the
+shared exact server comparator with no contract change. No replay, persistence,
+schema, migration, FX, default, inference, or later-slice behavior is added.
+
+The focused `node --test test/exact-decimal-ranking.test.js` regression was
+expected RED **0/4** at exact parent `67e2c10`: dashboard exact/cross-currency
+selection was absent, revenue-action ranking reversed amounts separated by one
+millionth beyond safe JavaScript integer precision, and RevenueAction evidence
+rounded the amount and omitted currency. The implemented regression passes
+**4/4**; the directly affected integration set passes **53/53**. Final evidence
+is `npm run verify:fast` with harness and integration **420/420**, managed
+Chromium **53/53**, Vite 8.2.2 production build **31 modules**, migration
+integrity, and `git diff --check`. No PostgreSQL suite or full `npm run verify`
+was run because no persistence or schema changed. Migrations `001`–`015` remain
+byte-identical to base and unchanged `016` remains SHA-256
+`ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`.
+
 ## Assisted Pilot Safety Gate V1 Slice 2 bounded plan
 
 ### Grounded policy boundary
@@ -372,6 +403,7 @@ No local mock or deterministic seam may be reported as real Auth0/SMTP proof.
 | Slice 2 bounded final security/migration remediation | Named PostgreSQL upgrade/helper regressions before and after the migration correction; `node --test test/raw-import-expiry-migration.test.js`; focused import/auth/persistence files; complete affected PostgreSQL file; `npm run test:db`; isolated failing DB contract; corrected `npm run test:db`; `npm run verify:fast`; `npm run test:harness`; migration hashes and final hygiene | **EXPECTED RED at `1da7a3d`: 0/2.** Migration `015` rolled back with `23514` on a schema-014-valid 24-hour deadline, and direct runtime lifecycle conflict SQL succeeded instead of rejecting. **PASS:** identical regressions **2/2**; migration static **14/14**; focused import/auth/persistence **115/115**; affected PostgreSQL 16.15 **20/20**. The first full DB run was **86/87** because the established legacy fixture lacked explicit issuer context at the new exact-context guard. Resolving that path to its canonical issuer passed the isolated contract **1/1**; the now-terminal `EXPIRED` expectation was also removed, and the complete DB suite then passed **87/87**. Engineering harness plus integration passed **389/389**; the standalone final harness also passed. Migration `015` SHA-256 is `1f33b8656dbd2c3a05adc9a540412efcac41a8540673bee0e52e510b0e40fcd5`; migrations `001`–`014` remain byte-identical. Browser E2E and production build were intentionally not run because no browser or product source changed. |
 | Slice 3 full local gate | `TGE_TEST_DATABASE_URL=postgresql://yarinperetz@127.0.0.1:55432/postgres npm run verify` against a disposable Homebrew PostgreSQL 16.15 cluster; `git diff --check`; SHA-256/base comparison of migrations `001`–`015` | **PASS:** engineering harness; integration **404/404**; database **90/90**; managed Chromium **51/51**; Vite 8.2.2 production build **31 modules** with only the existing chunk-size warning; clean diff check; migrations `001`–`015` byte-identical. The first listener-permitted full attempt hit a transient `tuple concurrently updated` catalog race in unchanged migration `002`; the unchanged retry passed completely. This is local evidence only; cleanup and checkpoint are performed after the recorded gate. |
 | Slice 3 Recovery Checkpoint 1 | Focused legacy replay tamper RED/GREEN; complete import repository; directly affected import commit/staging reconciliation; import mapping; migration-static; standalone harness; migration hashes; `git diff --check` | **EXPECTED RED: 0/8** across seven independently exposed identity/raw tamper vectors. **PASS:** focused current/legacy replay **9/9**; repository **22/22**; affected import/reconciliation **56/56**; mapping **14/14**; migration-static **19/19**; harness and diff check. No PostgreSQL service/suite, full Verify, browser, or build was run. Migrations `001`–`015` are byte-identical to `d42346e`; unchanged `016` is `ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`. |
+| Slice 3 Recovery Checkpoint 2 | Focused exact-decimal ranking RED/GREEN; directly affected intelligence/action/queue integration; `npm run verify:fast`; managed browser; production build; migration hashes; `git diff --check` | **EXPECTED RED at `67e2c10`: 0/4.** **PASS:** focused **4/4**; affected integration **53/53**; engineering harness plus integration **420/420**; managed Chromium **53/53**; Vite 8.2.2 build **31 modules**; unchanged migration proof and clean diff check. No PostgreSQL suite or full Verify was run because persistence and schema are unchanged. |
 | PR-5A initial full local gate at `178409c` | `TGE_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/postgres npm run verify` against an isolated PostgreSQL 16.15 cluster | **PASS:** harness; integration **142/142**; database **45/45**; managed Chromium **14/14**; production build. The temporary database cluster was removed after verification. This is historical evidence for that checkpoint. |
 | PR-5A bounded review-fix checkpoint (parent `dc5e3c9`) | `npm run verify:fast` on the code and tests recorded by this document's checkpoint | **PASS:** harness; integration **144/144**. Database, managed Chromium, and production build were not rerun for this bounded transport-error fix. |
 | PR-5C controlled canonical commit | `npm run verify:fast`; `TGE_TEST_DATABASE_URL=postgresql://127.0.0.1:55433/postgres npm run test:db` against disposable PostgreSQL 16.15; `npm run build` | **PASS:** harness; integration **174/174**; database **47/47**; production build (Vite 8.2.2, 22 modules). Browser E2E was intentionally not run because PR-5D/browser flow is outside this slice. The disposable cluster was stopped and removed. |

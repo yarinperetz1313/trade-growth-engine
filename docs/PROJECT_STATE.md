@@ -61,6 +61,33 @@ and migration-static **19/19**, with the standalone engineering harness and
 `ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`, and
 migrations `001`–`015` remain byte-identical to checkpoint parent `d42346e`.
 
+Slice 3 Recovery Checkpoint 2 closes only the exact-decimal ranking defect.
+Dashboard Biggest Opportunity and equal-score priority ordering now compare
+authoritative same-currency `NUMERIC(20,6)` values as exact scaled integers,
+with stable opportunity-ID ties; Biggest Opportunity declines to infer a result
+when more than one authoritative currency is present. Revenue intelligence uses
+the same exact server-side representation within deterministic currency groups
+and never compares monetary magnitude across currencies. RevenueAction factual
+evidence and basis fingerprints retain the original exact amount and optional
+authoritative currency, so a one-millionth amount change or currency change can
+supersede stale action evidence without collapsing through JavaScript numbers.
+Known positive, known zero, unknown, invalid, and missing-currency inputs retain
+their existing domain-specific classification semantics, and the
+RevenueLeakCase queue reuses the shared exact comparator without changing its
+ordering contract.
+
+The new focused regression was expected RED **0/4** at `67e2c10`: the dashboard
+selector did not exist, exact revenue-action ranking reversed a pair separated
+by one millionth beyond safe JavaScript integer precision, and RevenueAction
+evidence rounded the amount and omitted currency. GREEN is focused **4/4** and
+the directly affected integration set **53/53**. The final proportional gate
+passed the engineering harness plus integration **420/420**, managed Chromium
+**53/53**, the Vite 8.2.2 production build (**31 modules**), migration integrity,
+and `git diff --check`. No persistence, schema, replay, or migration changed, so
+no PostgreSQL suite or full `npm run verify` was run. Migration `016` remains
+SHA-256 `ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`;
+migrations `001`–`015` remain byte-identical to base.
+
 Assisted Pilot Safety Gate V1 Slice 2 now implements the PostgreSQL-only
 [raw-import expiry and tenant offboarding
 contract](architecture/PILOT_READINESS_FOUNDATION.md#import-safety-retention-and-deletion). Append-only

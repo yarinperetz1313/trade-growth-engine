@@ -139,6 +139,50 @@ test("materializes a durable semantic recommendation snapshot and reuses its act
   });
 });
 
+test("materializes exact decimal and authoritative currency evidence without fingerprint collapse", async () => {
+  const opportunityId = "opp-exact-value";
+  const exactValue = "9007199254740.123456";
+  await withServer({
+    opportunities: [baseOpportunity(opportunityId, {
+      value: exactValue,
+      currency: "AUD"
+    })]
+  }, async baseUrl => {
+    const first = await createAction(baseUrl, opportunityId);
+    assert.equal(first.status, 201);
+    assert.deepEqual(first.data.data.evidence.factual.commercial_value, {
+      known: true,
+      amount: exactValue,
+      currency: "AUD"
+    });
+
+    writeCollection("opportunities", [baseOpportunity(opportunityId, {
+      value: "9007199254740.123455",
+      currency: "AUD"
+    })]);
+    const changed = await createAction(baseUrl, opportunityId);
+    assert.equal(changed.status, 201);
+    assert.notEqual(
+      changed.data.data.basis_fingerprint,
+      first.data.data.basis_fingerprint
+    );
+    assert.equal(
+      changed.data.data.evidence.factual.commercial_value.amount,
+      "9007199254740.123455"
+    );
+
+    const actions = readCollection("revenue_actions");
+    assert.equal(
+      actions.find(action => action.id === first.data.data.id).status,
+      "CANCELLED"
+    );
+    assert.equal(
+      actions.find(action => action.id === changed.data.data.id).status,
+      "RECOMMENDED"
+    );
+  });
+});
+
 test("prepares a deterministic email draft without fabricating unknown CRM evidence", async () => {
   await withServer({
     opportunities: [

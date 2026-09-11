@@ -1,4 +1,10 @@
 const crypto = require("node:crypto");
+const {
+  knownPositiveCommercialValue
+} = require("../opportunities/commercialValue");
+const {
+  isCanonicalOpportunityCurrency
+} = require("../opportunities/opportunityCurrency");
 
 const EXECUTION_TYPES = Object.freeze({
   FOLLOW_UP: "COMMUNICATION_DRAFT",
@@ -39,17 +45,20 @@ function factualEvidence(state) {
   const opportunity = state.opportunity;
   const intelligence = state.intelligence;
   const resolved = intelligence.resolved || {};
-  const value = Number(opportunity.value);
-  const valueKnown = Number.isFinite(value) && value > 0;
+  const value = knownPositiveCommercialValue(opportunity.value);
+  const commercialValue = {
+    known: value !== null,
+    amount: value === null ? null : value.amount
+  };
+  if (isCanonicalOpportunityCurrency(opportunity.currency)) {
+    commercialValue.currency = opportunity.currency;
+  }
 
   return {
     factual: {
       stage: opportunity.stage || null,
       recorded_next_action: normalizeText(opportunity.next_action) || null,
-      commercial_value: {
-        known: valueKnown,
-        amount: valueKnown ? value : null
-      },
+      commercial_value: commercialValue,
       business_name: resolved.business_name || null,
       contact_name: resolved.contact_name || null,
       service: resolved.service || null,
