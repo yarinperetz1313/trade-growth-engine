@@ -62,9 +62,13 @@ begin
 end
 $constraint$;
 
+update tge.import_batches
+set raw_expires_at = created_at + interval '168 hours'
+where raw_expires_at > created_at + interval '168 hours';
+
 alter table tge.import_batches
-  add constraint import_batches_raw_exact_expiry_check
-    check (raw_expires_at = created_at + interval '168 hours'),
+  add constraint import_batches_raw_max_expiry_check
+    check (raw_expires_at <= created_at + interval '168 hours'),
   add constraint import_batches_raw_cleanup_state_check check (
     raw_cleanup_state in ('PENDING', 'IN_PROGRESS', 'SUCCEEDED', 'FAILED')
   ),
@@ -1113,6 +1117,108 @@ begin
 end
 $function$;
 
+create or replace function tge.record_import_commit_lifecycle_conflict(
+  requested_tenant_id uuid,
+  requested_batch_id text,
+  requested_summary jsonb,
+  requested_at timestamptz
+)
+returns void
+language plpgsql
+volatile
+security definer
+set search_path = pg_catalog, tge
+as $function$
+declare
+  authoritative_subject text := tge.current_subject_id();
+  authoritative_issuer text := coalesce(
+    tge.current_identity_issuer(),
+    'urn:tge:legacy'
+  );
+  affected integer;
+begin
+  if requested_tenant_id is null
+    or requested_tenant_id is distinct from tge.current_tenant_id()
+    or coalesce(btrim(authoritative_subject), '') = ''
+    or coalesce(btrim(authoritative_issuer), '') = ''
+    or not pg_catalog.pg_has_role(session_user, 'tge_runtime', 'member')
+    or coalesce((
+      select roles.rolsuper
+      from pg_catalog.pg_roles roles
+      where roles.rolname = session_user
+    ), true)
+    or requested_batch_id is null
+    or btrim(requested_batch_id) = ''
+    or requested_at is null
+    or requested_summary is null
+    or jsonb_typeof(requested_summary) is distinct from 'object'
+    or tge.pilot_evidence_exact_keys(requested_summary, array[
+      'inputFingerprint', 'lifecycleStatus', 'outcome',
+      'requestFingerprint', 'summary'
+    ]) is not true
+    or requested_summary->>'outcome' is distinct from 'CONFLICTED'
+    or requested_summary->>'lifecycleStatus' not in ('STAGED', 'READY', 'FAILED')
+    or requested_summary->>'inputFingerprint' !~ '^[0-9a-f]{64}$'
+    or requested_summary->>'requestFingerprint' !~ '^[0-9a-f]{64}$'
+    or tge.pilot_evidence_exact_keys(requested_summary->'summary', array[
+      'committed', 'conflicted', 'failed', 'skipped', 'total'
+    ]) is not true
+    or tge.pilot_evidence_count(requested_summary#>'{summary,committed}') is not true
+    or tge.pilot_evidence_count(requested_summary#>'{summary,conflicted}') is not true
+    or tge.pilot_evidence_count(requested_summary#>'{summary,failed}') is not true
+    or tge.pilot_evidence_count(requested_summary#>'{summary,skipped}') is not true
+    or tge.pilot_evidence_count(requested_summary#>'{summary,total}') is not true then
+    raise exception using
+      errcode = '23514',
+      message = 'Canonical import lifecycle conflict evidence is invalid.';
+  end if;
+
+  perform 1
+  from tge.tenants tenant
+  where tenant.id = requested_tenant_id
+    and tenant.metadata->>'offboarding_state'
+      is distinct from 'OFFBOARDED_ACCESS_REVOKED'
+  for share;
+  if not found then
+    raise exception using
+      errcode = '23514',
+      message = 'Canonical import lifecycle conflict is invalid.';
+  end if;
+
+  if not exists (
+    select 1
+    from tge.tenant_memberships membership
+    where membership.tenant_id = requested_tenant_id
+      and membership.identity_issuer = authoritative_issuer
+      and membership.subject_id = authoritative_subject
+      and membership.role in ('OWNER', 'ADMIN')
+      and membership.status = 'ACTIVE'
+  ) then
+    raise exception using
+      errcode = '23514',
+      message = 'Canonical import lifecycle conflict is invalid.';
+  end if;
+
+  update tge.import_batches
+  set
+    conflict_summary = requested_summary,
+    updated_at = requested_at
+  where tenant_id = requested_tenant_id
+    and id = requested_batch_id
+    and status = requested_summary->>'lifecycleStatus'
+    and status in ('STAGED', 'READY', 'FAILED')
+    and raw_expires_at > clock_timestamp()
+    and raw_cleanup_state in ('PENDING', 'FAILED');
+
+  get diagnostics affected = row_count;
+  if affected <> 1 then
+    raise exception using
+      errcode = '23514',
+      message = 'Canonical import lifecycle conflict is invalid.';
+  end if;
+end
+$function$;
+
 create function tge.lock_current_tenant_access_writable()
 returns boolean
 language plpgsql
@@ -1461,6 +1567,9 @@ revoke all on function tge.process_pending_tenant_offboarding(integer)
   from public, tge_runtime, tge_migrator, tge_maintenance;
 revoke all on function tge.request_tenant_offboarding(text) from public;
 revoke all on function tge.lock_current_tenant_access_writable() from public;
+revoke all on function tge.record_import_commit_lifecycle_conflict(
+  uuid, text, jsonb, timestamptz
+) from public, tge_runtime, tge_migrator, tge_maintenance;
 
 grant execute on function tge.process_due_raw_import_cleanup(integer)
   to tge_maintenance;
@@ -1468,6 +1577,9 @@ grant execute on function tge.process_pending_tenant_offboarding(integer)
   to tge_maintenance;
 grant execute on function tge.request_tenant_offboarding(text) to tge_runtime;
 grant execute on function tge.lock_current_tenant_access_writable() to tge_runtime;
+grant execute on function tge.record_import_commit_lifecycle_conflict(
+  uuid, text, jsonb, timestamptz
+) to tge_runtime;
 grant execute on function tge.pilot_runtime_readiness() to tge_runtime;
 
 revoke execute on all functions in schema tge from public;

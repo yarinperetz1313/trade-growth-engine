@@ -51,7 +51,7 @@ test("migration 015 makes the database timestamp the exact seven-day authority",
   assert.match(sql, /guard_runtime_import_retention_clock/i);
   assert.match(sql, /clock_timestamp\(\)/i);
   assert.match(sql, /raw_expires_at\s*:=\s*authoritative_at\s*\+\s*interval '168 hours'/i);
-  assert.match(sql, /raw_expires_at\s*=\s*created_at\s*\+\s*interval '168 hours'/i);
+  assert.match(sql, /raw_expires_at\s*<=\s*created_at\s*\+\s*interval '168 hours'/i);
   assert.doesNotMatch(clockGuard, /requested_(?:at|time|tenant|batch|target)/i);
 });
 
@@ -63,9 +63,44 @@ test("migration 015 expresses seven days as exactly 168 elapsed hours", () => {
   );
   assert.match(
     sql,
-    /raw_expires_at\s*=\s*created_at\s*\+\s*interval '168 hours'/i
+    /raw_expires_at\s*<=\s*created_at\s*\+\s*interval '168 hours'/i
+  );
+  assert.match(
+    sql,
+    /set raw_expires_at\s*=\s*created_at\s*\+\s*interval '168 hours'\s+where raw_expires_at\s*>\s*created_at\s*\+\s*interval '168 hours'/i
   );
   assert.doesNotMatch(sql, /interval '7 days'/i);
+});
+
+test("migration 015 closes the runtime lifecycle helper at the terminal retention barrier", () => {
+  const sql = migration();
+  const lifecycle = sql.match(
+    /create or replace function tge\.record_import_commit_lifecycle_conflict[\s\S]*?\$function\$;/i
+  )?.[0] || "";
+  const tenantLock = lifecycle.search(
+    /from tge\.tenants tenant[\s\S]*?OFFBOARDED_ACCESS_REVOKED[\s\S]*?for share/i
+  );
+  const batchWrite = lifecycle.search(/update tge\.import_batches/i);
+
+  assert.match(lifecycle, /tge\.current_tenant_id\(\)/i);
+  assert.match(lifecycle, /tge\.current_identity_issuer\(\)/i);
+  assert.match(lifecycle, /tge\.current_subject_id\(\)/i);
+  assert.match(lifecycle, /membership\.role in \('OWNER', 'ADMIN'\)/i);
+  assert.match(lifecycle, /membership\.status = 'ACTIVE'/i);
+  assert.match(lifecycle, /status in \('STAGED', 'READY', 'FAILED'\)/i);
+  assert.match(lifecycle, /raw_expires_at > clock_timestamp\(\)/i);
+  assert.match(lifecycle, /raw_cleanup_state in \('PENDING', 'FAILED'\)/i);
+  assert.match(lifecycle, /pilot_evidence_exact_keys\(requested_summary/i);
+  assert.ok(tenantLock >= 0, "expected the terminal-aware tenant lock");
+  assert.ok(batchWrite > tenantLock, "tenant lock must precede the batch write");
+  assert.match(
+    sql,
+    /revoke all on function tge\.record_import_commit_lifecycle_conflict\([\s\S]*?from public, tge_runtime, tge_migrator, tge_maintenance/i
+  );
+  assert.match(
+    sql,
+    /grant execute on function tge\.record_import_commit_lifecycle_conflict\([\s\S]*?to tge_runtime/i
+  );
 });
 
 test("migration 015 exposes truthful retry-safe raw cleanup without runtime delete authority", () => {

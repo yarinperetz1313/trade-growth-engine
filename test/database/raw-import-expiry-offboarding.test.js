@@ -3,6 +3,8 @@
 const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
+const { cp, mkdtemp, readdir, rm } = require("node:fs/promises");
+const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { pathToFileURL } = require("node:url");
@@ -235,6 +237,126 @@ if (!databaseUrl) {
         "delete from tge.import_batches where tenant_id = $1",
         [tenant.id]
       );
+    }
+  });
+
+  test("migration 015 upgrades schema-014 shorter retention without lengthening it or losing durable evidence", async () => {
+    const upgradeDatabase = `tge_slice2_upgrade_${randomUUID().replaceAll("-", "")}`;
+    const upgradeUrl = replaceDatabase(databaseUrl, upgradeDatabase);
+    const migrationFixture = await mkdtemp(path.join(os.tmpdir(), "tge-slice2-upgrade-"));
+    let upgradeAdmin;
+    try {
+      await control.query(`create database ${quoteIdentifier(upgradeDatabase)}`);
+      for (let id = 1; id <= 14; id += 1) {
+        const prefix = String(id).padStart(3, "0");
+        const source = path.join(root, "database", "migrations");
+        const fileName = (await readdir(source))
+          .find(candidate => candidate.startsWith(`${prefix}_`));
+        assert.ok(fileName, `migration ${prefix} fixture must exist`);
+        await cp(path.join(source, fileName), path.join(migrationFixture, fileName));
+      }
+      const { runMigrations } = await import(pathToFileURL(
+        path.join(root, "scripts/migrate-db.mjs")
+      ));
+      await runMigrations({
+        connectionString: upgradeUrl,
+        migrationsDirectory: migrationFixture,
+        logger: { log() {} }
+      });
+
+      upgradeAdmin = new Client({ connectionString: upgradeUrl });
+      await upgradeAdmin.connect();
+      const tenantId = randomUUID();
+      const createdAt = new Date("2026-08-01T00:00:00.000Z");
+      const promisedExpiry = new Date("2026-08-02T00:00:00.000Z");
+      await upgradeAdmin.query(
+        "insert into tge.tenants (id, slug, name) values ($1, $2, 'Upgrade tenant')",
+        [tenantId, `upgrade-${tenantId}`]
+      );
+      await upgradeAdmin.query(
+        `insert into tge.import_batches (
+           tenant_id, id, status, source_filename, source_sha256,
+           authorized_by_subject_id, authorization_verified_at, preview_summary,
+           raw_expires_at, metadata_retain_until, created_at, updated_at
+         ) values ($1, 'short-retention', 'PREVIEWED', 'private-upgrade.csv', $2,
+           'auth0|upgrade-owner', $3,
+           '{"rowCount":1,"sourceCollection":"prospects"}'::jsonb,
+           $4, $5, $3, $3)`,
+        [
+          tenantId,
+          "a".repeat(64),
+          createdAt,
+          promisedExpiry,
+          new Date("2027-08-01T00:00:00.000Z")
+        ]
+      );
+      await upgradeAdmin.query(
+        `insert into tge.prospects (
+           tenant_id, id, business_name, source_ordinal, legacy_payload,
+           current_payload, created_at, updated_at
+         ) values ($1, 'upgrade-prospect', 'Durable canonical customer', 0,
+           '{"durable":true}', '{"business_name":"Durable canonical customer"}',
+           $2, $2)`,
+        [tenantId, createdAt]
+      );
+      await upgradeAdmin.query(
+        `insert into tge.audit_events (
+           tenant_id, id, event_type, subject_id, entity_type, entity_id,
+           payload, occurred_at, retain_until, created_at
+         ) values ($1, 'upgrade-audit', 'IMPORT_PREVIEW_CREATED',
+           'auth0|upgrade-owner', 'import_batch', 'short-retention',
+           '{"external_action_performed":false}', $2, $3, $2)`,
+        [tenantId, createdAt, new Date("2027-08-01T00:00:00.000Z")]
+      );
+      await upgradeAdmin.query(
+        `insert into tge.pilot_evidence_events (
+           tenant_id, id, event_type, actor_subject_id, occurred_at,
+           semantic_key, facts, created_at
+         ) values ($1, 'upgrade-pilot', 'PORTFOLIO_SCAN_COMPLETED',
+           'auth0|upgrade-owner', $2, $3,
+           '{"evaluated_count":0,"eligible_leak_count":0,"eligible_no_leak_count":0,"insufficient_evidence_count":0,"stale_source_count":0,"data_health_suppressed_count":0,"excluded_count":0}'::jsonb,
+           $2)`,
+        [tenantId, createdAt, "b".repeat(64)]
+      );
+
+      const migration015 = "015_raw_import_expiry_tenant_offboarding.sql";
+      await cp(
+        path.join(root, "database", "migrations", migration015),
+        path.join(migrationFixture, migration015)
+      );
+      const applied = await runMigrations({
+        connectionString: upgradeUrl,
+        migrationsDirectory: migrationFixture,
+        logger: { log() {} }
+      });
+      assert.deepEqual(applied.applied, ["015"]);
+
+      const truth = await upgradeAdmin.query(
+        `select
+           (select raw_expires_at from tge.import_batches
+             where tenant_id = $1 and id = 'short-retention') promised_expiry,
+           (select count(*) from tge.prospects where tenant_id = $1)::integer canonical_rows,
+           (select count(*) from tge.audit_events where tenant_id = $1)::integer audit_rows,
+           (select count(*) from tge.pilot_evidence_events where tenant_id = $1)::integer pilot_rows,
+           (select count(*) from tge_migration.schema_migrations
+             where migration_id = '015')::integer migration_rows`,
+        [tenantId]
+      );
+      assert.deepEqual(truth.rows[0], {
+        promised_expiry: promisedExpiry,
+        canonical_rows: 1,
+        audit_rows: 1,
+        pilot_rows: 1,
+        migration_rows: 1
+      });
+    } finally {
+      await upgradeAdmin?.end();
+      await control.query(
+        "select pg_terminate_backend(pid) from pg_stat_activity where datname = $1 and pid <> pg_backend_pid()",
+        [upgradeDatabase]
+      );
+      await control.query(`drop database if exists ${quoteIdentifier(upgradeDatabase)}`);
+      await rm(migrationFixture, { recursive: true, force: true });
     }
   });
 
@@ -873,6 +995,144 @@ if (!databaseUrl) {
         directInsertDenied: true,
         terminalInvitationRows: 0
       });
+    } finally {
+      await maintenance.end();
+    }
+  });
+
+  test("runtime import helpers cannot restore conflict or sensitive raw metadata after cleanup or terminal offboarding", async () => {
+    const cleaned = await seedTenant("helper-cleaned", "OWNER");
+    const terminal = await seedTenant("helper-terminal", "OWNER");
+    await seedImport(cleaned, "helper-cleaned-batch", -8);
+    await seedImport(terminal, "helper-terminal-batch", -1);
+    await grantMaintenance();
+    const maintenance = new Client({ connectionString: maintenanceUrl });
+    await maintenance.connect();
+    try {
+      const executable = await runtime.query(
+        `select function_record.proname
+         from pg_proc function_record
+         join pg_namespace namespace_record
+           on namespace_record.oid = function_record.pronamespace
+         where namespace_record.nspname = 'tge'
+           and function_record.prosecdef
+           and function_record.proname in (
+             'lock_import_commit_batch', 'lock_import_commit_records',
+             'record_import_commit_outcome', 'record_import_commit_attempt',
+             'record_import_commit_lifecycle_conflict', 'finalize_import_commit'
+           )
+           and has_function_privilege(
+             current_user, function_record.oid, 'EXECUTE'
+           )
+         order by function_record.proname`
+      );
+      assert.deepEqual(executable.rows.map(row => row.proname), [
+        "finalize_import_commit",
+        "lock_import_commit_batch",
+        "lock_import_commit_records",
+        "record_import_commit_attempt",
+        "record_import_commit_lifecycle_conflict",
+        "record_import_commit_outcome"
+      ]);
+
+      assert.deepEqual(
+        (await maintenance.query(
+          "select * from tge.process_due_raw_import_cleanup(1)"
+        )).rows.map(row => row.cleanup_state),
+        ["SUCCEEDED"]
+      );
+      await withContext(runtime, terminal, () => runtime.query(
+        "select * from tge.request_tenant_offboarding('OFFBOARD_ACCESS_AND_RAW_EVIDENCE')"
+      ));
+      assert.deepEqual(
+        (await maintenance.query(
+          "select * from tge.process_pending_tenant_offboarding(1)"
+        )).rows.map(row => row.state),
+        ["OFFBOARDED_ACCESS_REVOKED"]
+      );
+
+      const sensitiveMarker = "raw-secret-customer@example.test";
+      for (const [tenant, batchId] of [
+        [cleaned, "helper-cleaned-batch"],
+        [terminal, "helper-terminal-batch"]
+      ]) {
+        const attemptSummary = JSON.stringify({
+          outcome: "CONFLICTED",
+          inputFingerprint: "1".repeat(64),
+          requestFingerprint: "2".repeat(64),
+          summary: { total: 1, committed: 0, skipped: 0, conflicted: 1, failed: 0 },
+          rawPayload: sensitiveMarker
+        });
+        const lifecycleSummary = JSON.stringify({
+          outcome: "CONFLICTED",
+          lifecycleStatus: "EXPIRED",
+          inputFingerprint: "3".repeat(64),
+          requestFingerprint: "4".repeat(64),
+          summary: { total: 1, committed: 0, skipped: 0, conflicted: 1, failed: 0 },
+          rawPayload: sensitiveMarker
+        });
+        const rowMetadata = JSON.stringify({
+          canonical_payload_sha256: "5".repeat(64),
+          source_system: "csv",
+          source_record_id: sensitiveMarker,
+          target_id: "forbidden-target"
+        });
+        const commitMetadata = JSON.stringify({
+          inputFingerprint: "6".repeat(64),
+          requestFingerprint: "7".repeat(64),
+          rawPayload: sensitiveMarker,
+          result: {
+            outcome: "COMMITTED",
+            summary: { total: 1, committed: 1, skipped: 0, conflicted: 0, failed: 0 }
+          }
+        });
+
+        for (const [sql, values] of [
+          [
+            "select tge.record_import_commit_attempt($1::uuid, $2::text, $3::jsonb, clock_timestamp())",
+            [tenant.id, batchId, attemptSummary]
+          ],
+          [
+            "select tge.record_import_commit_lifecycle_conflict($1::uuid, $2::text, $3::jsonb, clock_timestamp())",
+            [tenant.id, batchId, lifecycleSummary]
+          ],
+          [
+            "select tge.record_import_commit_outcome($1::uuid, $2::text, 'row:0', 'COMMITTED', clock_timestamp(), $3::jsonb)",
+            [tenant.id, batchId, rowMetadata]
+          ]
+        ]) {
+          await assert.rejects(
+            withContext(runtime, tenant, () => runtime.query(sql, values)),
+            error => error?.code === "23514"
+          );
+        }
+        const finalized = await withContext(runtime, tenant, () => runtime.query(
+          `select * from tge.finalize_import_commit(
+             $1::uuid, $2::text, 'forbidden-replay', $3::jsonb,
+             clock_timestamp()
+           )`,
+          [tenant.id, batchId, commitMetadata]
+        ));
+        assert.equal(finalized.rowCount, 0);
+
+        const truth = await admin.query(
+          `select conflict_summary, commit_metadata,
+             exists (
+               select 1 from tge.import_staging_records record
+               where record.tenant_id = batch.tenant_id
+                 and record.import_batch_id = batch.id
+                 and (record.metadata::text like '%' || $3 || '%'
+                   or coalesce(record.raw_payload::text, '') like '%' || $3 || '%'
+                   or coalesce(record.conflict_details::text, '') like '%' || $3 || '%')
+             ) sensitive_staging_metadata
+           from tge.import_batches batch
+           where batch.tenant_id = $1 and batch.id = $2`,
+          [tenant.id, batchId, sensitiveMarker]
+        );
+        assert.equal(truth.rows[0].conflict_summary, null);
+        assert.equal(truth.rows[0].commit_metadata, null);
+        assert.equal(truth.rows[0].sensitive_staging_metadata, false);
+      }
     } finally {
       await maintenance.end();
     }

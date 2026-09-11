@@ -132,6 +132,40 @@ executable by runtime, migrator, or maintenance roles. Browser E2E and the
 production build were not run because no browser or web-production source
 changed.
 
+The bounded final security/migration remediation closes the two fresh findings
+at `1da7a3d` and supersedes the preceding Slice 2 “final review” wording. The
+runtime-executable migration-011 import helpers were reassessed directly under
+the least-privilege login. Migration `015` now replaces the only reintroduction
+path, `record_import_commit_lifecycle_conflict`, with a tenant-before-batch
+terminal lock, exact tenant/issuer/subject and active OWNER/ADMIN membership
+checks, unexpired/non-cleaned lifecycle predicates, and closed conflict-summary
+keys. Cleaned/EXPIRED batches and terminal-offboarded tenants cannot restore
+`conflict_summary`, commit metadata, staged metadata, or an arbitrary sensitive
+marker through any of the six still-executable SECURITY DEFINER import helpers.
+The established `urn:tge:legacy` trusted context remains exact for local
+repository compatibility; Pilot traffic retains its explicit issuer authority.
+
+Migration `015` also replaces the schema-014 calendar-day ceiling with an
+elapsed-time maximum of 168 hours. Existing shorter deadlines are unchanged;
+only a legacy deadline longer than 168 elapsed hours is shortened to that cap,
+and the runtime insert trigger still authors exactly 168 hours from database
+time. A real 001–014 upgrade fixture with a 24-hour deadline applies `015`
+without lengthening it and retains its canonical CRM, audit, Pilot evidence,
+and migration-ledger truth. The identical PostgreSQL RED regressions were
+**0/2** at the starting migration and GREEN **2/2** after correction. Static
+migration checks pass **14/14**, focused import/auth/persistence checks pass
+**115/115**, and the complete affected PostgreSQL 16.15 file passes **20/20**.
+The first complete database run exposed the legacy fixture's absent explicit
+issuer context at **86/87**. Resolving that path to its canonical legacy issuer
+passed the isolated contract **1/1**; the now-terminal `EXPIRED` expectation was
+also removed, and the corrected complete database suite passes **87/87**.
+`npm run verify:fast` passes the engineering harness plus integration
+**389/389**, and the standalone final harness passes. Migrations `001`–`014` remain
+byte-identical and migration `015` is
+`1f33b8656dbd2c3a05adc9a540412efcac41a8540673bee0e52e510b0e40fcd5`.
+Browser E2E and production build were not run because no browser or product
+source changed.
+
 Post-merge [GitHub Verify run 34440327842](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/34440327842)
 failed integration at **349 passed / 7 failed** because an engineering-harness
 negative self-test rewrote tracked repository files in place during parallel
