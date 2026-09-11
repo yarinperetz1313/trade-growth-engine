@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const path = require("node:path");
 const test = require("node:test");
@@ -362,6 +363,105 @@ if (!databaseUrl) {
       await admin.query("delete from tge.prospects where tenant_id = $1", [tenant.id]);
       await admin.query("delete from tge.import_staging_records where tenant_id = $1", [tenant.id]);
       await admin.query("delete from tge.import_batches where tenant_id = $1", [tenant.id]);
+    }
+  });
+
+  test("staging revalidates a locked batch after a concurrent canonical commit", async () => {
+    const tenant = await seedTenant("staging-commit-overlap", "OWNER");
+    await seedEmptyImport(tenant, "staging-commit-overlap-batch");
+    const canonical = new Client({ connectionString: runtimeUrl });
+    const staging = new Client({ connectionString: runtimeUrl });
+    let canonicalOpen = false;
+    let stagingOpen = false;
+    let stagingPromise;
+    await canonical.connect();
+    await staging.connect();
+    try {
+      await canonical.query("begin");
+      canonicalOpen = true;
+      await setContext(canonical, tenant);
+      const locked = await canonical.query(
+        "select * from tge.lock_import_commit_batch($1::uuid, $2::text)",
+        [tenant.id, "staging-commit-overlap-batch"]
+      );
+      assert.equal(locked.rows[0].status, "PREVIEWED");
+      const finalized = await canonical.query(
+        `select * from tge.finalize_import_commit(
+           $1::uuid, $2::text, $3::text, $4::jsonb, clock_timestamp()
+         )`,
+        [
+          tenant.id,
+          "staging-commit-overlap-batch",
+          "staging-commit-overlap-key",
+          JSON.stringify({
+            inputFingerprint: "b".repeat(64),
+            requestFingerprint: "c".repeat(64),
+            result: {
+              outcome: "COMMITTED",
+              batch: { id: "staging-commit-overlap-batch", status: "COMMITTED" },
+              rows: [],
+              summary: {
+                total: 0,
+                committed: 0,
+                skipped: 0,
+                conflicted: 0,
+                failed: 0
+              }
+            }
+          })
+        ]
+      );
+      assert.equal(finalized.rows[0].status, "COMMITTED");
+
+      await staging.query("begin");
+      stagingOpen = true;
+      await setContext(staging, tenant);
+      stagingPromise = insertDirectStaging(
+        staging,
+        tenant,
+        "staging-commit-overlap-batch"
+      );
+      stagingPromise.catch(() => {});
+      assert.equal(
+        await waitForBlockingPid(admin, staging.processID, canonical.processID),
+        true,
+        "staging must be queued behind the in-flight canonical commit"
+      );
+
+      await canonical.query("commit");
+      canonicalOpen = false;
+      await assert.rejects(
+        withDeadline(
+          stagingPromise,
+          5000,
+          "staging did not revalidate after canonical commit"
+        ),
+        error => error?.code === "23514"
+          && error.message === "Import staging write denied."
+      );
+      await staging.query("rollback");
+      stagingOpen = false;
+
+      const truth = await admin.query(
+        `select batch.status,
+           (select count(*) from tge.import_staging_records record
+             where record.tenant_id = batch.tenant_id
+               and record.import_batch_id = batch.id
+               and record.disposition = 'PENDING')::integer pending_rows
+         from tge.import_batches batch
+         where batch.tenant_id = $1 and batch.id = $2`,
+        [tenant.id, "staging-commit-overlap-batch"]
+      );
+      assert.deepEqual(truth.rows[0], {
+        status: "COMMITTED",
+        pending_rows: 0
+      });
+    } finally {
+      if (canonicalOpen) await canonical.query("rollback").catch(() => {});
+      if (stagingOpen) await staging.query("rollback").catch(() => {});
+      await Promise.allSettled([stagingPromise].filter(Boolean));
+      await canonical.end();
+      await staging.end();
     }
   });
 
@@ -1173,6 +1273,169 @@ if (!databaseUrl) {
     }
   });
 
+  test("two production maintenance commands do not retain cleanup locks into offboarding", async () => {
+    const first = await seedTenant("maintenance-command-first", "OWNER");
+    const second = await seedTenant("maintenance-command-second", "OWNER");
+    await seedImport(first, "maintenance-command-first-batch", -9, {
+      committed: true
+    });
+    await seedImport(second, "maintenance-command-second-batch", -8, {
+      committed: true
+    });
+    await withContext(runtime, first, () => runtime.query(
+      "select * from tge.request_tenant_offboarding('OFFBOARD_ACCESS_AND_RAW_EVIDENCE')"
+    ));
+    await withContext(runtime, second, () => runtime.query(
+      "select * from tge.request_tenant_offboarding('OFFBOARD_ACCESS_AND_RAW_EVIDENCE')"
+    ));
+    await grantMaintenance();
+
+    const barrier = new Client({ connectionString: adminUrl });
+    const firstApplication = `slice2-command-first-${first.id.slice(0, 8)}`;
+    const secondApplication = `slice2-command-second-${second.id.slice(0, 8)}`;
+    let firstBarrierHeld = false;
+    let secondBarrierHeld = false;
+    let requestBarrierOpen = false;
+    let firstCommand;
+    let secondCommand;
+    await barrier.connect();
+    try {
+      await barrier.query(
+        "select pg_advisory_lock(hashtextextended($1, 544747))",
+        [first.id]
+      );
+      firstBarrierHeld = true;
+      await barrier.query(
+        "select pg_advisory_lock(hashtextextended($1, 544747))",
+        [second.id]
+      );
+      secondBarrierHeld = true;
+      await barrier.query("begin");
+      requestBarrierOpen = true;
+      await barrier.query(
+        `select request_id
+         from tge.tenant_offboarding_requests
+         where tenant_id = $1
+         for update`,
+        [second.id]
+      );
+      await admin.query(
+        `create function tge.test_pause_production_maintenance_cleanup()
+         returns trigger language plpgsql as $$
+         begin
+           if old.tenant_id in ('${first.id}'::uuid, '${second.id}'::uuid) then
+             perform pg_advisory_xact_lock(
+               hashtextextended(old.tenant_id::text, 544747)
+             );
+           end if;
+           return new;
+         end $$`
+      );
+      await admin.query(
+        `create trigger test_pause_production_maintenance_cleanup
+         before update on tge.import_staging_records
+         for each row when (old.raw_payload is not null and new.raw_payload is null)
+         execute function tge.test_pause_production_maintenance_cleanup()`
+      );
+
+      firstCommand = runMaintenanceCommand(withApplicationName(
+        maintenanceUrl,
+        firstApplication
+      ));
+      const firstPid = await waitForApplicationBlockedBy(
+        admin,
+        firstApplication,
+        barrier.processID
+      );
+      assert.ok(firstPid, "first command must pause after claiming the first tenant");
+
+      secondCommand = runMaintenanceCommand(withApplicationName(
+        maintenanceUrl,
+        secondApplication
+      ));
+      const secondPid = await waitForApplicationBlockedBy(
+        admin,
+        secondApplication,
+        barrier.processID
+      );
+      assert.ok(secondPid, "second command must skip to and claim the second tenant");
+
+      await barrier.query(
+        "select pg_advisory_unlock(hashtextextended($1, 544747))",
+        [second.id]
+      );
+      secondBarrierHeld = false;
+      assert.equal(
+        await waitForBlockingPid(admin, secondPid, firstPid),
+        true,
+        "second command must reach offboarding while the first cleanup is paused"
+      );
+
+      await barrier.query("commit");
+      requestBarrierOpen = false;
+      await barrier.query(
+        "select pg_advisory_unlock(hashtextextended($1, 544747))",
+        [first.id]
+      );
+      firstBarrierHeld = false;
+      const results = await withDeadline(
+        Promise.all([firstCommand, secondCommand]),
+        15000,
+        "production maintenance command overlap did not complete"
+      );
+      for (const result of results) {
+        assert.equal(result.code, 0, result.stderr || result.stdout);
+        assert.equal(result.stderr, "");
+      }
+
+      const truth = await admin.query(
+        `select tenant_id, state, retryable
+         from tge.tenant_offboarding_requests
+         where tenant_id = any($1::uuid[])
+         order by tenant_id`,
+        [[first.id, second.id]]
+      );
+      assert.deepEqual(
+        truth.rows.map(row => ({ state: row.state, retryable: row.retryable })),
+        [
+          { state: "OFFBOARDED_ACCESS_REVOKED", retryable: false },
+          { state: "OFFBOARDED_ACCESS_REVOKED", retryable: false }
+        ]
+      );
+      const failedEvidence = await admin.query(
+        `select count(*)::integer as count
+         from tge.data_deletion_evidence
+         where tenant_id = any($1::uuid[]) and status = 'FAILED'`,
+        [[first.id, second.id]]
+      );
+      assert.equal(failedEvidence.rows[0].count, 0);
+    } finally {
+      if (requestBarrierOpen) {
+        await barrier.query("rollback").catch(() => {});
+      }
+      if (secondBarrierHeld) {
+        await barrier.query(
+          "select pg_advisory_unlock(hashtextextended($1, 544747))",
+          [second.id]
+        ).catch(() => {});
+      }
+      if (firstBarrierHeld) {
+        await barrier.query(
+          "select pg_advisory_unlock(hashtextextended($1, 544747))",
+          [first.id]
+        ).catch(() => {});
+      }
+      await Promise.allSettled([firstCommand, secondCommand].filter(Boolean));
+      await barrier.end();
+      await admin.query(
+        "drop trigger if exists test_pause_production_maintenance_cleanup on tge.import_staging_records"
+      );
+      await admin.query(
+        "drop function if exists tge.test_pause_production_maintenance_cleanup()"
+      );
+    }
+  });
+
   async function seedTenant(label, role, metadata = {}) {
     const tenant = {
       id: randomUUID(),
@@ -1283,6 +1546,28 @@ if (!databaseUrl) {
         [tenant.id, `prospect-${batchId}`, createdAt]
       );
     }
+  }
+
+  async function seedEmptyImport(tenant, batchId) {
+    const createdAt = new Date();
+    await admin.query(
+      `insert into tge.import_batches (
+         tenant_id, id, status, source_filename, source_sha256,
+         authorized_by_subject_id, authorization_verified_at, preview_summary,
+         raw_expires_at, metadata_retain_until, created_at, updated_at
+       ) values ($1, $2, 'PREVIEWED', 'private-empty.csv', $3, $4, $5,
+         '{"format":"CSV","sourceCollection":"prospects","rowCount":0,"columnCount":0,"headers":[]}'::jsonb,
+         $6, $7, $5, $5)`,
+      [
+        tenant.id,
+        batchId,
+        "a".repeat(64),
+        tenant.subject,
+        createdAt,
+        new Date(createdAt.valueOf() + 7 * 86400000),
+        addMonths(createdAt, 12)
+      ]
+    );
   }
 
   async function seedInvitation(tenant) {
@@ -1435,6 +1720,58 @@ async function waitForBlockingPid(client, blockedPid, blockerPid) {
     await new Promise(resolve => setImmediate(resolve));
   }
   return false;
+}
+
+async function waitForApplicationBlockedBy(client, applicationName, blockerPid) {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const result = await client.query(
+      `select pid
+       from pg_stat_activity
+       where application_name = $1
+         and state = 'active'
+         and $2::integer = any(pg_blocking_pids(pid))`,
+      [applicationName, blockerPid]
+    );
+    if (result.rows[0]?.pid) return result.rows[0].pid;
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  return null;
+}
+
+function runMaintenanceCommand(connectionString) {
+  const child = spawn(process.execPath, [
+    path.join(root, "scripts/run-maintenance-cleanup.mjs")
+  ], {
+    cwd: root,
+    env: {
+      ...process.env,
+      TGE_MAINTENANCE_DATABASE_URL: connectionString
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", chunk => { stdout += chunk; });
+  child.stderr.on("data", chunk => { stderr += chunk; });
+  return new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({
+      code,
+      signal,
+      stdout,
+      stderr
+    }));
+  });
+}
+
+function withApplicationName(connectionString, applicationName) {
+  const url = new URL(connectionString);
+  url.searchParams.set("application_name", applicationName);
+  url.searchParams.set("options", "-c statement_timeout=8s");
+  return url.toString();
 }
 
 async function withDeadline(promise, milliseconds, message) {

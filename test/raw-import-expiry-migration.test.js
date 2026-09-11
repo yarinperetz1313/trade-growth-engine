@@ -141,12 +141,45 @@ test("migration 015 creates a targetless-only maintenance role with no migrator 
 
 test("migration 015 guards tenant terminal state and staging batch writability", () => {
   const sql = migration();
+  const stagingGuard = sql.match(
+    /create function tge\.guard_import_staging_writable[\s\S]*?\$function\$;/i
+  )?.[0] || "";
+  const tenantLock = stagingGuard.search(
+    /from tge\.tenants tenant[\s\S]*?for share/i
+  );
+  const batchLock = stagingGuard.search(
+    /from tge\.import_batches batch[\s\S]*?for share/i
+  );
   assert.match(sql, /guard_import_batch_tenant_writable/i);
   assert.match(sql, /guard_import_staging_writable/i);
   assert.match(sql, /OFFBOARDED_ACCESS_REVOKED/i);
   assert.match(sql, /target_batch\.status\s+not in\s*\('STAGED',\s*'PREVIEWED'\)/i);
   assert.match(sql, /target_batch\.raw_expires_at\s*<=\s*clock_timestamp\(\)/i);
   assert.match(sql, /target_batch\.raw_cleanup_state\s+not in\s*\('PENDING',\s*'FAILED'\)/i);
+  assert.ok(tenantLock >= 0, "expected an explicit tenant row lock");
+  assert.ok(
+    batchLock > tenantLock,
+    "tenant row lock must precede the staging batch row lock"
+  );
+});
+
+test("the maintenance command commits cleanup before starting offboarding", () => {
+  const command = fs.readFileSync(
+    path.join(root, "scripts/run-maintenance-cleanup.mjs"),
+    "utf8"
+  );
+  const cleanup = command.indexOf("process_due_raw_import_cleanup");
+  const boundary = command.indexOf('await client.query("commit")', cleanup);
+  const offboarding = command.indexOf(
+    "process_pending_tenant_offboarding",
+    cleanup
+  );
+  assert.ok(cleanup >= 0, "expected the targetless cleanup call");
+  assert.ok(boundary > cleanup, "expected cleanup to commit");
+  assert.ok(
+    offboarding > boundary,
+    "cleanup must commit before offboarding starts"
+  );
 });
 
 test("migration 015 locks the tenant before cleanup and import batch rows", () => {

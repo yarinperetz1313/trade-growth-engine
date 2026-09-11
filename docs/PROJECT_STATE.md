@@ -92,6 +92,28 @@ pass, and migrations `001`–`014` remain byte-identical to `origin/main`.
 Browser E2E and production build were intentionally not repeated because no
 browser or web-production source changed.
 
+The bounded staging/maintenance concurrency remediation closes the final two
+fresh High-review findings at `5ac47b4`. A state-synchronized canonical commit
+regression proved a runtime staging insert could validate `PREVIEWED`, wait
+behind canonical finalization, and then persist a `PENDING` row after the batch
+became `COMMITTED`. The staging guard now takes the established tenant lock and
+then locks and revalidates the batch row, retaining tenant-before-child ordering
+and the existing trigger-only least-privilege boundary. A second regression
+runs two actual production maintenance commands across two tenants, using
+advisory barriers and `pg_blocking_pids` to reproduce the cleanup-lock retention
+cycle without timing sleeps. The command now commits cleanup before beginning
+offboarding, so each processor retains its existing targetless database
+authority while no cleanup tenant locks cross into offboarding. Product RED was
+**0/1** for each finding. Focused GREEN is **1/1** each; migration/service is
+**17/17**; affected auth/import/persistence is **147/147**; the complete affected
+PostgreSQL 16.15 file is **17/17**; the engineering harness plus integration is
+**387/387**; and the complete PostgreSQL suite is **84/84**. The standalone
+harness and harness/migration-static pair **22/22** pass, `git diff --check` is
+clean, and migrations `001`–`014` retain their exact starting SHA-256 values.
+All previously closed Slice 2 invariants remain covered. Browser E2E and
+production build were not run because no browser or web-production source
+changed.
+
 Post-merge [GitHub Verify run 34440327842](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/34440327842)
 failed integration at **349 passed / 7 failed** because an engineering-harness
 negative self-test rewrote tracked repository files in place during parallel

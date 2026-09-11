@@ -205,16 +205,25 @@ begin
   );
   if not runtime_session then return new; end if;
 
-  select batch.status, batch.raw_expires_at, batch.raw_cleanup_state
-  into target_batch
+  perform 1
   from tge.tenants tenant
-  join tge.import_batches batch
-    on batch.tenant_id = tenant.id
   where tenant.id = new.tenant_id
-    and batch.id = new.import_batch_id
     and tenant.metadata->>'offboarding_state'
       is distinct from 'OFFBOARDED_ACCESS_REVOKED'
-  for share of tenant;
+  for share;
+
+  if not found then
+    raise exception using
+      errcode = '23514',
+      message = 'Import staging write denied.';
+  end if;
+
+  select batch.status, batch.raw_expires_at, batch.raw_cleanup_state
+  into target_batch
+  from tge.import_batches batch
+  where batch.tenant_id = new.tenant_id
+    and batch.id = new.import_batch_id
+  for share;
 
   if not found
     or target_batch.status not in ('STAGED', 'PREVIEWED')

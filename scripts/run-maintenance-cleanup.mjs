@@ -16,6 +16,8 @@ if (!connectionString) {
       "select * from tge.process_due_raw_import_cleanup($1::integer)",
       [limit]
     );
+    await client.query("commit");
+    await client.query("begin");
     const offboarding = await client.query(
       "select * from tge.process_pending_tenant_offboarding($1::integer)",
       [limit]
