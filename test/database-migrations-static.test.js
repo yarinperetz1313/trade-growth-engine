@@ -6,10 +6,37 @@ const test = require("node:test");
 
 const repositoryRoot = path.resolve(__dirname, "..");
 const migrationsDirectory = path.join(repositoryRoot, "database", "migrations");
+const LOCKED_MIGRATION_HASHES = Object.freeze({
+  "001_initial_schema.sql": "d08f3b7e5c97e05a5ec7f96242543fbbf437d7af4edea34d22dc09db910cfc62",
+  "002_tenant_domain_schema.sql": "a95f94263c5a1dd1a246a3be905e7f27bd5f4222ba871c137cf90fa2faf17c1c",
+  "003_roles_rls_and_grants.sql": "311a02a67deb09ad44b2782f90c2ff3c67d6a537ca9b9ed1f116cafd37a149a8",
+  "004_global_function_default_privileges.sql": "ad9633daf1dd791c8889c79745d8741bace24e0827b76d3fec59d6d73371aa2d",
+  "005_task_in_progress_status.sql": "2e9bc0029cbfdc03828de7784aa19014de3f7e988cc8f5668bcacd729e206a66",
+  "006_runtime_revenue_action_integrity.sql": "f110d2f7937c6133ed1785df05be8c3ca725add7d207a6d94b8a27610b3bca6f",
+  "007_revenue_action_lifecycle_integrity.sql": "514d12b74519405b28e76960244483880f01092b30bcac650a97f247469f4dc6",
+  "008_revenue_action_outcome_integrity.sql": "7e4f8b74df1ecc496fa6c7ac8b55169d3e7db7efccdcf3f1f7d0ad37aa95cd72",
+  "009_revenue_action_cancellation_integrity.sql": "f248d2d5a7363331cd4f4732551a62f9ac28f3315ad5e9777ded1547657d3736",
+  "010_auth_membership_and_invitations.sql": "fcb19ddba6c2d5bc654af0c3a3172505675dd5c4160876d717b51943b2863e03",
+  "011_canonical_import_commit.sql": "df50ee0697bb7849b3575f9f5aef40673855ec77a4ebcfcd0cf0d8d5e59ca04b",
+  "012_revenue_leak_case_foundation.sql": "0ec9ffaf16987d84b319b6dc579edea86bbedcd3cff65f8b9d881f9c4dbba6d8",
+  "013_privacy_minimized_pilot_evidence.sql": "b27c7d6c69990f459b1e51c0d902d55f6a1f44fbf17accb69459b2c26465f6a8",
+  "014_secure_pilot_runtime_readiness.sql": "699cb9c1e7fc4319f71cf7e98e99934706f9f75a8f0f00ae9c22ff90c5c9ea10",
+  "015_raw_import_expiry_tenant_offboarding.sql": "1f33b8656dbd2c3a05adc9a540412efcac41a8540673bee0e52e510b0e40fcd5"
+});
 
 function read(relativePath) {
   return fs.readFileSync(path.join(repositoryRoot, relativePath), "utf8");
 }
+
+test("migrations 001 through 015 retain the exact Slice 3 base bytes", () => {
+  assert.deepEqual(
+    Object.fromEntries(Object.keys(LOCKED_MIGRATION_HASHES).map(fileName => [
+      fileName,
+      createHash("sha256").update(read(`database/migrations/${fileName}`)).digest("hex")
+    ])),
+    LOCKED_MIGRATION_HASHES
+  );
+});
 
 test("migration 001 remains byte-for-byte unchanged and migrations are append-only", () => {
   const migrationFiles = fs
@@ -33,13 +60,38 @@ test("migration 001 remains byte-for-byte unchanged and migrations are append-on
     "012_revenue_leak_case_foundation.sql",
     "013_privacy_minimized_pilot_evidence.sql",
     "014_secure_pilot_runtime_readiness.sql",
-    "015_raw_import_expiry_tenant_offboarding.sql"
+    "015_raw_import_expiry_tenant_offboarding.sql",
+    "016_authoritative_opportunity_currency.sql"
   ]);
   assert.equal(Buffer.byteLength(initialMigration), 2752);
   assert.equal(
     createHash("sha256").update(initialMigration).digest("hex"),
     "d08f3b7e5c97e05a5ec7f96242543fbbf437d7af4edea34d22dc09db910cfc62"
   );
+});
+
+test("migration 016 adds only nullable canonical opportunity currency and current readiness", () => {
+  const migration = read(
+    "database/migrations/016_authoritative_opportunity_currency.sql"
+  );
+  assert.match(migration, /^set local role tge_owner;/);
+  assert.match(migration, /alter table tge\.opportunities[\s\S]*add column currency text/);
+  assert.match(
+    migration,
+    /currency is null[\s\S]*currency ~ '\^\[A-Z\]\{3\}\$'/
+  );
+  assert.match(migration, /'016'::text as schema_version/);
+  assert.match(
+    migration,
+    /create policy opportunity_currency_migration_scope[\s\S]*to tge_owner[\s\S]*drop policy opportunity_currency_migration_scope/
+  );
+  assert.match(
+    migration,
+    /grant execute on function tge\.pilot_runtime_readiness\(\) to tge_runtime/
+  );
+  assert.doesNotMatch(migration, /alter table tge\.(prospects|tasks|activities|revenue_actions)/);
+  assert.doesNotMatch(migration, /grant (insert|update|delete|truncate)/i);
+  assert.doesNotMatch(migration, /disable row level security|no force row level security/i);
 });
 
 test("tenant schema preserves source identity, unknown values, ordering, and scoped relationships", () => {

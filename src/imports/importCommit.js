@@ -258,6 +258,10 @@ function cellValue(record, columnOrdinal, declaredType, targetField) {
   if (!cell || !cell.present || cell.valueKind === "MISSING") return MISSING;
   if (cell.valueKind === "NULL") return targetField === "value" ? null : MISSING;
   if (
+    targetField === "currency"
+    && ["BLANK", "NULL", "UNKNOWN"].includes(cell.valueKind)
+  ) return MISSING;
+  if (
     cell.valueKind === "BLANK"
     && RELATIONSHIP_TARGET_FIELDS.has(targetField)
   ) return MISSING;

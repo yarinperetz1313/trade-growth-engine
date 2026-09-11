@@ -6,9 +6,15 @@ const {
 const {
   createJsonPilotEvidenceRepository
 } = require("../pilotEvidence/jsonPilotEvidenceRepository");
+const {
+  assertOpportunityCurrency
+} = require("../opportunities/opportunityCurrency");
 
 function createJsonRepositories({ store = localStore } = {}) {
-  const collection = (name, { immutable = false, order, filters = {} } = {}) => ({
+  const collection = (
+    name,
+    { immutable = false, order, filters = {}, validateChanges } = {}
+  ) => ({
     async list(contextOrFilters, maybeFilters) {
       const requestedFilters = maybeFilters === undefined
         ? contextOrFilters || {}
@@ -29,11 +35,13 @@ function createJsonRepositories({ store = localStore } = {}) {
     ...(!immutable ? {
       async insert(contextOrRecord, maybeRecord) {
         const record = maybeRecord === undefined ? contextOrRecord : maybeRecord;
+        validateChanges?.(record);
         return store.createRecord(name, record);
       },
       async update(contextOrId, idOrChanges, maybeChanges) {
         const id = maybeChanges === undefined ? contextOrId : idOrChanges;
         const changes = maybeChanges === undefined ? idOrChanges : maybeChanges;
+        validateChanges?.(changes);
         return store.updateRecord(name, id, changes);
       },
       async delete(contextOrId, maybeId) {
@@ -46,7 +54,12 @@ function createJsonRepositories({ store = localStore } = {}) {
   const repositories = {
     prospects: collection("prospects"),
     opportunities: collection("opportunities", {
-      filters: { prospectId: "prospect_id", stage: "stage" }
+      filters: { prospectId: "prospect_id", stage: "stage" },
+      validateChanges(record) {
+        if (Object.hasOwn(record, "currency")) {
+          assertOpportunityCurrency(record.currency);
+        }
+      }
     }),
     tasks: collection("tasks", {
       filters: { opportunityId: "opportunity_id", status: "status" }

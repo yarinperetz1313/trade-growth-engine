@@ -61,7 +61,9 @@ test("opens exact seeded opportunity, closes the intelligence loop, and preserve
   await page.goto(`/#opportunities/${opportunityId}`);
   await expect(page.getByRole("heading", { name: businessName })).toBeVisible();
   await expect(page.getByText("This is not a probability of closing.")).toBeVisible();
-  await expect(page.getByTestId("opportunity-value")).toContainText("$15,000");
+  await expect(page.getByTestId("opportunity-value")).toHaveText(
+    "15,000 · Currency unknown"
+  );
 
   const before = await api(`/api/opportunities/${opportunityId}/intelligence`);
   expect(before.data.intelligence.tasks.open).toBe(0);

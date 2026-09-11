@@ -530,6 +530,37 @@ test("analysis enforces each collection's complete canonical field contract", as
   }
 });
 
+test("browser opportunity mapping requires the optional authoritative currency field", async () => {
+  const { unwrapImportAnalysisResponse } = await contracts;
+  const { analysis, expectations } = browserAnalysis(
+    "external_id,company,deal_stage,amount,currency\n" +
+    "o-1,Acme,PROPOSAL,100,AUD",
+    "opportunities"
+  );
+  const currency = analysis.mapping.fields.find(field => field.targetField === "currency");
+  assert.ok(currency);
+  assert.equal(currency.declaredType, "TEXT");
+  assert.equal(currency.required, false);
+  assert.deepEqual(
+    unwrapImportAnalysisResponse({ ok: true, data: analysis }, expectations),
+    analysis
+  );
+
+  const omitted = structuredClone(analysis);
+  omitted.mapping.fields = omitted.mapping.fields.filter(field => (
+    field.targetField !== "currency"
+  ));
+  omitted.dataHealth.unknownUnmappedStatuses.unmappedTargetFields =
+    omitted.dataHealth.unknownUnmappedStatuses.unmappedTargetFields.filter(field => (
+      field !== "currency"
+    ));
+  delete omitted.dataHealth.missingValueCounts.currency;
+  assert.throws(
+    () => unwrapImportAnalysisResponse({ ok: true, data: omitted }, expectations),
+    error => error?.code === "IMPORT_RESPONSE_INVALID"
+  );
+});
+
 test("analysis requires the exact unmapped source and commercial missing-count complements", async () => {
   const { analysisFixture, previewFixture } = await fixtures;
   const { unwrapImportAnalysisResponse } = await contracts;

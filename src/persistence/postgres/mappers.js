@@ -22,6 +22,7 @@ const SYSTEM_FIELDS = new Set([
   "commercial_value",
   "commercial_value_state",
   "commercial_value_raw",
+  "currency",
   "revenue_action_id"
 ]);
 const JSON_NULL = Symbol("postgres-json-null");
@@ -32,6 +33,9 @@ const {
   isExactZeroLiteral,
   jsonNumberLiteral
 } = require("../../imports/numericEvidence");
+const {
+  assertOpportunityCurrency
+} = require("../../opportunities/opportunityCurrency");
 
 function clone(value) {
   if (value === undefined) return undefined;
@@ -167,6 +171,7 @@ function opportunityToRow(record, options) {
       : value.state === "NULL"
         ? JSON_NULL
         : value.raw,
+    currency: assertOpportunityCurrency(record.currency) ?? null,
     probability: record.probability ?? null,
     weighted_value: record.weighted_value ?? null,
     next_action: record.next_action ?? null,
@@ -328,6 +333,11 @@ function opportunityFromRow(row) {
   );
   optional(record, "next_action", row.next_action);
   optional(record, "contact_name", row.contact_name);
+  if (row.currency !== null && row.currency !== undefined) {
+    record.currency = assertOpportunityCurrency(row.currency);
+  } else if (Object.hasOwn(record, "currency")) {
+    record.currency = assertOpportunityCurrency(record.currency);
+  }
   optionalJson(record, "metadata", row.metadata, {});
 
   if (row.commercial_value_state === "MISSING") {

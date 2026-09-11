@@ -960,7 +960,7 @@ export default function RevenueCommandCenter({
               <h4>Top opportunity actions</h4>
               {actionsUnavailable ? <div className="pipeline-loading">Opportunity actions are unavailable until opportunity data can be loaded.</div>
                 : topActions.length === 0 ? <div className="pipeline-loading">No active opportunities need review.</div>
-                  : topActions.map(item => <button key={item.opportunity_id} type="button" className="revenue-action" data-testid={`revenue-action-${item.opportunity_id}`} onClick={() => onOpenOpportunity(item.opportunity_id)}><span><strong>{item.business_name || "Unnamed opportunity"}</strong><small>{item.action.priority} · {item.action.type}{item.value.known ? ` · ${formatCommercialValue(item.value.amount)}` : " · Value unknown"}</small></span><span className="revenue-action-title">{item.action.title} →</span></button>)}
+                  : topActions.map(item => <button key={item.opportunity_id} type="button" className="revenue-action" data-testid={`revenue-action-${item.opportunity_id}`} onClick={() => onOpenOpportunity(item.opportunity_id)}><span><strong>{item.business_name || "Unnamed opportunity"}</strong><small>{item.action.priority} · {item.action.type}{item.value.known ? ` · ${formatCommercialValue(item.value.amount, item.value.currency)}` : " · Value unknown"}</small></span><span className="revenue-action-title">{item.action.title} →</span></button>)}
             </div>
           </>
         )}

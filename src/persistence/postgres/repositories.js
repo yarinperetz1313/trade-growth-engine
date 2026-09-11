@@ -79,7 +79,7 @@ const ENTITY_CONFIGS = {
     filters: { prospectId: "prospect_id", stage: "stage" },
     mutableFields: new Set([
       "id", "prospect_id", "business_name", "stage", "priority",
-      "qualification_score", "value", "probability", "weighted_value",
+      "qualification_score", "value", "currency", "probability", "weighted_value",
       "next_action", "contact_name", "metadata", "created_at", "updated_at"
     ])
   },

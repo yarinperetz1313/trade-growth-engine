@@ -2,6 +2,34 @@
 
 _Last locally audited on 2026-09-11. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
+Assisted Pilot Safety Gate V1 Slice 3 now implements the optional
+[authoritative opportunity currency](architecture/AUTHORITATIVE_OPPORTUNITY_CURRENCY.md)
+contract locally. Exact uppercase three-letter codes flow through backward-safe
+JSON writes, append-only PostgreSQL migration `016`, reviewed CSV mapping/Data
+Health, atomic canonical commit and replay, opportunity APIs, deterministic
+RevenueLeakCase value classification, and browser import/opportunity surfaces.
+Missing/null currency remains unknown; malformed, padded, or lowercase supplied
+evidence fails closed. Amount and currency remain independent. There is no
+currency default, locale/tenant inference, silent normalization, FX conversion,
+probability/expected-value behavior, JSON cutover, or dual write.
+
+The migration preserves forced RLS and existing runtime grants. A temporary
+owner-only migration policy permits the all-tenant preflight/backfill and is
+dropped in the same transaction; malformed legacy evidence rolls every change
+back. Exact valid current/legacy JSON currency is promoted, missing/null remains
+SQL `NULL`, and compatibility payloads and unknown fields are preserved. Local
+evidence includes a complete local `npm run verify`: engineering harness,
+integration **404/404**, real PostgreSQL 16.15 **90/90**, managed Chromium
+**51/51**, and the Vite 8.2.2 production build (**31 modules**), plus
+`git diff --check`. The first listener-permitted full attempt encountered a
+transient PostgreSQL catalog setup race in unchanged migration `002`; the
+unchanged retry passed completely.
+Migration `016` SHA-256 is
+`232fa715c2d2062186b0027d429119fe3e18fb110b03b63214f378eb3fe910d6`;
+migrations `001`–`015` remain byte-identical to base. This does not prove
+provider provisioning, production/deployment behavior, GitHub gates, external
+acceptance, or coordinator-led independent review.
+
 Assisted Pilot Safety Gate V1 Slice 2 now implements the PostgreSQL-only
 [raw-import expiry and tenant offboarding
 contract](architecture/PILOT_READINESS_FOUNDATION.md#import-safety-retention-and-deletion). Append-only

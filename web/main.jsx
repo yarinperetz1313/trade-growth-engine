@@ -1566,7 +1566,7 @@ function Opportunities() {
                     </strong>
 
                     <span>
-                      {money(opportunity.value)}
+                      {money(opportunity.value, opportunity.currency)}
                     </span>
 
                     <span>
@@ -1578,7 +1578,7 @@ function Opportunities() {
                     </span>
 
                     <span>
-                      {money(weighted)}
+                      {money(weighted, opportunity.currency)}
                     </span>
 
                     <span className="stage">

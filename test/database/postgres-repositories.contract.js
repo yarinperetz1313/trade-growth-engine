@@ -603,6 +603,143 @@ function registerPostgresRepositoryContractTests({
     );
   });
 
+  test("PostgreSQL opportunity currency is exact, nullable, tenant-isolated, and database constrained", async () => {
+    const pool = createPool();
+    const repositories = createPostgresRepositories({ pool });
+    const tenantA = await createTenant("currency-a");
+    const tenantB = await createTenant("currency-b");
+
+    const known = await repositories.opportunities.insert(tenantA.context, {
+      id: "shared-currency-opportunity",
+      business_name: "Tenant A Currency",
+      stage: "QUALIFIED",
+      value: "1250.5",
+      currency: "AUD"
+    });
+    await repositories.opportunities.insert(tenantB.context, {
+      id: "shared-currency-opportunity",
+      business_name: "Tenant B Currency",
+      stage: "QUALIFIED",
+      value: "9000",
+      currency: "USD"
+    });
+    const unknown = await repositories.opportunities.insert(tenantA.context, {
+      id: "unknown-currency-opportunity",
+      business_name: "Unknown Currency",
+      stage: "QUALIFIED",
+      value: "500"
+    });
+
+    assert.equal(known.currency, "AUD");
+    assert.equal(Object.hasOwn(unknown, "currency"), false);
+    assert.equal(
+      (await repositories.opportunities.findById(
+        tenantA.context,
+        "shared-currency-opportunity"
+      )).currency,
+      "AUD"
+    );
+    assert.equal(
+      (await repositories.opportunities.findById(
+        tenantB.context,
+        "shared-currency-opportunity"
+      )).currency,
+      "USD"
+    );
+
+    const canonical = await getAdminClient().query(
+      `select currency from tge.opportunities
+       where tenant_id = $1 and id = $2`,
+      [tenantA.tenantId, known.id]
+    );
+    assert.deepEqual(canonical.rows, [{ currency: "AUD" }]);
+
+    const updated = await repositories.opportunities.update(
+      tenantA.context,
+      known.id,
+      { next_action: "Preserve exact currency" }
+    );
+    assert.equal(updated.currency, "AUD");
+
+    const core = createPostgresCoreService({
+      persistence: createPersistence({ adapter: "postgres", pool }),
+      createId: () => `currency-activity-${randomUUID()}`
+    }).forTenant(tenantA.context);
+    const changedCurrency = await core.setValue({
+      opportunityId: known.id,
+      value: 2400,
+      currency: "CAD"
+    });
+    assert.equal(changedCurrency.ok, true);
+    assert.equal(changedCurrency.opportunity.currency, "CAD");
+    assert.equal(changedCurrency.activity.metadata.currency, "CAD");
+    const invalidMutation = await core.setValue({
+      opportunityId: known.id,
+      value: 3600,
+      currency: "cad"
+    });
+    assert.equal(invalidMutation.ok, false);
+    assert.equal(invalidMutation.error, "OPPORTUNITY_CURRENCY_INVALID");
+    const afterInvalidMutation = await repositories.opportunities.findById(
+      tenantA.context,
+      known.id
+    );
+    assert.equal(afterInvalidMutation.value, 2400);
+    assert.equal(afterInvalidMutation.currency, "CAD");
+
+    await assert.rejects(
+      repositories.opportunities.insert(tenantA.context, {
+        id: "application-invalid-currency",
+        business_name: "Invalid Currency",
+        stage: "QUALIFIED",
+        value: 10,
+        currency: "aud"
+      }),
+      error => error?.code === "OPPORTUNITY_CURRENCY_INVALID"
+    );
+
+    const runtime = await pool.connect();
+    try {
+      await runtime.query("begin");
+      await runtime.query("select tge.set_request_context($1::uuid, $2::text)", [
+        tenantA.tenantId,
+        tenantA.context.subjectId
+      ]);
+      await assert.rejects(
+        runtime.query(
+          `insert into tge.opportunities (
+             tenant_id, id, business_name, stage,
+             commercial_value_state, currency
+           ) values ($1, $2, $3, $4, 'MISSING', $5)`,
+          [tenantA.tenantId, "database-invalid-currency", "Invalid", "NEW", "aud"]
+        ),
+        error => error?.code === "23514"
+      );
+      await runtime.query("rollback");
+    } finally {
+      runtime.release();
+    }
+
+    const security = await getAdminClient().query(
+      `select relation.relrowsecurity as rls_enabled,
+         relation.relforcerowsecurity as rls_forced,
+         count(policy.policyname)::int as migration_policy_count
+       from pg_class relation
+       join pg_namespace namespace on namespace.oid = relation.relnamespace
+       left join pg_policies policy
+         on policy.schemaname = namespace.nspname
+        and policy.tablename = relation.relname
+        and policy.policyname = 'opportunity_currency_migration_scope'
+       where namespace.nspname = 'tge' and relation.relname = 'opportunities'
+       group by relation.relrowsecurity, relation.relforcerowsecurity`
+    );
+    assert.deepEqual(security.rows, [{
+      rls_enabled: true,
+      rls_forced: true,
+      migration_policy_count: 0
+    }]);
+  });
+
   test("PostgreSQL CRUD distinguishes absent defaults from malformed evidence and preserves compatible ID/timestamp mutation", async () => {
     const pool = createPool();
     const serverNow = "2026-08-30T03:00:00.000Z";
@@ -3472,6 +3609,130 @@ function registerPostgresRepositoryContractTests({
       [tenant.tenantId]
     );
     assert.equal(unknownIdentityMaps.rows[0].count, 0);
+  });
+
+  test("canonical import persists and replays only explicit valid opportunity currency", async () => {
+    const pool = createPool();
+    const repositories = createPostgresRepositories({ pool });
+    const tenant = await createTenant("canonical-import-currency");
+    const batchId = `canonical-currency-${randomUUID()}`;
+    const input = canonicalOpportunityInput(`currency-${randomUUID()}`);
+    input.selections.push({
+      targetField: "currency",
+      sourceColumn: "currency",
+      selectedType: "TEXT"
+    });
+    await stageCsvBatch(
+      repositories,
+      tenant.context,
+      batchId,
+      "source_id,id,business_name,stage,value,currency,probability\n" +
+        "currency-known,currency-known,Known Currency,QUALIFIED,1250.50,AUD,0.5\n" +
+        "currency-missing,currency-missing,Missing Currency,QUALIFIED,9000,,0.5\n" +
+        "currency-only,currency-only,Currency Only,QUALIFIED,,NZD,0.5"
+    );
+
+    const committed = await commitCsvBatch(
+      repositories,
+      tenant.context,
+      batchId,
+      input
+    );
+    assert.equal(committed.outcome, "COMMITTED");
+    assert.deepEqual(committed.summary, {
+      total: 3,
+      committed: 3,
+      skipped: 0,
+      conflicted: 0,
+      failed: 0
+    });
+    const [known, missing, currencyOnly] = await Promise.all([
+      repositories.opportunities.findById(tenant.context, "currency-known"),
+      repositories.opportunities.findById(tenant.context, "currency-missing"),
+      repositories.opportunities.findById(tenant.context, "currency-only")
+    ]);
+    assert.equal(known.value, 1250.5);
+    assert.equal(known.currency, "AUD");
+    assert.equal(missing.value, 9000);
+    assert.equal(Object.hasOwn(missing, "currency"), false);
+    assert.equal(currencyOnly.value, "");
+    assert.equal(currencyOnly.currency, "NZD");
+
+    const stored = await getAdminClient().query(
+      `select id, commercial_value::text as value, commercial_value_state,
+         currency, current_payload ? 'currency' as payload_has_currency
+       from tge.opportunities
+       where tenant_id = $1 and id = any($2::text[])
+       order by id`,
+      [tenant.tenantId, ["currency-known", "currency-missing", "currency-only"]]
+    );
+    assert.deepEqual(stored.rows, [
+      {
+        id: "currency-known",
+        value: "1250.500000",
+        commercial_value_state: "KNOWN",
+        currency: "AUD",
+        payload_has_currency: false
+      },
+      {
+        id: "currency-missing",
+        value: "9000.000000",
+        commercial_value_state: "KNOWN",
+        currency: null,
+        payload_has_currency: false
+      },
+      {
+        id: "currency-only",
+        value: null,
+        commercial_value_state: "BLANK",
+        currency: "NZD",
+        payload_has_currency: false
+      }
+    ]);
+
+    const replay = await commitCsvBatch(
+      repositories,
+      tenant.context,
+      batchId,
+      { ...input, selections: [...input.selections].reverse() }
+    );
+    assert.equal(replay.outcome, "COMMITTED");
+    assert.equal(replay.reconciled, true);
+
+    const invalidBatchId = `canonical-currency-invalid-${randomUUID()}`;
+    const invalidInput = canonicalOpportunityInput(`currency-invalid-${randomUUID()}`);
+    invalidInput.selections.push({
+      targetField: "currency",
+      sourceColumn: "currency",
+      selectedType: "TEXT"
+    });
+    await stageCsvBatch(
+      repositories,
+      tenant.context,
+      invalidBatchId,
+      "source_id,id,business_name,stage,value,currency,probability\n" +
+        "private-source,currency-invalid,Private Currency,QUALIFIED,50,aud,0.5"
+    );
+    const invalid = await commitCsvBatch(
+      repositories,
+      tenant.context,
+      invalidBatchId,
+      invalidInput
+    );
+    assert.equal(invalid.outcome, "FAILED");
+    assert.equal(
+      await repositories.opportunities.findById(tenant.context, "currency-invalid"),
+      null
+    );
+    const minimized = await getAdminClient().query(
+      `select payload from tge.audit_events
+       where tenant_id = $1 and entity_id = $2
+         and event_type = 'IMPORT_COMMIT_FAILED'`,
+      [tenant.tenantId, invalidBatchId]
+    );
+    assert.equal(JSON.stringify(minimized.rows).includes("Private Currency"), false);
+    assert.equal(JSON.stringify(minimized.rows).includes("private-source"), false);
+    assert.equal(JSON.stringify(minimized.rows).includes('"aud"'), false);
   });
 
   test("canonical import rejects PostgreSQL-unrepresentable numerics before SQL materialization", async () => {

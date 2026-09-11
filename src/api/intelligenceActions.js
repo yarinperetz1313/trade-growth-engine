@@ -12,6 +12,9 @@ const {
 const {
   getPipelineMetrics
 } = require("../opportunities/opportunityEngine");
+const {
+  assertOpportunityCurrency
+} = require("../opportunities/opportunityCurrency");
 
 const TASK_PRIORITIES = [
   "LOW",
@@ -176,7 +179,8 @@ function findEquivalentActivity({
   actionKey,
   actionType,
   semanticTitle,
-  semanticValue
+  semanticValue,
+  semanticCurrency
 }) {
   const normalizedTitle =
     semanticTitle === undefined
@@ -214,6 +218,13 @@ function findEquivalentActivity({
           metadataActionType &&
           actionType &&
           metadataActionType !== actionType
+        ) {
+          return false;
+        }
+
+        if (
+          actionType === "VALUE"
+          && (activity.metadata?.currency ?? null) !== (semanticCurrency ?? null)
         ) {
           return false;
         }
@@ -264,6 +275,7 @@ function createActivityOnce({
   actionType,
   semanticTitle,
   semanticValue,
+  semanticCurrency,
   metadata = {}
 }) {
   const existing =
@@ -273,7 +285,8 @@ function createActivityOnce({
       actionKey,
       actionType,
       semanticTitle,
-      semanticValue
+      semanticValue,
+      semanticCurrency
     });
 
   if (existing) {
@@ -504,10 +517,9 @@ function addContact({
   );
 }
 
-function setValue({
-  opportunityId,
-  value
-}) {
+function setValue(input) {
+  const { opportunityId, value } = input;
+  const currencyProvided = Object.hasOwn(input, "currency");
   const opportunity =
     findOpportunity(opportunityId);
 
@@ -538,6 +550,15 @@ function setValue({
     );
   }
 
+  let currency;
+  try {
+    currency = currencyProvided
+      ? assertOpportunityCurrency(input.currency)
+      : opportunity.currency;
+  } catch (error) {
+    return makeError(error.code, error.message, { field: error.field });
+  }
+
   const roundedValue =
     Math.round(numericValue);
 
@@ -547,16 +568,18 @@ function setValue({
     );
 
   const actionKey =
-    `value:${opportunityId}:${roundedValue}`;
+    `value:${opportunityId}:${roundedValue}:${currency ?? "UNKNOWN"}`;
 
   const changed =
     Number(opportunity.value || 0) !==
-    roundedValue;
+    roundedValue
+    || (currencyProvided && opportunity.currency !== currency);
 
   if (changed) {
     saveOpportunity({
       ...opportunity,
       value: roundedValue,
+      ...(currencyProvided ? { currency } : {}),
       weighted_value:
         Math.round(
           roundedValue * probability
@@ -569,12 +592,14 @@ function setValue({
       opportunityId,
       type: "VALUE_UPDATED",
       description:
-        `Opportunity value updated to ${roundedValue}`,
+        `Opportunity value updated to ${roundedValue} ${currency ?? "(currency unknown)"}`,
       actionKey,
       actionType: "VALUE",
       semanticValue: roundedValue,
+      semanticCurrency: currency,
       metadata: {
         value: roundedValue,
+        currency: currency ?? null,
         action_type: "VALUE"
       }
     });

@@ -61,6 +61,13 @@ contradictory success evidence fails closed before review or confirmation.
 Explicitly unsupported `revenue_actions` retain their contract-defined
 preview-only analysis shape and cannot be presented as a supported draft.
 
+The opportunity vector includes optional `currency`. The browser displays its
+exact staged evidence and blocking validation, requires it in the complete
+analysis contract, and sends it only through the operator-reviewed selection.
+It does not infer or normalize a code. Opportunity amount presentation likewise
+uses only persisted canonical currency and labels missing currency as unknown.
+See [Authoritative opportunity currency](AUTHORITATIVE_OPPORTUNITY_CURRENCY.md).
+
 ## Separate retention contract
 
 Raw-evidence retention and cleanup are implemented separately by the

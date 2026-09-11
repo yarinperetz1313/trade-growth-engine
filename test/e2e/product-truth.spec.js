@@ -244,7 +244,7 @@ test("renders unknown commercial values honestly and selects the largest known v
   await expect(page.getByText("Pipeline Value").locator("..").getByText("Unknown")).toBeVisible();
   await expect(page.getByText("Projected Revenue").locator("..").getByText("Unknown")).toBeVisible();
   const biggestOpportunity = page.getByText("Biggest Opportunity").locator("..");
-  await expect(biggestOpportunity.getByText("$25,000")).toBeVisible();
+  await expect(biggestOpportunity.getByText("25,000 · Currency unknown")).toBeVisible();
   await expect(biggestOpportunity).toContainText("E2E Known Value Roofing");
 
   await page.getByRole("button", { name: "Opportunities" }).click();
@@ -254,14 +254,14 @@ test("renders unknown commercial values honestly and selects the largest known v
     await expect(unknownRow).not.toContainText("$0");
   }
 
-  await expect(page.getByTestId(`opportunity-row-${knownOpportunity.id}`)).toContainText("$25,000");
+  await expect(page.getByTestId(`opportunity-row-${knownOpportunity.id}`)).toContainText("25,000 · Currency unknown");
   await expect(page.getByTestId(`opportunity-row-${knownOpportunity.id}`)).toContainText("20%");
-  await expect(page.getByTestId(`opportunity-row-${knownOpportunity.id}`)).toContainText("$5,000");
+  await expect(page.getByTestId(`opportunity-row-${knownOpportunity.id}`)).toContainText("5,000 · Currency unknown");
   await expect(page.getByTestId(`opportunity-row-${fallbackWeightedOpportunity.id}`)).toContainText("20%");
-  await expect(page.getByTestId(`opportunity-row-${fallbackWeightedOpportunity.id}`)).toContainText("$2,400");
+  await expect(page.getByTestId(`opportunity-row-${fallbackWeightedOpportunity.id}`)).toContainText("2,400 · Currency unknown");
 
   await page.getByRole("button", { name: "Pipeline" }).click();
-  await expect(page.getByText("Weighted Pipeline", { exact: true }).locator("..")).toContainText("$7,400");
+  await expect(page.getByText("Weighted Pipeline", { exact: true }).locator("..")).toContainText("7,400 · Currency unknown");
   await page.getByRole("button", { name: "Opportunities" }).click();
 
   await page.getByTestId("opportunity-row-e2e-boolean-value").click();
@@ -273,11 +273,19 @@ test("renders unknown commercial values honestly and selects the largest known v
   await expect(page.getByTestId("opportunity-value")).toHaveText("Unknown");
 
   const setValue = page.getByRole("button", { name: "Set Value", exact: true });
-  const secondaryValueInput = setValue.locator("xpath=preceding-sibling::input");
+  const secondaryValueInput = setValue.locator("xpath=preceding-sibling::input[@type='number']");
   await secondaryValueInput.fill("0");
   await expect(setValue).toBeDisabled();
   await secondaryValueInput.fill("-10");
   await expect(setValue).toBeDisabled();
+  await secondaryValueInput.fill("100");
+  const currencyInput = setValue.locator(
+    "xpath=preceding-sibling::input[@aria-label='Opportunity currency code']"
+  );
+  await currencyInput.fill("aud");
+  await expect(setValue).toBeDisabled();
+  await currencyInput.fill("AUD");
+  await expect(setValue).toBeEnabled();
 });
 
 test("keeps initial core request failures distinct from empty and known-zero states", async ({ page }) => {

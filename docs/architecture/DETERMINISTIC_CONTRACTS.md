@@ -25,8 +25,12 @@ reconcile a RevenueLeakCase; all other outcomes are read-only explanations.
 
 Commercial value is independent of eligibility. It is `KNOWN` only when both the
 lossless non-negative canonical amount (including zero) and three-letter currency
-are authoritative; otherwise valid missing evidence remains `UNKNOWN`. The rule
+are authoritative. Currency is read only from persisted `opportunity.currency`
+and must match `^[A-Z]{3}$` exactly; lowercase or padded evidence is invalid,
+not normalized. Otherwise valid missing evidence remains `UNKNOWN`. The rule
 does not consume probability, expected value, recovered revenue, or attribution.
+The source contract is defined in
+[Authoritative opportunity currency](AUTHORITATIVE_OPPORTUNITY_CURRENCY.md).
 
 The explicit tenant-wide scan admits at most 100 canonical opportunities and
 returns every admitted version-1 outcome in stable opportunity-ID order. It

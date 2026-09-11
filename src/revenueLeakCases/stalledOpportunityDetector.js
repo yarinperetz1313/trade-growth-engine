@@ -430,14 +430,14 @@ function canonicalCommercialValue(opportunity) {
   const rawCurrency = opportunity.currency;
   const currencyMissing = rawCurrency === null
     || rawCurrency === undefined
-    || (typeof rawCurrency === "string" && rawCurrency.trim() === "");
+    || rawCurrency === "";
   if (!currencyMissing && (
     typeof rawCurrency !== "string"
-    || !/^[A-Za-z]{3}$/.test(rawCurrency.trim())
+    || !/^[A-Z]{3}$/.test(rawCurrency)
   )) {
     return { error: "COMMERCIAL_CURRENCY_INVALID" };
   }
-  const currency = currencyMissing ? null : rawCurrency.trim().toUpperCase();
+  const currency = currencyMissing ? null : rawCurrency;
   if (
     !hasValue
     || rawValue === null

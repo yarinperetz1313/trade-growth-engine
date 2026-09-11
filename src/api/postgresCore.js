@@ -154,7 +154,10 @@ function createPostgresCoreRouter({ service, resolveTenantContext } = {}) {
     requestBound
   ) => sendMutation(res, await requestBound.setValue({
     opportunityId: req.params.id,
-    value: req.body?.value
+    value: req.body?.value,
+    ...(Object.hasOwn(req.body || {}, "currency")
+      ? { currency: req.body.currency }
+      : {})
   }))));
 
   router.post("/api/opportunities/:id/intelligence/follow-up", route(async (

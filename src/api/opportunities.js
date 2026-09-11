@@ -193,7 +193,10 @@ router.post(
         opportunityId:
           req.params.id,
         value:
-          body.value
+          body.value,
+        ...(Object.hasOwn(body, "currency")
+          ? { currency: body.currency }
+          : {})
       });
 
     if (!result.ok) {

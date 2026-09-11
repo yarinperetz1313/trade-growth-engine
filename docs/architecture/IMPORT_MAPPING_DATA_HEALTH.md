@@ -77,6 +77,13 @@ are blocking row errors before canonical SQL. Known zero remains valid numeric
 evidence, including probability zero. A draft `selectedType` cannot bypass the
 separately declared canonical target type or its validation constraints.
 
+The opportunity vector includes optional `currency` as `TEXT`. A present value
+must match `^[A-Z]{3}$` exactly; no trimming or case conversion is permitted.
+Malformed evidence is a blocking `COMMERCIAL_CURRENCY_INVALID` issue. Missing,
+blank, null, and parser-recognized unknown cells remain unknown, while the
+commercially important missing counts report currency independently from value.
+See [Authoritative opportunity currency](AUTHORITATIVE_OPPORTUNITY_CURRENCY.md).
+
 ## Data Health reconciliation
 
 Unlike the bounded row and field samples, metrics scan every staged row. The

@@ -104,6 +104,7 @@ export function analysisFixture({ valueColumn = "amount", rowCount = 2 } = {}) {
     ["priority", null, "STATUS", false],
     ["qualification_score", null, "NUMBER", false],
     ["value", valueColumn, "NUMBER", false],
+    ["currency", null, "TEXT", false],
     ["probability", "probability", "NUMBER", false],
     ["weighted_value", null, "NUMBER", false],
     ["next_action", null, "TEXT", false],
@@ -206,6 +207,7 @@ export function analysisFixture({ valueColumn = "amount", rowCount = 2 } = {}) {
       missingValueCounts: {
         business_name: 0,
         contact_name: rowCount,
+        currency: rowCount,
         id: 0,
         stage: 0,
         value: 0

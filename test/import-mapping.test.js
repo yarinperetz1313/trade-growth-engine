@@ -210,6 +210,27 @@ test("inferred types describe source samples independently from declared target 
   );
 });
 
+test("opportunity currency is optional, exact, and blocks malformed mapped evidence", () => {
+  const analysis = buildImportAnalysis(evidence([
+    "source_id,id,business_name,stage,amount,currency",
+    "src-1,opp-1,Known Currency,QUALIFIED,1250.50,AUD",
+    "src-2,opp-2,Unknown Currency,QUALIFIED,9000,",
+    "src-3,opp-3,Invalid Currency,QUALIFIED,10,aud"
+  ].join("\n"), "opportunities"));
+
+  const currency = field(analysis, "currency");
+  assert.equal(currency.declaredType, "TEXT");
+  assert.equal(currency.required, false);
+  assert.equal(currency.sourceColumn, "currency");
+  assert.deepEqual(currency.sampleValues.map(sample => sample.raw), ["AUD", "", "aud"]);
+  assert.deepEqual(
+    analysis.rows.map(row => row.errors.map(issue => issue.code)),
+    [[], [], ["COMMERCIAL_CURRENCY_INVALID"]]
+  );
+  assert.equal(analysis.dataHealth.missingValueCounts.currency, 1);
+  assert.equal(analysis.dataHealth.rowsWithBlockingErrors, 1);
+});
+
 test("source identity is mapped separately from canonical target id for coverage and duplicates", () => {
   const analysis = buildImportAnalysis(evidence([
     "id,external id,business_name",
@@ -390,6 +411,7 @@ test("row validation preserves raw distinctions and Data Health reconciles all s
   assert.deepEqual(analysis.dataHealth.missingValueCounts, {
     business_name: 1,
     contact_name: 2,
+    currency: 105,
     id: 1,
     stage: 0,
     value: 0
@@ -419,7 +441,7 @@ test("row validation preserves raw distinctions and Data Health reconciles all s
   assert.deepEqual(
     analysis.dataHealth.unknownUnmappedStatuses.unmappedTargetFields,
     fieldNames(analysis).filter(name => [
-      "prospect_id", "priority", "qualification_score", "probability",
+      "prospect_id", "priority", "qualification_score", "currency", "probability",
       "weighted_value", "next_action", "updated_at"
     ].includes(name))
   );

@@ -132,6 +132,14 @@ states are never invented as zero. Unrepresentable optional unknown values
 remain in immutable staging evidence rather than being invented in canonical
 columns.
 
+Reviewed opportunity currency is part of the complete normalized selection
+vector and canonical payload fingerprint. Exact valid codes are persisted
+unchanged; missing/blank/null/unknown currency is omitted rather than defaulted.
+Malformed currency blocks the whole commit before materialization. Amount and
+currency states remain independent, and failed audit/Pilot evidence carries
+bounded codes/counts rather than raw currency cells. See
+[Authoritative opportunity currency](AUTHORITATIVE_OPPORTUNITY_CURRENCY.md).
+
 Migration 011 checks and security-definer functions reject missing hashes,
 outcomes, and request/input fingerprints explicitly; PostgreSQL `NULL` cannot
 pass these boundaries through three-valued logic.
