@@ -103,6 +103,38 @@ passed completely. These are local implementation results only: no provider, pro
 deployment, external OTP, later-slice acceptance, GitHub gate, or independent
 review is claimed.
 
+### Slice 3 bounded fresh-review remediation
+
+The five bounded review findings are closed without expanding Slice 3. An
+unversioned pre-currency opportunity commit now reconciles only after exact
+legacy input/request fingerprints and the tenant, opportunity collection,
+source system/hash, headers, reviewed columns, staged raw hashes, row outcomes,
+and canonical hashes all agree. New commits record
+`CANONICAL_IMPORT_V2_CURRENCY`; mapped currency, an unknown explicit version,
+or any material replay change fails closed. Migration `016` now validates and
+constrains exactly three uppercase ASCII bytes independently of collation.
+Persisted present currency—including the empty string—is invalid unless it is
+exact canonical ASCII, producing `COMMERCIAL_CURRENCY_INVALID` under Data
+Health suppression; absent/null stays unknown and blank CSV cells remain
+omitted. Dashboard priority and Biggest Opportunity cards, pipeline deal
+cards, and Revenue Command Center ranked actions retain exact authoritative
+currency and decimal evidence. In-place opportunity-id navigation clears the
+unsaved currency draft.
+
+Fresh regression evidence was RED before the fixes: the dependency-free review
+set was **44/49** with one failure for each finding, the exact Revenue Command
+Center projection was **0/1**, and managed Chromium was **0/2** for route state
+and opportunity presentation. After the bounded fixes, the combined focused
+set passed **59/59**, the affected integration set passed **134/134**, focused
+managed Chromium passed **2/2**, and the migration-focused disposable
+PostgreSQL 16.15 test passed **1/1**. The single complete `npm run verify`
+passed the harness, integration **408/408**, PostgreSQL 16.15 **90/90**,
+managed Chromium **53/53**, and the Vite 8.2.2 production build (**31
+modules**). `git diff --check` passes. Migration `016` SHA-256 is
+`ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`;
+migrations `001`–`015` remain byte-identical to base
+`9dc155912be7df46c23b2aa30facddeda7b4baa8`.
+
 ## Assisted Pilot Safety Gate V1 Slice 2 bounded plan
 
 ### Grounded policy boundary

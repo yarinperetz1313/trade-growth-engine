@@ -173,6 +173,34 @@ test("keeps positive commercial value distinct from zero and unknown values and 
   assert.equal(result.top_actions.some(item => item.opportunity_id === "lost"), false);
 });
 
+test("top opportunity action retains exact authoritative currency and decimal evidence", () => {
+  const result = buildRevenueIntelligence({
+    opportunities: [opportunity("currency-action", {
+      value: "99999999999999.999999",
+      currency: "NZD"
+    })],
+    intelligences: [intelligence("currency-action", {
+      health: { status: "AT_RISK", risks: [] }
+    })]
+  });
+
+  assert.deepEqual(result.top_actions[0].value, {
+    known: true,
+    amount: "99999999999999.999999",
+    currency: "NZD"
+  });
+
+  const unknown = buildRevenueIntelligence({
+    opportunities: [opportunity("currency-unknown")],
+    intelligences: [intelligence("currency-unknown")]
+  });
+  assert.deepEqual(unknown.top_actions[0].value, {
+    known: true,
+    amount: 10000,
+    currency: null
+  });
+});
+
 test("treats zero, blank, and non-numeric persisted values as unknown commercial value", () => {
   const result = buildRevenueIntelligence({
     opportunities: [

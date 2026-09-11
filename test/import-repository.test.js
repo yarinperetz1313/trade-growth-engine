@@ -593,6 +593,11 @@ test("canonical import locks, reconciles, materializes, maps, audits, and finali
   assert.equal(calls.some(([sql]) => /insert into tge\.audit_events/i.test(sql)), true);
   assert.equal(calls.some(([sql]) => /finalize_import_commit/i.test(sql)), true);
   assert.equal(calls.some(([sql]) => /insert into tge\.pilot_evidence_events/i.test(sql)), true);
+  const finalized = calls.find(([sql]) => /finalize_import_commit/i.test(sql));
+  assert.equal(
+    JSON.parse(finalized[1][3]).fingerprintVersion,
+    "CANONICAL_IMPORT_V2_CURRENCY"
+  );
   for (const [sql, params] of calls.filter(([sql]) => /tge\.(import_|prospects|audit_events)/i.test(sql))) {
     if (Array.isArray(params) && params.length > 0) {
       assert.equal(params[0], context.tenantId, sql);
@@ -602,6 +607,7 @@ test("canonical import locks, reconciles, materializes, maps, audits, and finali
 
 test("same committed request reconciles without rebuilding, inserting, mapping, or auditing", async () => {
   const calls = [];
+  let fingerprintVersion;
   const storedResult = {
     outcome: "COMMITTED",
     batch: { id: "batch-1", status: "COMMITTED" },
@@ -621,6 +627,7 @@ test("same committed request reconciles without rebuilding, inserting, mapping, 
           source_sha256: "a".repeat(64),
           commit_idempotency_key: "commit-attempt-1",
           commit_metadata: {
+            ...(fingerprintVersion ? { fingerprintVersion } : {}),
             inputFingerprint: hashImportEvidence({
               batchId: "batch-1",
               input: {
@@ -664,6 +671,243 @@ test("same committed request reconciles without rebuilding, inserting, mapping, 
     "select * from",
     "commit"
   ]);
+
+  calls.length = 0;
+  fingerprintVersion = "CANONICAL_IMPORT_UNKNOWN";
+  const unknownVersion = await repositories.imports.commitCanonical(context, {
+    batchId: "batch-1",
+    committedAt: "2026-09-03T00:00:00.000Z",
+    subjectId: context.subjectId,
+    input: {
+      sourceSystem: "pilot-crm",
+      idempotencyKey: "commit-attempt-1",
+      selections: []
+    },
+    validate() {},
+    prepare() {
+      assert.fail("an unknown committed fingerprint version must fail closed");
+    }
+  });
+  assert.equal(unknownVersion.outcome, "CONFLICTED");
+  assert.equal(unknownVersion.reconciled, false);
+  assert.equal(
+    calls.some(([sql]) => /insert into tge\.audit_events/i.test(sql)),
+    true
+  );
+});
+
+test("pre-currency opportunity commit replays only under the exact legacy semantic vector", async () => {
+  const legacyInputFingerprint =
+    "f98581b0466078897c0cd1b5fce7a36d3015d4668bd932b8365b391c5525890b";
+  const legacyRequestFingerprint =
+    "982e22b3b4ff71e0df32917fa194bd0454b13e6794935d76514f0d3e264acc35";
+  const batchId = "legacy-opportunity-batch";
+  const input = {
+    sourceSystem: "pilot-crm",
+    idempotencyKey: "legacy-attempt-1",
+    sourceIdentitySelection: { sourceColumn: "source_id" },
+    selections: [
+      { targetField: "id", sourceColumn: "id", selectedType: "TEXT" },
+      {
+        targetField: "business_name",
+        sourceColumn: "business_name",
+        selectedType: "TEXT"
+      },
+      { targetField: "stage", sourceColumn: "stage", selectedType: "STATUS" },
+      { targetField: "value", sourceColumn: "value", selectedType: "NUMBER" }
+    ]
+  };
+  const storedResult = {
+    outcome: "COMMITTED",
+    batch: { id: batchId, status: "COMMITTED" },
+    rows: [{
+      sourceOrdinal: 0,
+      targetId: "legacy-opp",
+      canonicalPayloadSha256: "c".repeat(64),
+      disposition: "COMMITTED"
+    }],
+    summary: { total: 1, committed: 1, skipped: 0, conflicted: 0, failed: 0 },
+    reconciled: false
+  };
+
+  async function replay({
+    batchOverrides = {},
+    contextOverride = context,
+    inputOverrides = {},
+    metadataOverrides = {},
+    stagedOverrides = {}
+  } = {}) {
+    const calls = [];
+    const replayInput = {
+      ...input,
+      ...inputOverrides
+    };
+    const client = {
+      async query(sql, params) {
+        calls.push([sql, params]);
+        if (/lock_import_commit_batch/i.test(sql)) {
+          return { rows: [{
+            tenant_id: context.tenantId,
+            id: batchId,
+            status: "COMMITTED",
+            source_filename: "legacy.csv",
+            source_sha256: "a".repeat(64),
+            preview_summary: {
+              sourceCollection: "opportunities",
+              headers: [
+                "source_id",
+                "id",
+                "business_name",
+                "stage",
+                "value",
+                "changed_value",
+                "currency"
+              ],
+              rowCount: 1
+            },
+            commit_idempotency_key: input.idempotencyKey,
+            commit_metadata: {
+              inputFingerprint: legacyInputFingerprint,
+              requestFingerprint: legacyRequestFingerprint,
+              sourceSystem: input.sourceSystem,
+              targetCollection: "opportunities",
+              reviewedMapping: {
+                selections: input.selections,
+                sourceIdentitySelection: input.sourceIdentitySelection
+              },
+              result: storedResult,
+              ...metadataOverrides
+            },
+            metadata_retain_until: "2027-09-01T00:00:00.000Z",
+            committed_at: "2026-09-02T00:00:00.000Z",
+            ...batchOverrides
+          }] };
+        }
+        if (/from tge\.import_staging_records/i.test(sql)) {
+          const rawPayload = {
+            sourceRowNumber: 2,
+            cells: [{
+              columnOrdinal: 0,
+              present: true,
+              raw: "legacy-source",
+              valueKind: "NONNUMERIC"
+            }]
+          };
+          return { rows: [{
+            source_ordinal: 0,
+            raw_payload: rawPayload,
+            raw_payload_sha256: hashImportEvidence(rawPayload),
+            disposition: "COMMITTED",
+            metadata: {
+              canonical_commit: {
+                canonical_payload_sha256: "c".repeat(64)
+              }
+            },
+            ...stagedOverrides
+          }] };
+        }
+        return { rows: [] };
+      },
+      release() {}
+    };
+    const repositories = createPostgresRepositories({
+      pool: { connect: async () => client }
+    });
+    const result = await repositories.imports.commitCanonical(contextOverride, {
+      batchId,
+      committedAt: "2026-09-03T00:00:00.000Z",
+      subjectId: contextOverride.subjectId,
+      input: replayInput,
+      validate(evidence) {
+        validateReviewedColumnSelections(evidence, replayInput);
+      },
+      prepare() {
+        assert.fail("a committed legacy retry must not rebuild the canonical plan");
+      }
+    });
+    return { calls, result };
+  }
+
+  const exact = await replay();
+  assert.equal(exact.result.reconciled, true);
+  assert.equal(exact.result.rows[0].targetId, "legacy-opp");
+  assert.equal(
+    exact.calls.some(([sql]) => /insert into tge\.audit_events/i.test(sql)),
+    false
+  );
+
+  const explicitUnmappedCurrency = await replay({
+    inputOverrides: {
+      selections: [
+        ...input.selections,
+        { targetField: "currency", sourceColumn: null, selectedType: "TEXT" }
+      ]
+    }
+  });
+  assert.equal(explicitUnmappedCurrency.result.reconciled, true);
+
+  for (const changed of [
+    {
+      inputOverrides: {
+        selections: input.selections.map(selection => (
+          selection.targetField === "value"
+            ? { ...selection, sourceColumn: "changed_value" }
+            : selection
+        ))
+      }
+    },
+    {
+      inputOverrides: {
+        selections: [
+          ...input.selections,
+          { targetField: "currency", sourceColumn: "currency", selectedType: "TEXT" }
+        ]
+      }
+    },
+    { inputOverrides: { sourceSystem: "changed-crm" } },
+    { batchOverrides: { source_sha256: "b".repeat(64) } },
+    { metadataOverrides: { fingerprintVersion: "CANONICAL_IMPORT_V2_CURRENCY" } },
+    {
+      stagedOverrides: {
+        raw_payload: {
+          sourceRowNumber: 2,
+          cells: [{
+            columnOrdinal: 0,
+            present: true,
+            raw: "materially-changed",
+            valueKind: "NONNUMERIC"
+          }]
+        }
+      }
+    },
+    {
+      batchOverrides: {
+        preview_summary: {
+          sourceCollection: "prospects",
+          headers: ["source_id", "id", "business_name", "stage", "value"],
+          rowCount: 1
+        }
+      }
+    },
+    { batchOverrides: { tenant_id: "different-tenant" } }
+  ]) {
+    const rejected = await replay(changed);
+    assert.equal(rejected.result.outcome, "CONFLICTED");
+    assert.equal(rejected.result.reconciled, false);
+  }
+
+  await assert.rejects(
+    replay({
+      batchOverrides: {
+        preview_summary: {
+          sourceCollection: "opportunities",
+          headers: ["source_id", "id", "business_name", "stage"],
+          rowCount: 1
+        }
+      }
+    }),
+    error => error?.code === "IMPORT_COMMIT_REQUEST_INVALID"
+  );
 });
 
 test("committed replay fingerprints unknown supplied targets instead of silently reconciling", async () => {

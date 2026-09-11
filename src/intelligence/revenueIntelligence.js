@@ -303,7 +303,10 @@ function buildRevenueIntelligence({
       value: {
         known: isKnownCommercialValue(opportunity.value),
         amount: isKnownCommercialValue(opportunity.value)
-          ? Number(opportunity.value)
+          ? opportunity.value
+          : null,
+        currency: /^[A-Z]{3}$/.test(opportunity.currency || "")
+          ? opportunity.currency
           : null
       },
       classification_types: types,

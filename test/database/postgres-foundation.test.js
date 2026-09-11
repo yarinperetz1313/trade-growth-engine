@@ -384,7 +384,7 @@ if (!testDatabaseUrl) {
           tenantId,
           JSON.stringify({ currency: "NZD", preserved: { exact: true } }),
           JSON.stringify({ preserved: "missing-currency" }),
-          JSON.stringify({ currency: "nzd", preserved: "reject" })
+          JSON.stringify({ currency: "Ａ", preserved: "reject-non-ascii" })
         ]
       );
       const beforeUpgrade = await upgradeClient.query(
@@ -395,7 +395,7 @@ if (!testDatabaseUrl) {
       assert.equal(
         beforeUpgrade.rows.find(row => row.id === "old-invalid")
           .current_payload.currency,
-        "nzd"
+        "Ａ"
       );
       fs.copyFileSync(
         path.join(
@@ -461,6 +461,48 @@ if (!testDatabaseUrl) {
           current_payload: { preserved: "missing-currency" }
         }
       ]);
+
+      const constraint = await upgradeClient.query(
+        `select pg_get_constraintdef(oid) as definition
+         from pg_constraint
+         where conrelid = 'tge.opportunities'::regclass
+           and conname = 'opportunities_currency_check'`
+      );
+      assert.match(constraint.rows[0].definition, /octet_length\(currency\) <> 3/);
+      for (const ordinal of [0, 1, 2]) {
+        assert.match(
+          constraint.rows[0].definition,
+          new RegExp(
+            `get_byte\\(convert_to\\(currency, 'UTF8'::name\\), ${ordinal}\\) >= 65`,
+            "i"
+          )
+        );
+        assert.match(
+          constraint.rows[0].definition,
+          new RegExp(
+            `get_byte\\(convert_to\\(currency, 'UTF8'::name\\), ${ordinal}\\) <= 90`,
+            "i"
+          )
+        );
+      }
+
+      for (const invalid of ["Ａ", "K", "Å", "ÅB", "ABÇ", "usd", "USD "]) {
+        await assert.rejects(
+          upgradeClient.query(
+            `update tge.opportunities set currency = $2
+             where tenant_id = $1 and id = 'old-known'`,
+            [tenantId, invalid]
+          ),
+          error => error?.code === "23514",
+          invalid
+        );
+      }
+      const stillExact = await upgradeClient.query(
+        `select currency from tge.opportunities
+         where tenant_id = $1 and id = 'old-known'`,
+        [tenantId]
+      );
+      assert.equal(stillExact.rows[0].currency, "NZD");
     } finally {
       if (upgradeClient) await upgradeClient.end();
       await maintenanceClient.query(

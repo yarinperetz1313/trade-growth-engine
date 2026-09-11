@@ -428,9 +428,8 @@ function canonicalCommercialValue(opportunity) {
   const hasValue = Object.hasOwn(opportunity, "value");
   const rawValue = opportunity.value;
   const rawCurrency = opportunity.currency;
-  const currencyMissing = rawCurrency === null
-    || rawCurrency === undefined
-    || rawCurrency === "";
+  const currencyMissing = !Object.hasOwn(opportunity, "currency")
+    || rawCurrency === null;
   if (!currencyMissing && (
     typeof rawCurrency !== "string"
     || !/^[A-Z]{3}$/.test(rawCurrency)

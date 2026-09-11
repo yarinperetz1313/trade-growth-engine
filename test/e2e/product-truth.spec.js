@@ -155,6 +155,7 @@ test("renders unknown commercial values honestly and selects the largest known v
     id: "e2e-known-value",
     business_name: "E2E Known Value Roofing",
     value: 25000,
+    currency: "NZD",
     weighted_value: 5000
   };
   const fallbackWeightedOpportunity = {
@@ -244,8 +245,11 @@ test("renders unknown commercial values honestly and selects the largest known v
   await expect(page.getByText("Pipeline Value").locator("..").getByText("Unknown")).toBeVisible();
   await expect(page.getByText("Projected Revenue").locator("..").getByText("Unknown")).toBeVisible();
   const biggestOpportunity = page.getByText("Biggest Opportunity").locator("..");
-  await expect(biggestOpportunity.getByText("25,000 · Currency unknown")).toBeVisible();
+  await expect(biggestOpportunity.getByText("NZD 25,000")).toBeVisible();
   await expect(biggestOpportunity).toContainText("E2E Known Value Roofing");
+  await expect(
+    page.locator(".opportunity").filter({ hasText: "E2E Known Value Roofing" })
+  ).toContainText("NZD 25,000");
 
   await page.getByRole("button", { name: "Opportunities" }).click();
   for (const opportunity of unknownOpportunities) {
@@ -254,14 +258,17 @@ test("renders unknown commercial values honestly and selects the largest known v
     await expect(unknownRow).not.toContainText("$0");
   }
 
-  await expect(page.getByTestId(`opportunity-row-${knownOpportunity.id}`)).toContainText("25,000 · Currency unknown");
+  await expect(page.getByTestId(`opportunity-row-${knownOpportunity.id}`)).toContainText("NZD 25,000");
   await expect(page.getByTestId(`opportunity-row-${knownOpportunity.id}`)).toContainText("20%");
-  await expect(page.getByTestId(`opportunity-row-${knownOpportunity.id}`)).toContainText("5,000 · Currency unknown");
+  await expect(page.getByTestId(`opportunity-row-${knownOpportunity.id}`)).toContainText("NZD 5,000");
   await expect(page.getByTestId(`opportunity-row-${fallbackWeightedOpportunity.id}`)).toContainText("20%");
   await expect(page.getByTestId(`opportunity-row-${fallbackWeightedOpportunity.id}`)).toContainText("2,400 · Currency unknown");
 
   await page.getByRole("button", { name: "Pipeline" }).click();
   await expect(page.getByText("Weighted Pipeline", { exact: true }).locator("..")).toContainText("7,400 · Currency unknown");
+  await expect(
+    page.locator(".deal-card").filter({ hasText: "E2E Known Value Roofing" })
+  ).toContainText("NZD 25,000");
   await page.getByRole("button", { name: "Opportunities" }).click();
 
   await page.getByTestId("opportunity-row-e2e-boolean-value").click();

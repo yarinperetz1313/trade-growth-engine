@@ -382,8 +382,13 @@ function validateDatabaseFoundationContract() {
   );
   requireText(
     opportunityCurrencyMigration,
-    "currency ~ '^[A-Z]{3}$'",
-    "Migration 016 must reject noncanonical opportunity currency"
+    "octet_length(currency) <> 3",
+    "Migration 016 must require exactly three currency bytes"
+  );
+  requireText(
+    opportunityCurrencyMigration,
+    "get_byte(convert_to(currency, 'UTF8'), 2) between 65 and 90",
+    "Migration 016 must reject non-ASCII or non-uppercase currency bytes"
   );
   requireText(
     opportunityCurrencyMigration,

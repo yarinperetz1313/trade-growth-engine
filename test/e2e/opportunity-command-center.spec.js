@@ -106,6 +106,27 @@ test("opens exact seeded opportunity, closes the intelligence loop, and preserve
   expect(browserErrors).toEqual([]);
 });
 
+test("in-place opportunity navigation clears an unsaved currency draft", async ({ page }) => {
+  await page.goto("/#opportunities/e2e-opp-stalled");
+
+  const currency = page.getByLabel("Opportunity currency code").first();
+  await expect(currency).toBeVisible();
+  await currency.fill("NZD");
+  await expect(currency).toHaveValue("NZD");
+
+  await page.evaluate(() => {
+    window.location.hash = "opportunities/e2e-opp-command";
+  });
+  await expect(page).toHaveURL(/#opportunities\/e2e-opp-command$/);
+  await expect(page.getByRole("heading", { name: businessName })).toBeVisible();
+
+  await page.evaluate(() => {
+    window.location.hash = "opportunities/e2e-opp-stalled";
+  });
+  await expect(page).toHaveURL(/#opportunities\/e2e-opp-stalled$/);
+  await expect(page.getByLabel("Opportunity currency code").first()).toHaveValue("");
+});
+
 test("shows a practical API failure state without crashing", async ({ page }) => {
   const browserErrors = watchUnexpectedBrowserErrors(page);
 
@@ -220,6 +241,42 @@ test("renders all-unknown revenue totals as unknown rather than zero", async ({ 
   ).toHaveText("Value unknown: 2");
 
   expect(browserErrors).toEqual([]);
+});
+
+test("renders a ranked action with its exact authoritative currency and decimal", async ({ page }) => {
+  await page.route(`${apiBaseUrl}/api/intelligence/revenue`, async route => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          active_pipeline: null,
+          classifications: {},
+          revenue_requiring_attention: null,
+          top_actions: [{
+            opportunity_id: opportunityId,
+            business_name: businessName,
+            action: {
+              priority: "HIGH",
+              type: "FOLLOW_UP",
+              title: "Follow up on exact value"
+            },
+            value: {
+              known: true,
+              amount: "99999999999999.999999",
+              currency: "NZD"
+            }
+          }]
+        }
+      })
+    });
+  });
+
+  await page.goto("/#opportunities");
+
+  await expect(page.getByTestId(`revenue-action-${opportunityId}`)).toContainText(
+    "NZD 99,999,999,999,999.999999"
+  );
 });
 
 test("opens a ranked portfolio action, applies a safe Command Center mutation, and refreshes the portfolio on return", async ({ page }) => {

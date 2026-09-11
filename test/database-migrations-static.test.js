@@ -76,10 +76,16 @@ test("migration 016 adds only nullable canonical opportunity currency and curren
   );
   assert.match(migration, /^set local role tge_owner;/);
   assert.match(migration, /alter table tge\.opportunities[\s\S]*add column currency text/);
-  assert.match(
-    migration,
-    /currency is null[\s\S]*currency ~ '\^\[A-Z\]\{3\}\$'/
-  );
+  assert.match(migration, /octet_length\(currency\) <> 3/);
+  for (const ordinal of [0, 1, 2]) {
+    assert.match(
+      migration,
+      new RegExp(
+        `get_byte\\(convert_to\\([^)]*currency[^)]*, 'UTF8'\\), ${ordinal}\\) between 65 and 90`
+      )
+    );
+  }
+  assert.doesNotMatch(migration, /currency\s*(?:collate\s+[^\s]+\s*)?[!~]+/i);
   assert.match(migration, /'016'::text as schema_version/);
   assert.match(
     migration,

@@ -19,8 +19,25 @@ begin
           jsonb_typeof(
             coalesce(current_payload, legacy_payload, '{}'::jsonb)->'currency'
           ) is distinct from 'string'
-          or coalesce(current_payload, legacy_payload, '{}'::jsonb)->>'currency'
-            !~ '^[A-Z]{3}$'
+          or case
+            when octet_length(
+              coalesce(current_payload, legacy_payload, '{}'::jsonb)->>'currency'
+            ) <> 3 then true
+            else not (
+              get_byte(convert_to(
+                coalesce(current_payload, legacy_payload, '{}'::jsonb)->>'currency',
+                'UTF8'
+              ), 0) between 65 and 90
+              and get_byte(convert_to(
+                coalesce(current_payload, legacy_payload, '{}'::jsonb)->>'currency',
+                'UTF8'
+              ), 1) between 65 and 90
+              and get_byte(convert_to(
+                coalesce(current_payload, legacy_payload, '{}'::jsonb)->>'currency',
+                'UTF8'
+              ), 2) between 65 and 90
+            )
+          end
         )
       )
   ) then
@@ -43,7 +60,13 @@ where jsonb_typeof(
 alter table tge.opportunities
   add constraint opportunities_currency_check check (
     currency is null
-    or currency ~ '^[A-Z]{3}$'
+    or case
+      when octet_length(currency) <> 3 then false
+      else
+        get_byte(convert_to(currency, 'UTF8'), 0) between 65 and 90
+        and get_byte(convert_to(currency, 'UTF8'), 1) between 65 and 90
+        and get_byte(convert_to(currency, 'UTF8'), 2) between 65 and 90
+    end
   );
 
 drop policy opportunity_currency_migration_scope on tge.opportunities;

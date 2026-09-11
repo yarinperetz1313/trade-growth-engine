@@ -18,17 +18,31 @@ owner-only migration policy permits the all-tenant preflight/backfill and is
 dropped in the same transaction; malformed legacy evidence rolls every change
 back. Exact valid current/legacy JSON currency is promoted, missing/null remains
 SQL `NULL`, and compatibility payloads and unknown fields are preserved. Local
-evidence includes a complete local `npm run verify`: engineering harness,
-integration **404/404**, real PostgreSQL 16.15 **90/90**, managed Chromium
-**51/51**, and the Vite 8.2.2 production build (**31 modules**), plus
-`git diff --check`. The first listener-permitted full attempt encountered a
-transient PostgreSQL catalog setup race in unchanged migration `002`; the
-unchanged retry passed completely.
+evidence includes one complete local `npm run verify`: engineering harness,
+integration **408/408**, real PostgreSQL 16.15 **90/90**, managed Chromium
+**53/53**, and the Vite 8.2.2 production build (**31 modules**), plus
+`git diff --check`.
 Migration `016` SHA-256 is
-`232fa715c2d2062186b0027d429119fe3e18fb110b03b63214f378eb3fe910d6`;
+`ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`;
 migrations `001`–`015` remain byte-identical to base. This does not prove
 provider provisioning, production/deployment behavior, GitHub gates, external
 acceptance, or coordinator-led independent review.
+
+The bounded Slice 3 fresh-review remediation preserves exact replay across the
+currency-vector upgrade only for unversioned, materially identical legacy
+opportunity commits. It rechecks legacy request/input fingerprints, tenant,
+collection, source, headers, mapping, and staged/canonical row evidence; new
+commits are currency-versioned and unknown explicit versions fail closed.
+Migration `016` now enforces exact uppercase ASCII bytes independently of
+collation. Empty or otherwise invalid persisted currency produces Data Health
+suppression while only absent/null stays unknown. Opportunity-specific
+dashboard, Biggest Opportunity, pipeline, and Revenue Command Center displays
+retain authoritative currency and exact decimal strings, and an in-place
+opportunity route change clears unsaved currency input. Remediation evidence is
+focused integration **134/134**, focused PostgreSQL **1/1**, focused managed
+Chromium **2/2**, and one complete local `npm run verify`: harness, integration
+**408/408**, PostgreSQL 16.15 **90/90**, Chromium **53/53**, and the production
+build (**31 modules**).
 
 Assisted Pilot Safety Gate V1 Slice 2 now implements the PostgreSQL-only
 [raw-import expiry and tenant offboarding

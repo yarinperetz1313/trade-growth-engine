@@ -252,6 +252,7 @@ export default function OpportunityCommandCenter({
   useEffect(() => {
     const revenueActionLoadGeneration = ++revenueActionGeneration.current;
     const intelligenceLoadGeneration = ++intelligenceGeneration.current;
+    setCurrency("");
     setRevenueActions([]);
     setPayload(null);
     setExecutionLoading(null);

@@ -52,6 +52,15 @@ input fingerprint instead of being discarded. They cannot reconcile against a
 committed valid request and return the same bounded already-committed conflict
 as any other materially changed replay.
 
+The one upgrade bridge for opportunity commits predating authoritative
+currency is explicit and fail closed. It recomputes the legacy target vector
+and both stored fingerprints, verifies tenant, opportunity collection, source
+system/hash, headers, reviewed columns, row outcomes, raw-payload hashes, and
+canonical payload hashes, and accepts only an omitted or explicitly unmapped
+currency. Currency-aware commits carry `CANONICAL_IMPORT_V2_CURRENCY`; an
+unknown explicit fingerprint version or any material evidence change cannot
+reconcile.
+
 ## Atomicity and identity
 
 The public repository opens one tenant transaction, locks the batch and all

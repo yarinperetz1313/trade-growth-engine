@@ -12,6 +12,25 @@ const {
 } = require("./mappers");
 
 const PREVIEW_ROW_LIMIT = 100;
+const COMMIT_FINGERPRINT_VERSION = "CANONICAL_IMPORT_V2_CURRENCY";
+const LEGACY_OPPORTUNITY_TARGET_FIELDS = Object.freeze([
+  ["id", "TEXT"],
+  ["prospect_id", "TEXT"],
+  ["business_name", "TEXT"],
+  ["stage", "STATUS"],
+  ["priority", "STATUS"],
+  ["qualification_score", "NUMBER"],
+  ["value", "NUMBER"],
+  ["probability", "NUMBER"],
+  ["weighted_value", "NUMBER"],
+  ["next_action", "TEXT"],
+  ["contact_name", "TEXT"],
+  ["created_at", "TIMESTAMP"],
+  ["updated_at", "TIMESTAMP"]
+].map(([targetField, declaredType]) => Object.freeze({
+  targetField,
+  declaredType
+})));
 
 const CANONICAL_TARGETS = Object.freeze({
   prospects: Object.freeze({
@@ -208,9 +227,27 @@ function createImportRepository(
         lockedBatch.previewSummary?.sourceCollection
       );
       if (lockedBatch.status === "COMMITTED") {
+        const fingerprintVersion = lockedBatch.commitMetadata?.fingerprintVersion;
+        const recognizedFingerprintVersion =
+          fingerprintVersion === undefined
+          || fingerprintVersion === COMMIT_FINGERPRINT_VERSION;
+        const exactFingerprint =
+          recognizedFingerprintVersion
+          && lockedBatch.commitMetadata?.inputFingerprint === inputFingerprint;
+        const legacyReplay = exactFingerprint
+          ? false
+          : await isExactLegacyOpportunityReplay({
+            batchRow: batchResult.rows[0],
+            client,
+            input: request.input,
+            lockedBatch,
+            tenantId
+          });
         if (
           lockedBatch.commitIdempotencyKey === request.input.idempotencyKey
-          && lockedBatch.commitMetadata?.inputFingerprint === inputFingerprint
+          && (
+            exactFingerprint || legacyReplay
+          )
           && lockedBatch.commitMetadata?.result
         ) {
           const reconciled = {
@@ -535,6 +572,7 @@ function createImportRepository(
         reconciled: false
       };
       const commitMetadata = {
+        fingerprintVersion: COMMIT_FINGERPRINT_VERSION,
         inputFingerprint,
         requestFingerprint: plan.requestFingerprint,
         sourceSystem: plan.sourceSystem,
@@ -969,6 +1007,20 @@ function auditRetainUntil(batchRetention, occurredAt) {
 
 function commitInputFingerprint(batchId, input, sourceCollection) {
   const definitions = TARGETS[sourceCollection]?.fields || [];
+  return commitInputFingerprintForDefinitions(batchId, input, definitions);
+}
+
+function commitInputFingerprintForDefinitions(batchId, input, definitions) {
+  return hashImportEvidence({
+    batchId,
+    input: {
+      ...input,
+      selections: normalizedCommitSelections(input, definitions)
+    }
+  });
+}
+
+function normalizedCommitSelections(input, definitions) {
   const supplied = new Map((input.selections || []).map(selection => [
     selection.targetField,
     selection
@@ -985,14 +1037,139 @@ function commitInputFingerprint(batchId, input, sourceCollection) {
         !definitionNames.has(selection.targetField))
     ]
     : [...(input.selections || [])];
-  return hashImportEvidence({
-    batchId,
-    input: {
-      ...input,
-      selections: selections.sort((left, right) =>
-        left.targetField.localeCompare(right.targetField))
-    }
+  return selections.sort((left, right) =>
+    left.targetField.localeCompare(right.targetField));
+}
+
+async function isExactLegacyOpportunityReplay({
+  batchRow,
+  client,
+  input,
+  lockedBatch,
+  tenantId
+}) {
+  const metadata = lockedBatch.commitMetadata;
+  const preview = lockedBatch.previewSummary;
+  const storedMapping = metadata?.reviewedMapping;
+  if (
+    !metadata
+    || Object.hasOwn(metadata, "fingerprintVersion")
+    || batchRow.tenant_id !== tenantId
+    || preview?.sourceCollection !== "opportunities"
+    || metadata.targetCollection !== "opportunities"
+    || metadata.sourceSystem !== input.sourceSystem
+    || !/^[a-f0-9]{64}$/.test(lockedBatch.sourceSha256 || "")
+    || !Number.isSafeInteger(preview.rowCount)
+    || metadata.result?.summary?.total !== preview.rowCount
+    || metadata.result?.rows?.length !== preview.rowCount
+    || !Array.isArray(preview.headers)
+    || !isPlainReviewedMapping(storedMapping)
+  ) return false;
+
+  const incoming = withoutUnmappedCurrency(input);
+  if (!incoming) return false;
+  const stored = {
+    sourceSystem: metadata.sourceSystem,
+    idempotencyKey: lockedBatch.commitIdempotencyKey,
+    sourceIdentitySelection: storedMapping.sourceIdentitySelection,
+    selections: storedMapping.selections
+  };
+  if (!reviewedColumnsExist(preview.headers, stored)) return false;
+
+  const storedInputFingerprint = commitInputFingerprintForDefinitions(
+    lockedBatch.id,
+    stored,
+    LEGACY_OPPORTUNITY_TARGET_FIELDS
+  );
+  const incomingInputFingerprint = commitInputFingerprintForDefinitions(
+    lockedBatch.id,
+    incoming,
+    LEGACY_OPPORTUNITY_TARGET_FIELDS
+  );
+  if (
+    storedInputFingerprint !== metadata.inputFingerprint
+    || incomingInputFingerprint !== metadata.inputFingerprint
+  ) return false;
+
+  const requestFingerprint = hashImportEvidence({
+    batchId: lockedBatch.id,
+    idempotencyKey: stored.idempotencyKey,
+    selections: normalizedCommitSelections(
+      stored,
+      LEGACY_OPPORTUNITY_TARGET_FIELDS
+    ),
+    sourceIdentitySelection: stored.sourceIdentitySelection,
+    sourceSha256: lockedBatch.sourceSha256,
+    sourceSystem: stored.sourceSystem,
+    targetCollection: "opportunities"
   });
+  if (requestFingerprint !== metadata.requestFingerprint) return false;
+
+  const staged = await client.query(
+    `select source_ordinal, raw_payload, raw_payload_sha256, disposition, metadata
+     from tge.import_staging_records
+     where tenant_id = $1 and import_batch_id = $2
+     order by source_ordinal
+     for key share`,
+    [tenantId, lockedBatch.id]
+  );
+  if (staged.rows.length !== preview.rowCount) return false;
+  const resultByOrdinal = new Map(metadata.result.rows.map(row => [
+    row.sourceOrdinal,
+    row
+  ]));
+  return staged.rows.every(row => {
+    const result = resultByOrdinal.get(Number(row.source_ordinal));
+    return result
+      && row.raw_payload !== null
+      && hashImportEvidence(row.raw_payload) === row.raw_payload_sha256
+      && row.disposition === result.disposition
+      && row.metadata?.canonical_commit?.canonical_payload_sha256
+        === result.canonicalPayloadSha256;
+  });
+}
+
+function withoutUnmappedCurrency(input) {
+  const currency = (input.selections || []).filter(
+    selection => selection.targetField === "currency"
+  );
+  if (
+    currency.length > 1
+    || currency.some(selection => (
+      selection.sourceColumn !== null
+      || selection.selectedType !== "TEXT"
+    ))
+  ) return null;
+  return {
+    ...input,
+    selections: (input.selections || []).filter(
+      selection => selection.targetField !== "currency"
+    )
+  };
+}
+
+function isPlainReviewedMapping(value) {
+  return value
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Object.keys(value).length === 2
+    && Array.isArray(value.selections)
+    && value.sourceIdentitySelection
+    && typeof value.sourceIdentitySelection === "object"
+    && !Array.isArray(value.sourceIdentitySelection)
+    && Object.keys(value.sourceIdentitySelection).length === 1
+    && typeof value.sourceIdentitySelection.sourceColumn === "string";
+}
+
+function reviewedColumnsExist(headers, input) {
+  const available = new Set(headers);
+  return available.size === headers.length
+    && headers.every(header => typeof header === "string")
+    && available.has(input.sourceIdentitySelection.sourceColumn)
+    && input.selections.every(selection => (
+      selection?.sourceColumn === null
+      || available.has(selection?.sourceColumn)
+    ));
 }
 
 function canonicalMaterializationConflict(error, row) {

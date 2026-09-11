@@ -493,7 +493,8 @@ function Dashboard({ onNavigate }) {
 
                     <div className="value">
                       {money(
-                        item.value
+                        item.value,
+                        item.currency
                       )}
                     </div>
 
@@ -654,7 +655,8 @@ function Dashboard({ onNavigate }) {
               title="Biggest Opportunity"
               value={
                 money(
-                  biggestOpportunity?.value
+                  biggestOpportunity?.value,
+                  biggestOpportunity?.currency
                 )
               }
               text={
@@ -1246,7 +1248,8 @@ function Pipeline() {
 
                       <b>
                         {money(
-                          opportunity.value
+                          opportunity.value,
+                          opportunity.currency
                         )}
                       </b>
 

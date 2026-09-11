@@ -22,7 +22,9 @@ unrelated JSON-compatible fields are preserved. There is no JSON cutover or
 dual write.
 
 Append-only migration `016_authoritative_opportunity_currency.sql` adds the
-nullable `tge.opportunities.currency` column and an exact database check. It
+nullable `tge.opportunities.currency` column and a collation-independent check
+of exactly three uppercase ASCII bytes. The same byte-exact rule guards the
+upgrade preflight. It
 promotes only exact valid currency already present in the authoritative
 `current_payload` (or the legacy payload when current payload is absent), leaves
 missing/null evidence as SQL `NULL`, preserves both JSON payloads at the semantic
@@ -46,6 +48,12 @@ missing cells remain absent currency; lowercase, padded, wrong-length, or other
 malformed codes are blocking `COMMERCIAL_CURRENCY_INVALID` evidence. Currency
 participates in the normalized commit request and canonical payload
 fingerprints, so replay and reconciliation cannot silently change it.
+Committed opportunity batches created before currency joined that normalized
+vector retain idempotent replay only through their unversioned legacy vector:
+the stored mapping, headers, collection, tenant, source identity/system/hash,
+row evidence, and request/input fingerprints must all remain exact. New
+commits record the currency-aware fingerprint version, and unknown explicit
+versions fail closed.
 
 Raw cell evidence stays only in immutable staging evidence until its existing
 expiry. Commit failure/audit and Pilot evidence retain bounded outcome codes and

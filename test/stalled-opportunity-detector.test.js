@@ -350,6 +350,11 @@ test("commercial value keeps exact decimals, known zero, and unknown distinct", 
   assert.equal(evaluate({
     opportunity: { value: "10", currency: " AUD " }
   }).reason_code, "COMMERCIAL_CURRENCY_INVALID");
+  const emptyCurrency = evaluate({
+    opportunity: { value: "10", currency: "" }
+  });
+  assert.equal(emptyCurrency.outcome, "DATA_HEALTH_SUPPRESSED");
+  assert.equal(emptyCurrency.reason_code, "COMMERCIAL_CURRENCY_INVALID");
 });
 
 test("identical canonical evidence has a stable version independent of collection order and run time", () => {
