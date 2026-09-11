@@ -6,8 +6,8 @@ the separate [deterministic mapping and Data Health](IMPORT_MAPPING_DATA_HEALTH.
 contract. PR-5C now consumes explicitly reviewed selections through the
 [controlled canonical import commit](CANONICAL_IMPORT_COMMIT.md). PR-5D uses
 these contracts through the [browser CSV import workflow](BROWSER_IMPORT_WORKFLOW.md).
-Staging and analysis themselves still write no canonical records. Retention
-deletion and XLSX remain deferred.
+Staging and analysis themselves still write no canonical records. Slice 2 now
+implements raw-evidence retention cleanup; XLSX remains deferred.
 
 ## HTTP contract
 

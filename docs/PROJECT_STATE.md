@@ -54,6 +54,23 @@ SHA-256 values for migrations `001`–`014`. Browser E2E and the production buil
 were not repeated because this bounded remediation changes no browser or web
 production source.
 
+The final bounded lock-order remediation closes the cleanup/offboarding
+inversion found at `878c913`. A state-synchronized PostgreSQL regression paused
+cleanup after its batch claim and proved offboarding was queued behind it before
+releasing the barrier; starting code deterministically returned cleanup
+`SUCCEEDED` but offboarding `FAILED`. Migration `015` now makes tenant row
+acquisition precede cleanup, scrub, and canonical-import batch locks while
+retaining targetless `SKIP LOCKED` selection and processor-only authority.
+Focused migration/service tests pass **15/15**, affected auth/import/persistence
+tests pass **85/85**, and the complete affected PostgreSQL file passes
+**12/12** with both operations successful, no failed evidence, no raw evidence
+after offboarding, preserved canonical/audit/Pilot truth, and no cross-tenant
+leakage. The proportional gates pass the engineering harness plus integration
+**382/382** and the complete PostgreSQL suite **79/79**. Migrations `001`–`014`
+remain byte-identical and `git diff --check` passes. The six prior High-review
+findings remain closed. Browser E2E and the production build were not repeated
+because no browser or web-production code changed.
+
 Post-merge [GitHub Verify run 34440327842](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/34440327842)
 failed integration at **349 passed / 7 failed** because an engineering-harness
 negative self-test rewrote tracked repository files in place during parallel

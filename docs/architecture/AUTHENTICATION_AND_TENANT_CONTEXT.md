@@ -11,7 +11,7 @@ Auth0 proves browser identity; Trade Growth Engine grants tenant access. The Pil
 5. The centralized role policy authorizes the operation. Sensitive invitation and membership changes also cross an injected reauthentication/MFA-ready policy boundary.
 6. A production repository transaction receives the trusted context and sets transaction-local PostgreSQL context. Request fields, headers, query parameters, email, JWT custom tenant claims, and role claims never select a tenant or role.
 
-`src/auth/postgresAuthRepository.js` persists membership and invitation operations through the same PR-3 PostgreSQL runtime role and transaction assumptions. For CRM requests, `src/app/server.js` first validates the independently branded auth `TenantContext`, then mints a separate trusted persistence `TenantContext` from only its tenant ID and subject. The PostgreSQL routers receive only that persistence context. When auth mode is enabled without the PostgreSQL adapter/bridge, business APIs return `503 TENANT_PERSISTENCE_UNAVAILABLE` rather than exposing unscoped JSON data.
+`src/auth/postgresAuthRepository.js` persists membership and invitation operations through the same PR-3 PostgreSQL runtime role and transaction assumptions. For CRM requests, `src/app/server.js` first validates the independently branded auth `TenantContext`, then mints a separate trusted persistence `TenantContext` from its tenant ID, identity issuer, and subject. The PostgreSQL routers receive only that persistence context. When auth mode is enabled without the PostgreSQL adapter/bridge, business APIs return `503 TENANT_PERSISTENCE_UNAVAILABLE` rather than exposing unscoped JSON data.
 
 ## Role policy
 

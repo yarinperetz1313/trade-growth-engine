@@ -539,6 +539,14 @@ begin
   perform set_config('app.tenant_id', target_tenant_id::text, true);
   perform set_config('app.subject_id', 'urn:tge:maintenance', true);
 
+  perform 1
+  from tge.tenants tenant
+  where tenant.id = target_tenant_id
+  for update;
+  if not found then
+    raise exception using errcode = '23514', message = 'Raw cleanup target is unavailable.';
+  end if;
+
   select raw_cleanup_attempts into current_attempt
   from tge.import_batches
   where tenant_id = target_tenant_id and id = target_batch_id
@@ -656,6 +664,8 @@ declare
   failed_facts jsonb;
   retained_canonical_count integer;
   retained_audit_count integer;
+  candidate_tenant_id uuid;
+  processed_count integer := 0;
 begin
   if not pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member')
     or coalesce((
@@ -665,15 +675,40 @@ begin
     raise exception using errcode = '42501', message = 'Maintenance operation denied.';
   end if;
 
-  for candidate in
+  while processed_count < requested_limit loop
+    select tenant.id
+    into candidate_tenant_id
+    from tge.tenants tenant
+    where exists (
+      select 1
+      from tge.import_batches due_batch
+      where due_batch.tenant_id = tenant.id
+        and due_batch.raw_expires_at <= clock_timestamp()
+        and due_batch.raw_cleanup_state in ('PENDING', 'FAILED')
+    )
+    order by (
+      select min(due_batch.raw_expires_at)
+      from tge.import_batches due_batch
+      where due_batch.tenant_id = tenant.id
+        and due_batch.raw_expires_at <= clock_timestamp()
+        and due_batch.raw_cleanup_state in ('PENDING', 'FAILED')
+    ), tenant.id
+    for update of tenant skip locked
+    limit 1;
+    exit when not found;
+
     select batch.tenant_id, batch.id
+    into candidate
     from tge.import_batches batch
-    where batch.raw_expires_at <= clock_timestamp()
+    where batch.tenant_id = candidate_tenant_id
+      and batch.raw_expires_at <= clock_timestamp()
       and batch.raw_cleanup_state in ('PENDING', 'FAILED')
-    order by batch.raw_expires_at, batch.tenant_id, batch.id
+    order by batch.raw_expires_at, batch.id
     for update skip locked
-    limit requested_limit
-  loop
+    limit 1;
+    exit when not found;
+    processed_count := processed_count + 1;
+
     attempted_at := clock_timestamp();
     perform set_config('app.tenant_id', candidate.tenant_id::text, true);
     update tge.import_batches
@@ -1037,22 +1072,36 @@ create or replace function tge.lock_import_commit_batch(
   requested_batch_id text
 )
 returns setof tge.import_batches
-language sql
+language plpgsql
 volatile
 security definer
 set search_path = pg_catalog, tge
 as $function$
+begin
+  if requested_tenant_id is null
+    or requested_tenant_id is distinct from tge.current_tenant_id()
+    or requested_batch_id is null
+    or btrim(requested_batch_id) = '' then
+    return;
+  end if;
+
+  perform 1
+  from tge.tenants tenant
+  where tenant.id = requested_tenant_id
+    and tenant.metadata->>'offboarding_state'
+      is distinct from 'OFFBOARDED_ACCESS_REVOKED'
+  for share;
+  if not found then return; end if;
+
+  return query
   select batch.*
   from tge.import_batches batch
-  where requested_tenant_id is not null
-    and requested_tenant_id is not distinct from tge.current_tenant_id()
-    and requested_batch_id is not null
-    and btrim(requested_batch_id) <> ''
-    and batch.tenant_id = requested_tenant_id
+  where batch.tenant_id = requested_tenant_id
     and batch.id = requested_batch_id
     and batch.raw_expires_at > clock_timestamp()
     and batch.raw_cleanup_state in ('PENDING', 'FAILED')
-  for update
+  for update;
+end
 $function$;
 
 create or replace function tge.pilot_runtime_readiness()

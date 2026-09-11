@@ -21,7 +21,7 @@ The canonical architecture is the [foundation](../../architecture/PILOT_READINES
 | Authorization | TGE resolves exactly one active membership by `(issuer, subject)`, derives immutable `TenantContext`, and applies centralized OWNER/ADMIN/MEMBER policy. Client tenant, email, role, headers, query values, and JWT custom claims are never authority. |
 | Isolation | Server authorization, explicit tenant repository predicates, and forced PostgreSQL RLS remain separate required layers. Transaction-local GUCs are trusted server inputs only after membership resolution. |
 | Invitations | OWNER-only assisted invitations are expiring, revocable, single-use, hashed at rest, identity-bound after server provisioning, and atomically consumed with membership/audit evidence. Sensitive changes cross a reauthentication/MFA-ready injected policy. |
-| Combined runtime | The server validates the auth context, mints a separate PR-3 persistence context from tenant ID and subject, and injects it into tenant-scoped PostgreSQL routers/transactions. Auth mode returns `503 TENANT_PERSISTENCE_UNAVAILABLE` without the adapter/bridge. JSON remains the default local/test adapter; no cutover is claimed. |
+| Combined runtime | The server validates the auth context, mints a separate PR-3 persistence context from tenant ID, identity issuer, and subject, and injects it into tenant-scoped PostgreSQL routers/transactions. Auth mode returns `503 TENANT_PERSISTENCE_UNAVAILABLE` without the adapter/bridge. JSON remains the default local/test adapter; no cutover is claimed. |
 | Provisioning | Real Auth0 AU tenant/plan, custom domain, SMTP, sender authentication, callback/logout/origin configuration, and external OTP E2E remain deployment gates. |
 | Secure pilot runtime | Local `server` remains JSON-compatible. Only `server:pilot`/`start` is supported for Pilot: exact validated configuration, Auth0 plus membership authorization, least-privilege PostgreSQL only, separate liveness/readiness, pre-readiness request gating, bounded probes/retries, and owned graceful shutdown. Readiness proves local wiring/database/migration usability only. |
 
@@ -79,6 +79,22 @@ binding at the sensitive-action service boundary. The terminal lock ordering
 serializes already-authorized import transactions before the success marker,
 while canonical CRM, ID-map, audit, Pilot evidence, and retry/rollback truth
 remain unchanged.
+
+### Final bounded lock-order remediation
+
+The final review found cleanup claimed an import batch before inserting evidence
+whose tenant foreign key needed the parent row, while offboarding locked the
+tenant before discovering its batches. A PostgreSQL advisory barrier plus
+`pg_blocking_pids` regression establishes that exact overlap from database lock
+state without timing sleeps. At `878c913`, cleanup returned `SUCCEEDED` while
+offboarding returned retryable `FAILED`. Migration `015` now locks one eligible
+tenant before each targetless `SKIP LOCKED` batch claim, requires the internal
+scrub to repeat tenant-before-batch order, and gives canonical import a tenant
+share lock before its batch update lock. This preserves retry semantics,
+cross-tenant progress, staging/import serialization, and processor-only
+authority. Both overlapping processors now complete successfully with truthful
+evidence and preserved canonical, audit, and Pilot data; all six earlier review
+findings remain closed.
 
 ## Deployment-gated Auth0 acceptance
 
@@ -147,6 +163,7 @@ No local mock or deterministic seam may be reported as real Auth0/SMTP proof.
 | Slice 2 High-review remediation RED | `node --test test/raw-import-expiry-migration.test.js`; `node --test test/raw-import-expiry-offboarding.test.js`; `TGE_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/postgres node --test test/database/raw-import-expiry-offboarding.test.js` against disposable PostgreSQL 16.15 | **EXPECTED RED:** migration contract **6/9** because no distinct maintenance authority, exact elapsed-hour expression, or terminal/staging guards existed; service **4/5** because wrong-subject authorization was accepted; PostgreSQL behavior **6/10** because DST deadlines, non-writable staging denial, metadata preservation, and overlapping-import serialization were absent. Sandbox/listener and fixture-setup failures were excluded from product RED evidence. |
 | Slice 2 High-review focused GREEN | `node --test test/raw-import-expiry-migration.test.js test/raw-import-expiry-offboarding.test.js`; affected auth/import/persistence suites; focused PostgreSQL expiry/offboarding suite; `node --test test/engineering-harness.test.js test/database-migrations-static.test.js` | **PASS:** static/service **14/14**; affected auth/import/persistence **69/69**; focused PostgreSQL **11/11**; harness/migration-static **22/22**. This proves the processor-only maintenance ACL, exact 168-hour DST behavior, database staging guards, terminal lock ordering, preserved unrelated metadata, and exact tenant/issuer/subject binding. |
 | Slice 2 High-review proportional final gate | `npm run verify:fast`; `TGE_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/postgres npm run test:db`; `npm run test:harness`; `git diff --check`; SHA-256 comparison of migrations `001`–`014` | **PASS:** engineering harness plus integration **381/381**; complete PostgreSQL **78/78**; final harness; clean diff check; migrations `001`–`014` byte-identical. Browser E2E and the production build were intentionally not repeated because the bounded remediation changes no browser or web production source. The disposable cluster, `node_modules`, and any generated artifacts are removed before checkpoint. |
+| Slice 2 final lock-order remediation | Focused state-synchronized cleanup/offboarding regression before and after the migration correction; `node --test test/raw-import-expiry-migration.test.js test/raw-import-expiry-offboarding.test.js`; affected auth/import/persistence files; complete affected PostgreSQL file; `npm run verify:fast`; `npm run test:db`; `npm run test:harness`; migration hash/diff proof; `git diff --check` | **EXPECTED RED: 0/1** at `878c913`: cleanup returned `SUCCEEDED` but offboarding returned `FAILED` under the proven overlap. **PASS:** focused regression **1/1**; migration/service **15/15**; affected auth/import/persistence **85/85**; affected PostgreSQL **12/12**; engineering harness plus integration **382/382**; complete PostgreSQL **79/79**; final harness; migrations `001`–`014` byte-identical; clean diff check. Browser E2E and production build were intentionally not repeated because no browser or web-production code changed. The disposable cluster, dependencies, and generated artifacts are removed before checkpoint. |
 | PR-5A initial full local gate at `178409c` | `TGE_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/postgres npm run verify` against an isolated PostgreSQL 16.15 cluster | **PASS:** harness; integration **142/142**; database **45/45**; managed Chromium **14/14**; production build. The temporary database cluster was removed after verification. This is historical evidence for that checkpoint. |
 | PR-5A bounded review-fix checkpoint (parent `dc5e3c9`) | `npm run verify:fast` on the code and tests recorded by this document's checkpoint | **PASS:** harness; integration **144/144**. Database, managed Chromium, and production build were not rerun for this bounded transport-error fix. |
 | PR-5C controlled canonical commit | `npm run verify:fast`; `TGE_TEST_DATABASE_URL=postgresql://127.0.0.1:55433/postgres npm run test:db` against disposable PostgreSQL 16.15; `npm run build` | **PASS:** harness; integration **174/174**; database **47/47**; production build (Vite 8.2.2, 22 modules). Browser E2E was intentionally not run because PR-5D/browser flow is outside this slice. The disposable cluster was stopped and removed. |

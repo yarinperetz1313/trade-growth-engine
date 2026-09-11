@@ -148,3 +148,25 @@ test("migration 015 guards tenant terminal state and staging batch writability",
   assert.match(sql, /target_batch\.raw_expires_at\s*<=\s*clock_timestamp\(\)/i);
   assert.match(sql, /target_batch\.raw_cleanup_state\s+not in\s*\('PENDING',\s*'FAILED'\)/i);
 });
+
+test("migration 015 locks the tenant before cleanup and import batch rows", () => {
+  const sql = migration();
+  const scrubBody = sql.match(
+    /create function tge\.scrub_import_batch_internal[\s\S]*?\$function\$;/i
+  )?.[0] || "";
+  const cleanupBody = sql.match(
+    /create function tge\.process_due_raw_import_cleanup[\s\S]*?\$function\$;/i
+  )?.[0] || "";
+  const commitBody = sql.match(
+    /create or replace function tge\.lock_import_commit_batch[\s\S]*?\$function\$;/i
+  )?.[0] || "";
+
+  for (const body of [scrubBody, cleanupBody, commitBody]) {
+    const tenantLock = body.search(/from tge\.tenants tenant[\s\S]*?for (?:update|share)/i);
+    const batchLock = body.search(/from tge\.import_batches(?: batch)?[\s\S]*?for update/i);
+    assert.ok(tenantLock >= 0, "expected an explicit tenant row lock");
+    assert.ok(batchLock > tenantLock, "tenant row lock must precede the batch row lock");
+  }
+  assert.match(cleanupBody, /for update of tenant skip locked/i);
+  assert.match(cleanupBody, /from tge\.import_batches batch[\s\S]*?for update skip locked/i);
+});

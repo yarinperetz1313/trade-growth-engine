@@ -701,6 +701,180 @@ if (!databaseUrl) {
     }
   });
 
+  test("raw cleanup and offboarding share a bounded tenant-before-batch lock order", async () => {
+    const tenant = await seedTenant("cleanup-offboarding-overlap", "OWNER");
+    const neighbor = await seedTenant("cleanup-offboarding-neighbor", "OWNER");
+    await seedImport(tenant, "cleanup-offboarding-batch", -8, { committed: true });
+    await seedImport(neighbor, "cleanup-offboarding-neighbor-batch", -1, {
+      committed: true
+    });
+    await seedInvitation(tenant);
+    await seedPilotEvidence(tenant);
+    await withContext(runtime, tenant, () => runtime.query(
+      "select * from tge.request_tenant_offboarding('OFFBOARD_ACCESS_AND_RAW_EVIDENCE')"
+    ));
+    await grantMaintenance();
+
+    const barrier = new Client({ connectionString: adminUrl });
+    const cleanup = new Client({
+      connectionString: maintenanceUrl,
+      application_name: `slice2-cleanup-overlap-${tenant.id}`
+    });
+    const offboarding = new Client({
+      connectionString: maintenanceUrl,
+      application_name: `slice2-offboarding-overlap-${tenant.id}`
+    });
+    let barrierHeld = false;
+    let cleanupPromise;
+    let offboardingPromise;
+    await barrier.connect();
+    await cleanup.connect();
+    await offboarding.connect();
+    try {
+      await Promise.all([
+        cleanup.query("set statement_timeout = '8s'"),
+        offboarding.query("set statement_timeout = '8s'")
+      ]);
+      await barrier.query("begin");
+      await barrier.query(
+        "select pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [tenant.id]
+      );
+      barrierHeld = true;
+      await admin.query(
+        `create function tge.test_pause_cleanup_offboarding_overlap()
+         returns trigger language plpgsql as $$
+         begin
+           perform pg_advisory_xact_lock(hashtextextended('${tenant.id}', 0));
+           return new;
+         end $$`
+      );
+      await admin.query(
+        `create trigger test_pause_cleanup_offboarding_overlap
+         before update on tge.import_staging_records
+         for each row when (
+           old.tenant_id = '${tenant.id}'::uuid
+           and old.raw_payload is not null
+           and new.raw_payload is null
+         ) execute function tge.test_pause_cleanup_offboarding_overlap()`
+      );
+
+      cleanupPromise = cleanup.query(
+        "select * from tge.process_due_raw_import_cleanup(1)"
+      );
+      assert.equal(
+        await waitForBlockingPid(admin, cleanup.processID, barrier.processID),
+        true,
+        "cleanup must reach the deterministic post-claim barrier"
+      );
+
+      offboardingPromise = offboarding.query(
+        "select * from tge.process_pending_tenant_offboarding(1)"
+      );
+      assert.equal(
+        await waitForBlockingPid(admin, offboarding.processID, cleanup.processID),
+        true,
+        "offboarding must be queued behind the overlapping cleanup"
+      );
+
+      await barrier.query("commit");
+      barrierHeld = false;
+      const [cleaned, offboarded] = await withDeadline(
+        Promise.all([cleanupPromise, offboardingPromise]),
+        9000,
+        "cleanup/offboarding overlap did not complete within the bounded deadline"
+      );
+      assert.deepEqual(cleaned.rows.map(row => row.cleanup_state), ["SUCCEEDED"]);
+      assert.deepEqual(
+        offboarded.rows.map(row => row.state),
+        ["OFFBOARDED_ACCESS_REVOKED"]
+      );
+
+      const truth = await admin.query(
+        `select
+           (select raw_cleanup_state from tge.import_batches
+             where tenant_id = $1 and id = 'cleanup-offboarding-batch') cleanup_state,
+           (select state from tge.tenant_offboarding_requests
+             where tenant_id = $1) offboarding_state,
+           (select count(*) from tge.import_staging_records
+             where tenant_id = $1 and raw_payload is not null)::integer raw_rows,
+           (select count(*) from tge.tenant_memberships
+             where tenant_id = $1)::integer memberships,
+           (select count(*) from tge.prospects
+             where tenant_id = $1)::integer canonical_records,
+           (select count(*) from tge.audit_events
+             where tenant_id = $1)::integer audit_events,
+           (select count(*) from tge.pilot_evidence_events
+             where tenant_id = $1)::integer pilot_events,
+           (select count(*) from tge.data_deletion_evidence
+             where tenant_id = $1 and status = 'FAILED')::integer failed_evidence,
+           (select count(*) from tge.tenant_memberships
+             where tenant_id = $2)::integer neighbor_memberships,
+           (select count(*) from tge.import_staging_records
+             where tenant_id = $2 and raw_payload is not null)::integer neighbor_raw_rows`,
+        [tenant.id, neighbor.id]
+      );
+      assert.deepEqual(truth.rows[0], {
+        cleanup_state: "SUCCEEDED",
+        offboarding_state: "OFFBOARDED_ACCESS_REVOKED",
+        raw_rows: 0,
+        memberships: 0,
+        canonical_records: 1,
+        audit_events: 1,
+        pilot_events: 1,
+        failed_evidence: 0,
+        neighbor_memberships: 1,
+        neighbor_raw_rows: 1
+      });
+
+      const evidence = await admin.query(
+        `select evidence_type, status, facts
+         from tge.data_deletion_evidence
+         where tenant_id = $1
+         order by evidence_type`,
+        [tenant.id]
+      );
+      assert.deepEqual(evidence.rows, [
+        {
+          evidence_type: "RAW_IMPORT_EVIDENCE",
+          status: "SUCCEEDED",
+          facts: {
+            audit_events_retained: 1,
+            canonical_records_retained: 1,
+            external_actions_performed: false,
+            raw_import_rows_scrubbed: 1
+          }
+        },
+        {
+          evidence_type: "TENANT_OFFBOARDING",
+          status: "SUCCEEDED",
+          facts: {
+            audit_events_retained: 1,
+            canonical_records_retained: 1,
+            external_actions_performed: false,
+            invitations_deleted: 1,
+            memberships_revoked: 1,
+            pilot_evidence_events_retained: 1,
+            raw_import_batches_scrubbed: 0,
+            raw_import_rows_scrubbed: 0
+          }
+        }
+      ]);
+    } finally {
+      if (barrierHeld) await barrier.query("rollback").catch(() => {});
+      await Promise.allSettled([cleanupPromise, offboardingPromise].filter(Boolean));
+      await cleanup.end();
+      await offboarding.end();
+      await barrier.end();
+      await admin.query(
+        "drop trigger if exists test_pause_cleanup_offboarding_overlap on tge.import_staging_records"
+      );
+      await admin.query(
+        "drop function if exists tge.test_pause_cleanup_offboarding_overlap()"
+      );
+    }
+  });
+
   async function seedTenant(label, role, metadata = {}) {
     const tenant = {
       id: randomUUID(),
@@ -902,6 +1076,33 @@ async function waitForMaintenanceLock(client, applicationName, isSettled) {
     await new Promise(resolve => setTimeout(resolve, 10));
   }
   return false;
+}
+
+async function waitForBlockingPid(client, blockedPid, blockerPid) {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const result = await client.query(
+      `select $2::integer = any(pg_blocking_pids($1::integer)) blocked`,
+      [blockedPid, blockerPid]
+    );
+    if (result.rows[0]?.blocked) return true;
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  return false;
+}
+
+async function withDeadline(promise, milliseconds, message) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), milliseconds);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function addMonths(value, count) {
