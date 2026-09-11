@@ -1158,6 +1158,43 @@ begin
 end
 $function$;
 
+create function tge.guard_runtime_assisted_invitation_insert()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, tge
+as $function$
+declare
+  runtime_session boolean;
+begin
+  runtime_session := (
+    pg_catalog.pg_has_role(session_user, 'tge_runtime', 'member')
+    and coalesce((
+      select not roles.rolsuper
+      from pg_catalog.pg_roles roles
+      where roles.rolname = session_user
+    ), false)
+  );
+  if not runtime_session then return new; end if;
+
+  if new.tenant_id is distinct from tge.current_tenant_id()
+    or new.created_by_subject_id is distinct from tge.current_subject_id()
+    or not tge.lock_current_tenant_access_writable() then
+    raise exception using
+      errcode = '23514',
+      message = 'Invitation write denied.';
+  end if;
+  return new;
+end
+$function$;
+
+create trigger assisted_invitations_runtime_insert_guard
+before insert on tge.assisted_invitations
+for each row execute function tge.guard_runtime_assisted_invitation_insert();
+
+revoke all on function tge.guard_runtime_assisted_invitation_insert()
+  from public, tge_runtime, tge_migrator, tge_maintenance;
+
 create or replace function tge.consume_assisted_invitation(
   requested_token_hash text,
   requested_identity_issuer text,

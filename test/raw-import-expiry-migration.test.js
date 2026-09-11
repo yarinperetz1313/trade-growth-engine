@@ -204,11 +204,35 @@ test("migration 015 locks the tenant before cleanup and import batch rows", () =
   assert.match(cleanupBody, /from tge\.import_batches batch[\s\S]*?for update skip locked/i);
 });
 
-test("migration 015 makes invitation consumption cross the terminal tenant barrier before child locks", () => {
+test("migration 015 makes every runtime invitation insert cross the terminal OWNER barrier", () => {
   const sql = migration();
   const creationBarrier = sql.match(
     /create function tge\.lock_current_tenant_access_writable[\s\S]*?\$function\$;/i
   )?.[0] || "";
+  const insertGuard = sql.match(
+    /create function tge\.guard_runtime_assisted_invitation_insert[\s\S]*?\$function\$;/i
+  )?.[0] || "";
+
+  assert.match(insertGuard, /security definer/i);
+  assert.match(insertGuard, /set search_path = pg_catalog, tge/i);
+  assert.match(insertGuard, /new\.tenant_id is distinct from tge\.current_tenant_id\(\)/i);
+  assert.match(insertGuard, /new\.created_by_subject_id is distinct from tge\.current_subject_id\(\)/i);
+  assert.match(insertGuard, /tge\.lock_current_tenant_access_writable\(\)/i);
+  assert.match(creationBarrier, /membership\.role = 'OWNER'/i);
+  assert.match(creationBarrier, /membership\.status = 'ACTIVE'/i);
+  assert.match(creationBarrier, /OFFBOARDED_ACCESS_REVOKED[\s\S]*?for share/i);
+  assert.match(
+    sql,
+    /create trigger assisted_invitations_runtime_insert_guard\s+before insert on tge\.assisted_invitations[\s\S]*?execute function tge\.guard_runtime_assisted_invitation_insert\(\)/i
+  );
+  assert.match(
+    sql,
+    /revoke all on function tge\.guard_runtime_assisted_invitation_insert\(\)\s+from public, tge_runtime, tge_migrator, tge_maintenance/i
+  );
+});
+
+test("migration 015 makes invitation consumption cross the terminal tenant barrier before child locks", () => {
+  const sql = migration();
   const consumeBody = sql.match(
     /create or replace function tge\.consume_assisted_invitation[\s\S]*?\$function\$;/i
   )?.[0] || "";
@@ -222,9 +246,6 @@ test("migration 015 makes invitation consumption cross the terminal tenant barri
     invitationLock > tenantLock,
     "tenant row lock must precede the invitation row lock"
   );
-  assert.match(creationBarrier, /membership\.role = 'OWNER'/i);
-  assert.match(creationBarrier, /membership\.status = 'ACTIVE'/i);
-  assert.match(creationBarrier, /OFFBOARDED_ACCESS_REVOKED[\s\S]*?for share/i);
   assert.match(
     sql,
     /grant execute on function tge\.lock_current_tenant_access_writable\(\) to tge_runtime/i

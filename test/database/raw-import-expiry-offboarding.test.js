@@ -799,6 +799,85 @@ if (!databaseUrl) {
     }
   });
 
+  test("direct runtime invitation insert cannot bypass terminal tenant access", async () => {
+    const tenant = await seedTenant("direct-terminal-invitation", "OWNER");
+    const privileges = await runtime.query(
+      `select
+         has_table_privilege(
+           current_user, 'tge.assisted_invitations', 'INSERT'
+         ) invitation_insert,
+         has_function_privilege(
+           current_user,
+           'tge.guard_runtime_assisted_invitation_insert()',
+           'EXECUTE'
+         ) guard_execute`
+    );
+    assert.deepEqual(privileges.rows[0], {
+      invitation_insert: true,
+      guard_execute: false
+    });
+    await withContext(runtime, tenant, () => runtime.query(
+      "select * from tge.request_tenant_offboarding('OFFBOARD_ACCESS_AND_RAW_EVIDENCE')"
+    ));
+    await grantMaintenance();
+    const maintenance = new Client({ connectionString: maintenanceUrl });
+    await maintenance.connect();
+    try {
+      const processed = await maintenance.query(
+        "select * from tge.process_pending_tenant_offboarding(1)"
+      );
+      assert.deepEqual(
+        processed.rows.map(row => row.state),
+        ["OFFBOARDED_ACCESS_REVOKED"]
+      );
+
+      const writable = await withContext(runtime, tenant, () => runtime.query(
+        "select tge.lock_current_tenant_access_writable() as writable"
+      ));
+      let directInsertDenied = false;
+      try {
+        await withContext(runtime, tenant, () => runtime.query(
+          `insert into tge.assisted_invitations (
+             tenant_id, id, token_hash, normalized_email, intended_role,
+             status, created_by_subject_id, expires_at, created_at, updated_at
+           ) values ($1, $2, $3, 'terminal@example.test', 'MEMBER', 'PENDING',
+             $4, clock_timestamp() + interval '24 hours',
+             clock_timestamp(), clock_timestamp())`,
+          [
+            tenant.id,
+            randomUUID(),
+            randomUUID().replaceAll("-", "").padEnd(64, "0"),
+            tenant.subject
+          ]
+        ));
+      } catch (error) {
+        directInsertDenied = error?.code === "23514"
+          && error.message === "Invitation write denied.";
+      }
+      const terminalInvitations = await admin.query(
+        `select count(*)::integer rows
+         from tge.assisted_invitations invitation
+         join tge.tenants tenant on tenant.id = invitation.tenant_id
+         where invitation.tenant_id = $1
+           and invitation.status = 'PENDING'
+           and tenant.metadata->>'offboarding_state' = 'OFFBOARDED_ACCESS_REVOKED'`,
+        [tenant.id]
+      );
+
+      assert.deepEqual({
+        lockCurrentTenantAccessWritable: writable.rows[0].writable,
+        directInsertDenied,
+        terminalInvitationRows: terminalInvitations.rows[0].rows
+      }, {
+        lockCurrentTenantAccessWritable: false,
+        directInsertDenied: true,
+        terminalInvitationRows: 0
+      });
+    } finally {
+      await maintenance.end();
+    }
+  });
+
   test("offboarding waits for an already-authorized import and leaves no post-success raw evidence", async () => {
     const tenant = await seedTenant("offboard-barrier", "OWNER");
     await withContext(runtime, tenant, () => runtime.query(
@@ -856,7 +935,7 @@ if (!databaseUrl) {
     }
   });
 
-  test("concurrent invitation creation is serialized before terminal offboarding", async () => {
+  test("concurrent direct runtime invitation insert is serialized before terminal offboarding", async () => {
     const tenant = await seedTenant("invitation-create-barrier", "OWNER");
     await withContext(runtime, tenant, () => runtime.query(
       "select * from tge.request_tenant_offboarding('OFFBOARD_ACCESS_AND_RAW_EVIDENCE')"
@@ -904,43 +983,35 @@ if (!databaseUrl) {
          for each row execute function tge.test_pause_invitation_creation()`
       );
 
-      const authContext = await authTenantContext(tenant, "OWNER");
-      const repository = new PostgresAuthRepository({
-        pool: {
-          async connect() {
-            return {
-              query: creator.query.bind(creator),
-              release() {}
-            };
-          }
-        }
-      });
       const invitationId = randomUUID();
       const now = new Date();
-      createPromise = repository.createInvitation({
-        tenantContext: authContext,
-        invitation: {
-          tenantId: tenant.id,
-          id: invitationId,
-          tokenHash: "1".repeat(64),
-          normalizedEmail: "bounded@example.test",
-          role: "MEMBER",
-          createdBySubject: tenant.subject,
-          expiresAt: new Date(now.valueOf() + 86400000).toISOString(),
-          createdAt: now.toISOString()
-        },
-        auditEvent: {
-          tenantId: tenant.id,
-          id: `invitation-created:${invitationId}`,
-          eventType: "INVITATION_CREATED",
-          subject: tenant.subject,
-          entityType: "INVITATION",
-          entityId: invitationId,
-          payload: {},
-          occurredAt: now.toISOString(),
-          retainUntil: addMonths(now, 12).toISOString()
+      createPromise = (async () => {
+        await creator.query("begin");
+        try {
+          await setContext(creator, tenant);
+          const created = await creator.query(
+            `insert into tge.assisted_invitations (
+               tenant_id, id, token_hash, normalized_email, intended_role,
+               status, created_by_subject_id, expires_at, created_at, updated_at
+             ) values ($1, $2, $3, 'bounded@example.test', 'MEMBER', 'PENDING',
+               $4, $5, $6, $6)
+             returning tenant_id`,
+            [
+              tenant.id,
+              invitationId,
+              "1".repeat(64),
+              tenant.subject,
+              new Date(now.valueOf() + 86400000),
+              now
+            ]
+          );
+          await creator.query("commit");
+          return created.rows[0];
+        } catch (error) {
+          await creator.query("rollback").catch(() => {});
+          throw error;
         }
-      });
+      })();
       createPromise.catch(() => {});
       assert.equal(
         await waitForBlockingPid(admin, creator.processID, barrier.processID),
@@ -976,7 +1047,7 @@ if (!databaseUrl) {
       );
       assert.deepEqual({
         serialized,
-        created: created?.tenantId === tenant.id,
+        created: created?.tenant_id === tenant.id,
         processed: offboarded.rows.map(row => row.state),
         ...truth.rows[0]
       }, {

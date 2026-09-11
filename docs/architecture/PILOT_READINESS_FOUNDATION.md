@@ -104,12 +104,14 @@ waits for already-authorized imports; an import that starts behind that lock see
 the terminal marker and fails. Consequently no raw evidence can commit after a
 successful offboarding transaction or be reintroduced after cleanup.
 
-Invitation creation uses a no-target runtime function that revalidates the
-current exact active OWNER and holds the same shared tenant-row lock before the
-child insert. Invitation consumption also takes a terminal-aware shared tenant
-lock before its invitation row lock or membership activation. Offboarding's
-exclusive tenant lock therefore serializes both paths, and residual invitation
-evidence cannot reactivate access after the terminal marker commits.
+Every runtime invitation insert crosses a database trigger that validates its
+tenant and creator against trusted request context, revalidates the current
+exact active OWNER through a no-target runtime function, and holds the same
+shared tenant-row lock before the child insert. Invitation consumption also
+takes a terminal-aware shared tenant lock before its invitation row lock or
+membership activation. Offboarding's exclusive tenant lock therefore
+serializes both paths, and direct SQL or residual invitation evidence cannot
+recreate access after the terminal marker commits.
 
 Tenant offboarding accepts exactly the confirmation
 `OFFBOARD_ACCESS_AND_RAW_EVIDENCE`. Both server and database independently

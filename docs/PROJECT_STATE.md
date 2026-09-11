@@ -114,6 +114,24 @@ All previously closed Slice 2 invariants remain covered. Browser E2E and
 production build were not run because no browser or web-production source
 changed.
 
+The final bounded database invitation-guard remediation closes the remaining
+fresh P1 at `97b6f4c`. The least-privilege runtime login could call the terminal
+barrier and receive `false`, then bypass the repository and directly insert a
+`PENDING` invitation for that terminal tenant. A migration-015-only trigger now
+validates the inserted tenant and creator against trusted request context and
+requires the existing active-OWNER, terminal-aware shared tenant lock before
+the child insert. Starting direct-runtime and state-synchronized overlap
+regressions were each **0/1**: direct SQL left one terminal invitation, and
+offboarding did not wait for an overlapping direct insert. Both are now
+**1/1**. Focused auth/invitation/migration tests pass **61/61**, the affected
+PostgreSQL 16.15 file passes **18/18**, the engineering harness plus integration
+passes **388/388**, and the complete PostgreSQL suite passes **85/85**.
+Migrations `001`–`014` remain byte-identical and the runtime role retains only
+its existing narrow table privileges; the trigger function is not directly
+executable by runtime, migrator, or maintenance roles. Browser E2E and the
+production build were not run because no browser or web-production source
+changed.
+
 Post-merge [GitHub Verify run 34440327842](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/34440327842)
 failed integration at **349 passed / 7 failed** because an engineering-harness
 negative self-test rewrote tracked repository files in place during parallel
