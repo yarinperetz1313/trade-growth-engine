@@ -99,6 +99,33 @@ test("OWNER creates a hashed, expiring invitation and receives the token only on
   );
 });
 
+test("terminal invitation creation denial stays generic and returns no token", async () => {
+  const fixture = await createFixture();
+  const service = new InvitationService({
+    repository: {
+      async createInvitation() {
+        return null;
+      }
+    },
+    now: () => new Date(NOW),
+    randomBytes: size => Buffer.alloc(size, 7),
+    sensitiveActionPolicy: {
+      async assertSatisfied() {}
+    }
+  });
+
+  await assert.rejects(
+    service.create({
+      tenantContext: fixture.ownerContext,
+      email: "invited.user@example.com",
+      role: "MEMBER",
+      expiresAt: new Date(NOW.getTime() + 60_000),
+      assurance: { amr: ["mfa"] }
+    }),
+    unavailable
+  );
+});
+
 test("non-OWNER roles cannot administer invitations", async () => {
   const fixture = await createFixture();
   const memberContext = await resolveTenantContext({

@@ -77,6 +77,10 @@ functions. Physical cleanup then moves through `PENDING`, `IN_PROGRESS`,
 `SUCCEEDED`, or retryable `FAILED`. Tenant-authorized users can read the bounded
 state at `GET /api/import-batches/:batchId/cleanup`.
 
+PostgreSQL preview and analysis batch reads compute `rawCleanup.due` from the
+same database clock expression as the dedicated cleanup status. Mapping code
+preserves an absent due value as unknown instead of inventing `false`.
+
 Only the distinct non-login `tge_maintenance` group can execute the targetless
 cleanup processors. A maintenance login inherits that role directly and has no
 membership or `SET ROLE` path to `tge_owner`, `tge_migrator`, or `tge_runtime`;
@@ -99,6 +103,13 @@ the conflicting tenant-row lock before discovering or scrubbing batches, so it
 waits for already-authorized imports; an import that starts behind that lock sees
 the terminal marker and fails. Consequently no raw evidence can commit after a
 successful offboarding transaction or be reintroduced after cleanup.
+
+Invitation creation uses a no-target runtime function that revalidates the
+current exact active OWNER and holds the same shared tenant-row lock before the
+child insert. Invitation consumption also takes a terminal-aware shared tenant
+lock before its invitation row lock or membership activation. Offboarding's
+exclusive tenant lock therefore serializes both paths, and residual invitation
+evidence cannot reactivate access after the terminal marker commits.
 
 Tenant offboarding accepts exactly the confirmation
 `OFFBOARD_ACCESS_AND_RAW_EVIDENCE`. Both server and database independently

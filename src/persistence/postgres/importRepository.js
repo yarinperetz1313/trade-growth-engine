@@ -63,7 +63,8 @@ function createImportRepository(
          ) values (
            $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $12
          )
-         returning *`,
+         returning *,
+           raw_expires_at <= clock_timestamp() as raw_cleanup_due`,
         [
           tenantId,
           batch.id,
@@ -139,8 +140,10 @@ function createImportRepository(
 
     async findPreview(batchId) {
       const batch = await client.query(
-        `select * from tge.import_batches
-         where tenant_id = $1 and id = $2`,
+        `select batch.*,
+           batch.raw_expires_at <= clock_timestamp() as raw_cleanup_due
+         from tge.import_batches batch
+         where batch.tenant_id = $1 and batch.id = $2`,
         [tenantId, batchId]
       );
       if (!batch.rows[0]) return null;
@@ -160,8 +163,10 @@ function createImportRepository(
 
     async findAnalysisEvidence(batchId) {
       const batch = await client.query(
-        `select * from tge.import_batches
-         where tenant_id = $1 and id = $2`,
+        `select batch.*,
+           batch.raw_expires_at <= clock_timestamp() as raw_cleanup_due
+         from tge.import_batches batch
+         where batch.tenant_id = $1 and batch.id = $2`,
         [tenantId, batchId]
       );
       if (!batch.rows[0]) return null;
@@ -1093,7 +1098,9 @@ function mapBatch(row) {
     metadataRetainUntil: timestamp(row.metadata_retain_until),
     rawCleanup: {
       state: row.raw_cleanup_state,
-      due: row.raw_cleanup_due === true,
+      ...(typeof row.raw_cleanup_due === "boolean"
+        ? { due: row.raw_cleanup_due }
+        : {}),
       attempts: Number(row.raw_cleanup_attempts || 0),
       retryable: row.raw_cleanup_retryable === true,
       ...(row.raw_cleanup_started_at

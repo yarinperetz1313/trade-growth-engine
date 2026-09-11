@@ -150,6 +150,9 @@ class InvitationService {
         payload: { normalizedEmail, intendedRole: role }
       })
     });
+    if (!stored) {
+      unavailable();
+    }
     return Object.freeze({ token, invitation: Object.freeze(stored) });
   }
 

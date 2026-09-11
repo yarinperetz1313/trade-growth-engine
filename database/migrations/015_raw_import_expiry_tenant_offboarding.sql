@@ -1104,6 +1104,255 @@ begin
 end
 $function$;
 
+create function tge.lock_current_tenant_access_writable()
+returns boolean
+language plpgsql
+volatile
+security definer
+set search_path = pg_catalog, tge
+as $function$
+declare
+  authoritative_tenant uuid := tge.current_tenant_id();
+  authoritative_subject text := tge.current_subject_id();
+  authoritative_issuer text := tge.current_identity_issuer();
+begin
+  if authoritative_tenant is null
+    or coalesce(btrim(authoritative_subject), '') = ''
+    or coalesce(btrim(authoritative_issuer), '') = ''
+    or not pg_catalog.pg_has_role(session_user, 'tge_runtime', 'member')
+    or coalesce((
+      select roles.rolsuper from pg_catalog.pg_roles roles
+      where roles.rolname = session_user
+    ), true) then
+    return false;
+  end if;
+
+  if not exists (
+    select 1
+    from tge.tenant_memberships membership
+    where membership.tenant_id = authoritative_tenant
+      and membership.identity_issuer = authoritative_issuer
+      and membership.subject_id = authoritative_subject
+      and membership.role = 'OWNER'
+      and membership.status = 'ACTIVE'
+  ) then
+    return false;
+  end if;
+
+  perform 1
+  from tge.tenants tenant
+  where tenant.id = authoritative_tenant
+    and tenant.metadata->>'offboarding_state'
+      is distinct from 'OFFBOARDED_ACCESS_REVOKED'
+  for share;
+  return found;
+end
+$function$;
+
+create or replace function tge.consume_assisted_invitation(
+  requested_token_hash text,
+  requested_identity_issuer text,
+  requested_subject_id text,
+  membership_audit_id text,
+  invitation_audit_id text
+)
+returns table (
+  resolved_tenant_id uuid,
+  resolved_role text
+)
+language plpgsql
+volatile
+security definer
+set search_path = pg_catalog, tge
+as $function$
+declare
+  invitation tge.assisted_invitations%rowtype;
+  existing_membership tge.tenant_memberships%rowtype;
+  membership_count integer;
+  requested_at timestamptz := clock_timestamp();
+begin
+  if requested_token_hash is null
+    or requested_token_hash !~ '^[0-9a-f]{64}$'
+    or requested_identity_issuer is null
+    or btrim(requested_identity_issuer) = ''
+    or requested_subject_id is null
+    or btrim(requested_subject_id) = ''
+    or membership_audit_id is null
+    or btrim(membership_audit_id) = ''
+    or invitation_audit_id is null
+    or btrim(invitation_audit_id) = '' then
+    return;
+  end if;
+
+  perform set_config('app.tenant_id', '', true);
+  perform set_config('app.identity_issuer', requested_identity_issuer, true);
+  perform set_config('app.subject_id', requested_subject_id, true);
+  perform set_config('app.invitation_token_hash', requested_token_hash, true);
+
+  select candidate.*
+  into invitation
+  from tge.assisted_invitations candidate
+  where candidate.token_hash = requested_token_hash
+    and candidate.status = 'PENDING'
+    and candidate.expires_at > requested_at
+    and candidate.expected_identity_issuer = requested_identity_issuer
+    and candidate.expected_subject_id = requested_subject_id;
+
+  if not found then
+    return;
+  end if;
+
+  perform pg_advisory_xact_lock(
+    hashtextextended(
+      jsonb_build_array(requested_identity_issuer, requested_subject_id)::text,
+      544745
+    )
+  );
+
+  perform set_config('app.tenant_id', invitation.tenant_id::text, true);
+
+  perform 1
+  from tge.tenants tenant
+  where tenant.id = invitation.tenant_id
+    and tenant.metadata->>'offboarding_state'
+      is distinct from 'OFFBOARDED_ACCESS_REVOKED'
+  for share;
+  if not found then
+    return;
+  end if;
+
+  select candidate.*
+  into invitation
+  from tge.assisted_invitations candidate
+  where candidate.tenant_id = invitation.tenant_id
+    and candidate.id = invitation.id
+    and candidate.token_hash = requested_token_hash
+    and candidate.status = 'PENDING'
+    and candidate.expires_at > requested_at
+    and candidate.expected_identity_issuer = requested_identity_issuer
+    and candidate.expected_subject_id = requested_subject_id
+  for update;
+
+  if not found then
+    return;
+  end if;
+
+  perform set_config('app.tenant_id', '', true);
+
+  select count(*)::integer
+  into membership_count
+  from tge.tenant_memberships membership
+  where membership.identity_issuer = requested_identity_issuer
+    and membership.subject_id = requested_subject_id;
+
+  if membership_count > 1 then
+    return;
+  end if;
+
+  select membership.*
+  into existing_membership
+  from tge.tenant_memberships membership
+  where membership.identity_issuer = requested_identity_issuer
+    and membership.subject_id = requested_subject_id
+  limit 1;
+
+  if found and (
+    existing_membership.status <> 'ACTIVE'
+    or existing_membership.tenant_id <> invitation.tenant_id
+    or existing_membership.role <> invitation.intended_role
+  ) then
+    return;
+  end if;
+
+  perform set_config('app.tenant_id', invitation.tenant_id::text, true);
+
+  if existing_membership.tenant_id is null then
+    insert into tge.tenant_memberships (
+      tenant_id,
+      identity_issuer,
+      subject_id,
+      role,
+      status,
+      created_at,
+      updated_at
+    ) values (
+      invitation.tenant_id,
+      requested_identity_issuer,
+      requested_subject_id,
+      invitation.intended_role,
+      'ACTIVE',
+      requested_at,
+      requested_at
+    );
+
+    insert into tge.audit_events (
+      tenant_id,
+      id,
+      event_type,
+      subject_id,
+      entity_type,
+      entity_id,
+      payload,
+      occurred_at,
+      retain_until
+    ) values (
+      invitation.tenant_id,
+      membership_audit_id,
+      'MEMBERSHIP_ACTIVATED',
+      requested_subject_id,
+      'TENANT_MEMBERSHIP',
+      requested_subject_id,
+      jsonb_build_object(
+        'identity_issuer', requested_identity_issuer,
+        'role', invitation.intended_role,
+        'invitation_id', invitation.id
+      ),
+      requested_at,
+      requested_at + interval '12 months'
+    );
+  end if;
+
+  update tge.assisted_invitations
+  set
+    status = 'CONSUMED',
+    consumed_by_identity_issuer = requested_identity_issuer,
+    consumed_by_subject_id = requested_subject_id,
+    consumed_at = requested_at,
+    updated_at = requested_at
+  where tenant_id = invitation.tenant_id
+    and id = invitation.id
+    and status = 'PENDING';
+
+  if not found then
+    return;
+  end if;
+
+  insert into tge.audit_events (
+    tenant_id,
+    id,
+    event_type,
+    subject_id,
+    entity_type,
+    entity_id,
+    payload,
+    occurred_at,
+    retain_until
+  ) values (
+    invitation.tenant_id,
+    invitation_audit_id,
+    'INVITATION_CONSUMED',
+    requested_subject_id,
+    'ASSISTED_INVITATION',
+    invitation.id::text,
+    jsonb_build_object('role', invitation.intended_role),
+    requested_at,
+    requested_at + interval '12 months'
+  );
+
+  return query select invitation.tenant_id, invitation.intended_role;
+end
+$function$;
+
 create or replace function tge.pilot_runtime_readiness()
 returns table (
   schema_version text,
@@ -1165,12 +1414,14 @@ revoke all on function tge.process_due_raw_import_cleanup(integer)
 revoke all on function tge.process_pending_tenant_offboarding(integer)
   from public, tge_runtime, tge_migrator, tge_maintenance;
 revoke all on function tge.request_tenant_offboarding(text) from public;
+revoke all on function tge.lock_current_tenant_access_writable() from public;
 
 grant execute on function tge.process_due_raw_import_cleanup(integer)
   to tge_maintenance;
 grant execute on function tge.process_pending_tenant_offboarding(integer)
   to tge_maintenance;
 grant execute on function tge.request_tenant_offboarding(text) to tge_runtime;
+grant execute on function tge.lock_current_tenant_access_writable() to tge_runtime;
 grant execute on function tge.pilot_runtime_readiness() to tge_runtime;
 
 revoke execute on all functions in schema tge from public;

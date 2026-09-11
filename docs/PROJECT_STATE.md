@@ -71,6 +71,27 @@ remain byte-identical and `git diff --check` passes. The six prior High-review
 findings remain closed. Browser E2E and the production build were not repeated
 because no browser or web-production code changed.
 
+The final bounded terminal-access remediation closes two later review findings.
+Invitation creation now revalidates the exact active OWNER identity through a
+no-target runtime function and holds the tenant row before inserting its child;
+invitation consumption takes the same terminal-aware tenant lock before locking
+the invitation or activating membership. A terminal tenant therefore cannot
+retain a concurrently created invitation or regain membership from residual
+invitation evidence. PostgreSQL preview and analysis batch reads also compute
+`rawCleanup.due` from database time exactly like the dedicated cleanup status;
+an absent value is no longer rewritten as `false`. At starting checkpoint
+`9d91861`, the new repository/migration assertions were **22/25** and the two
+state-synchronized PostgreSQL invitation races were **0/2**: offboarding did not
+wait, one invitation survived terminal state, and consumption recreated one
+active membership. The remediated focused auth/import/migration set passes
+**36/36**, affected auth/import/persistence passes **89/89**, the complete
+affected PostgreSQL file passes **15/15**, the engineering harness plus
+integration passes **386/386**, and the complete PostgreSQL suite passes
+**82/82** on PostgreSQL 16.15. The standalone harness and `git diff --check`
+pass, and migrations `001`–`014` remain byte-identical to `origin/main`.
+Browser E2E and production build were intentionally not repeated because no
+browser or web-production source changed.
+
 Post-merge [GitHub Verify run 34440327842](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/34440327842)
 failed integration at **349 passed / 7 failed** because an engineering-harness
 negative self-test rewrote tracked repository files in place during parallel

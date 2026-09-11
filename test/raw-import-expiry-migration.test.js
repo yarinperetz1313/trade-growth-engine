@@ -170,3 +170,30 @@ test("migration 015 locks the tenant before cleanup and import batch rows", () =
   assert.match(cleanupBody, /for update of tenant skip locked/i);
   assert.match(cleanupBody, /from tge\.import_batches batch[\s\S]*?for update skip locked/i);
 });
+
+test("migration 015 makes invitation consumption cross the terminal tenant barrier before child locks", () => {
+  const sql = migration();
+  const creationBarrier = sql.match(
+    /create function tge\.lock_current_tenant_access_writable[\s\S]*?\$function\$;/i
+  )?.[0] || "";
+  const consumeBody = sql.match(
+    /create or replace function tge\.consume_assisted_invitation[\s\S]*?\$function\$;/i
+  )?.[0] || "";
+  const tenantLock = consumeBody.search(
+    /from tge\.tenants tenant[\s\S]*?OFFBOARDED_ACCESS_REVOKED[\s\S]*?for share/i
+  );
+  const invitationLock = consumeBody.indexOf("for update", tenantLock);
+
+  assert.ok(tenantLock >= 0, "expected a terminal-aware tenant row lock");
+  assert.ok(
+    invitationLock > tenantLock,
+    "tenant row lock must precede the invitation row lock"
+  );
+  assert.match(creationBarrier, /membership\.role = 'OWNER'/i);
+  assert.match(creationBarrier, /membership\.status = 'ACTIVE'/i);
+  assert.match(creationBarrier, /OFFBOARDED_ACCESS_REVOKED[\s\S]*?for share/i);
+  assert.match(
+    sql,
+    /grant execute on function tge\.lock_current_tenant_access_writable\(\) to tge_runtime/i
+  );
+});

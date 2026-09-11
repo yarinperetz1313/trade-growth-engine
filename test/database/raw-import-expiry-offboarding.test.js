@@ -10,6 +10,12 @@ const {
   createTenantContext
 } = require("../../src/persistence/tenantContext");
 const {
+  PostgresAuthRepository
+} = require("../../src/auth/postgresAuthRepository");
+const {
+  resolveTenantContext
+} = require("../../src/auth/authorization");
+const {
   createPostgresRepositories
 } = require("../../src/persistence/postgres/repositories");
 
@@ -277,6 +283,55 @@ if (!databaseUrl) {
         "delete from tge.import_batches where tenant_id = $1 and id = any($2::text[])",
         [tenant.id, batches]
       );
+    }
+  });
+
+  test("generic preview and analysis report the same database-computed cleanup due truth", async () => {
+    const tenant = await seedTenant("generic-cleanup-due", "OWNER");
+    await seedImport(tenant, "generic-due-batch", -8);
+    const pool = new Pool({ connectionString: runtimeUrl, max: 1 });
+    try {
+      const repositories = createPostgresRepositories({ pool });
+      const context = createTenantContext({
+        tenantId: tenant.id,
+        identityIssuer: tenant.issuer,
+        subjectId: tenant.subject
+      });
+      const preview = await repositories.imports.findPreview(
+        context,
+        "generic-due-batch"
+      );
+      const analysis = await repositories.imports.findAnalysisEvidence(
+        context,
+        "generic-due-batch"
+      );
+      const dedicated = await repositories.imports.findRawCleanupStatus(
+        context,
+        "generic-due-batch"
+      );
+
+      assert.equal(preview.batch.rawCleanup.due, true);
+      assert.equal(analysis.batch.rawCleanup.due, true);
+      assert.equal(dedicated.rawCleanup.due, true);
+    } finally {
+      await pool.end();
+      await admin.query(
+        "delete from tge.audit_events where tenant_id = $1 and entity_id = 'generic-due-batch'",
+        [tenant.id]
+      );
+      await admin.query(
+        "delete from tge.import_staging_records where tenant_id = $1 and import_batch_id = 'generic-due-batch'",
+        [tenant.id]
+      );
+      await admin.query(
+        "delete from tge.import_batches where tenant_id = $1 and id = 'generic-due-batch'",
+        [tenant.id]
+      );
+      await admin.query(
+        "delete from tge.tenant_memberships where tenant_id = $1",
+        [tenant.id]
+      );
+      await admin.query("delete from tge.tenants where id = $1", [tenant.id]);
     }
   });
 
@@ -701,6 +756,249 @@ if (!databaseUrl) {
     }
   });
 
+  test("concurrent invitation creation is serialized before terminal offboarding", async () => {
+    const tenant = await seedTenant("invitation-create-barrier", "OWNER");
+    await withContext(runtime, tenant, () => runtime.query(
+      "select * from tge.request_tenant_offboarding('OFFBOARD_ACCESS_AND_RAW_EVIDENCE')"
+    ));
+    await grantMaintenance();
+    const barrier = new Client({ connectionString: adminUrl });
+    const creator = new Client({
+      connectionString: runtimeUrl,
+      application_name: `slice2-invitation-create-${tenant.id}`
+    });
+    const offboarding = new Client({
+      connectionString: maintenanceUrl,
+      application_name: `slice2-invitation-create-offboard-${tenant.id}`
+    });
+    let barrierHeld = false;
+    let createPromise;
+    let offboardingPromise;
+    await barrier.connect();
+    await creator.connect();
+    await offboarding.connect();
+    try {
+      await Promise.all([
+        creator.query("set statement_timeout = '8s'"),
+        offboarding.query("set statement_timeout = '8s'")
+      ]);
+      await barrier.query("begin");
+      await barrier.query(
+        "select pg_advisory_xact_lock(hashtextextended($1, 544746))",
+        [tenant.id]
+      );
+      barrierHeld = true;
+      await admin.query(
+        `create function tge.test_pause_invitation_creation()
+         returns trigger language plpgsql as $$
+         begin
+           if new.tenant_id = '${tenant.id}'::uuid then
+             perform pg_advisory_xact_lock(hashtextextended('${tenant.id}', 544746));
+           end if;
+           return new;
+         end $$`
+      );
+      await admin.query(
+        `create trigger test_pause_invitation_creation
+         before insert on tge.assisted_invitations
+         for each row execute function tge.test_pause_invitation_creation()`
+      );
+
+      const authContext = await authTenantContext(tenant, "OWNER");
+      const repository = new PostgresAuthRepository({
+        pool: {
+          async connect() {
+            return {
+              query: creator.query.bind(creator),
+              release() {}
+            };
+          }
+        }
+      });
+      const invitationId = randomUUID();
+      const now = new Date();
+      createPromise = repository.createInvitation({
+        tenantContext: authContext,
+        invitation: {
+          tenantId: tenant.id,
+          id: invitationId,
+          tokenHash: "1".repeat(64),
+          normalizedEmail: "bounded@example.test",
+          role: "MEMBER",
+          createdBySubject: tenant.subject,
+          expiresAt: new Date(now.valueOf() + 86400000).toISOString(),
+          createdAt: now.toISOString()
+        },
+        auditEvent: {
+          tenantId: tenant.id,
+          id: `invitation-created:${invitationId}`,
+          eventType: "INVITATION_CREATED",
+          subject: tenant.subject,
+          entityType: "INVITATION",
+          entityId: invitationId,
+          payload: {},
+          occurredAt: now.toISOString(),
+          retainUntil: addMonths(now, 12).toISOString()
+        }
+      });
+      createPromise.catch(() => {});
+      assert.equal(
+        await waitForBlockingPid(admin, creator.processID, barrier.processID),
+        true,
+        "invitation creation must reach the deterministic pre-insert barrier"
+      );
+
+      offboardingPromise = offboarding.query(
+        "select * from tge.process_pending_tenant_offboarding(1)"
+      );
+      const serialized = await waitForBlockingPid(
+        admin,
+        offboarding.processID,
+        creator.processID
+      );
+
+      await barrier.query("commit");
+      barrierHeld = false;
+      const [created, offboarded] = await withDeadline(
+        Promise.all([createPromise, offboardingPromise]),
+        9000,
+        "invitation creation/offboarding overlap did not complete"
+      );
+      const truth = await admin.query(
+        `select
+           (select count(*) from tge.assisted_invitations
+             where tenant_id = $1)::integer invitations,
+           (select count(*) from tge.tenant_memberships
+             where tenant_id = $1)::integer memberships,
+           (select metadata->>'offboarding_state' from tge.tenants
+             where id = $1) offboarding_state`,
+        [tenant.id]
+      );
+      assert.deepEqual({
+        serialized,
+        created: created?.tenantId === tenant.id,
+        processed: offboarded.rows.map(row => row.state),
+        ...truth.rows[0]
+      }, {
+        serialized: true,
+        created: true,
+        processed: ["OFFBOARDED_ACCESS_REVOKED"],
+        invitations: 0,
+        memberships: 0,
+        offboarding_state: "OFFBOARDED_ACCESS_REVOKED"
+      });
+    } finally {
+      if (barrierHeld) await barrier.query("rollback").catch(() => {});
+      await Promise.allSettled([createPromise, offboardingPromise].filter(Boolean));
+      await creator.end();
+      await offboarding.end();
+      await barrier.end();
+      await admin.query(
+        "drop trigger if exists test_pause_invitation_creation on tge.assisted_invitations"
+      );
+      await admin.query("drop function if exists tge.test_pause_invitation_creation()");
+      await admin.query(
+        "delete from tge.tenant_offboarding_requests where tenant_id = $1 and state in ('PENDING', 'FAILED')",
+        [tenant.id]
+      );
+    }
+  });
+
+  test("concurrent invitation consumption cannot recreate access after terminal offboarding", async () => {
+    const tenant = await seedTenant("invitation-consume-barrier", "OWNER");
+    const identity = {
+      issuer: tenant.issuer,
+      subject: `auth0|invited-${randomUUID()}`
+    };
+    const invitation = await seedConsumableInvitation(tenant, identity);
+    await withContext(runtime, tenant, () => runtime.query(
+      "select * from tge.request_tenant_offboarding('OFFBOARD_ACCESS_AND_RAW_EVIDENCE')"
+    ));
+    await grantMaintenance();
+    const barrier = new Client({ connectionString: adminUrl });
+    const consuming = new Client({
+      connectionString: runtimeUrl,
+      application_name: `slice2-invitation-consume-${tenant.id}`
+    });
+    const offboarding = new Client({ connectionString: maintenanceUrl });
+    let barrierHeld = false;
+    let consumePromise;
+    await barrier.connect();
+    await consuming.connect();
+    await offboarding.connect();
+    try {
+      await consuming.query("set statement_timeout = '8s'");
+      await barrier.query("begin");
+      await barrier.query(
+        `select pg_advisory_xact_lock(hashtextextended(
+           jsonb_build_array($1::text, $2::text)::text,
+           544745
+         ))`,
+        [identity.issuer, identity.subject]
+      );
+      barrierHeld = true;
+
+      consumePromise = consuming.query(
+        `select resolved_tenant_id, resolved_role
+         from tge.consume_assisted_invitation($1, $2, $3, $4, $5)`,
+        [
+          invitation.tokenHash,
+          identity.issuer,
+          identity.subject,
+          `membership-audit:${randomUUID()}`,
+          `invitation-audit:${randomUUID()}`
+        ]
+      );
+      assert.equal(
+        await waitForBlockingPid(admin, consuming.processID, barrier.processID),
+        true,
+        "invitation consumption must reach the deterministic post-lookup barrier"
+      );
+
+      const offboarded = await withDeadline(
+        offboarding.query("select * from tge.process_pending_tenant_offboarding(1)"),
+        5000,
+        "offboarding must complete while consumption is paused before tenant locking"
+      );
+      assert.deepEqual(
+        offboarded.rows.map(row => row.state),
+        ["OFFBOARDED_ACCESS_REVOKED"]
+      );
+      await insertConsumableInvitation(tenant, identity, invitation);
+
+      await barrier.query("commit");
+      barrierHeld = false;
+      const consumed = await withDeadline(
+        consumePromise,
+        9000,
+        "paused invitation consumption did not complete"
+      );
+      const truth = await admin.query(
+        `select
+           (select count(*) from tge.tenant_memberships
+             where tenant_id = $1 and identity_issuer = $2
+               and subject_id = $3 and status = 'ACTIVE')::integer memberships,
+           (select metadata->>'offboarding_state' from tge.tenants
+             where id = $1) offboarding_state`,
+        [tenant.id, identity.issuer, identity.subject]
+      );
+      assert.deepEqual({
+        consumed: consumed.rows,
+        ...truth.rows[0]
+      }, {
+        consumed: [],
+        memberships: 0,
+        offboarding_state: "OFFBOARDED_ACCESS_REVOKED"
+      });
+    } finally {
+      if (barrierHeld) await barrier.query("rollback").catch(() => {});
+      await Promise.allSettled([consumePromise].filter(Boolean));
+      await consuming.end();
+      await offboarding.end();
+      await barrier.end();
+    }
+  });
+
   test("raw cleanup and offboarding share a bounded tenant-before-batch lock order", async () => {
     const tenant = await seedTenant("cleanup-offboarding-overlap", "OWNER");
     const neighbor = await seedTenant("cleanup-offboarding-neighbor", "OWNER");
@@ -999,6 +1297,37 @@ if (!databaseUrl) {
     );
   }
 
+  async function seedConsumableInvitation(tenant, identity) {
+    const invitation = {
+      id: randomUUID(),
+      tokenHash: randomUUID().replaceAll("-", "").padEnd(64, "0")
+    };
+    await insertConsumableInvitation(tenant, identity, invitation);
+    return invitation;
+  }
+
+  async function insertConsumableInvitation(tenant, identity, invitation) {
+    const now = new Date();
+    await admin.query(
+      `insert into tge.assisted_invitations (
+         tenant_id, id, token_hash, normalized_email, intended_role, status,
+         expected_identity_issuer, expected_subject_id, created_by_subject_id,
+         expires_at, created_at, updated_at
+       ) values ($1, $2, $3, 'invited@example.test', 'MEMBER', 'PENDING',
+         $4, $5, $6, $7, $8, $8)`,
+      [
+        tenant.id,
+        invitation.id,
+        invitation.tokenHash,
+        identity.issuer,
+        identity.subject,
+        tenant.subject,
+        new Date(now.valueOf() + 86400000),
+        now
+      ]
+    );
+  }
+
   async function seedPilotEvidence(tenant) {
     const now = new Date();
     await admin.query(
@@ -1041,6 +1370,23 @@ if (!databaseUrl) {
 
   async function grantMaintenance() {
     await admin.query(`grant tge_maintenance to ${quoteIdentifier(maintenanceRole)}`);
+  }
+
+  async function authTenantContext(tenant, role) {
+    return resolveTenantContext({
+      identity: { issuer: tenant.issuer, subject: tenant.subject },
+      membershipRepository: {
+        async findActiveMembershipsByIdentity() {
+          return [{
+            tenantId: tenant.id,
+            issuer: tenant.issuer,
+            subject: tenant.subject,
+            role,
+            status: "ACTIVE"
+          }];
+        }
+      }
+    });
   }
 }
 

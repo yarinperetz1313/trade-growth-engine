@@ -115,6 +115,10 @@ class PostgresAuthRepository {
 
   async createInvitation({ tenantContext, invitation, auditEvent }) {
     return this.run(tenantContext, async client => {
+      const tenant = await client.query(
+        "select tge.lock_current_tenant_access_writable() as writable"
+      );
+      if (tenant.rows[0]?.writable !== true) return null;
       const result = await client.query(
         `
           insert into tge.assisted_invitations (
