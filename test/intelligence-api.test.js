@@ -174,7 +174,11 @@ test("sets value from numeric primitives or strings, recalculates intelligence, 
     );
     assert.equal(
       first.data.pipeline_metrics.weighted_pipeline_value,
-      2400
+      null
+    );
+    assert.equal(
+      first.data.pipeline_metrics.weighted_pipeline_value_summary.withheld_count,
+      1
     );
 
     const second = await request(

@@ -198,6 +198,56 @@ was run because no persistence or schema changed. Migrations `001`–`015` remai
 byte-identical to base and unchanged `016` remains SHA-256
 `ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`.
 
+### Slice 3 bounded monetary-truth remediation
+
+This remediation closes only the final P1 portfolio-total and P2
+RevenueAction-currency-evidence findings. Revenue intelligence and opportunity
+pipeline summaries convert each positive `NUMERIC(20,6)`-representable amount
+to exact scaled integer units and sum only within an exact authoritative
+currency. They expose alphabetical `totals_by_currency`, known/unknown/withheld
+counts, and retain the legacy scalar field as an exact decimal string only for
+one complete currency group. Mixed currencies or any withheld known amount make
+that scalar `null`; an empty positive set remains `0`. Legacy records with absent,
+null, or malformed currency remain readable, but their amounts are never given a
+unit or combined. Dashboard, Pipeline, and Revenue Command Center render the
+grouped/withheld truth, with no client-side numeric monetary reducer, default,
+FX, or cross-currency total.
+
+A present malformed persisted RevenueAction currency is retained verbatim in
+factual evidence with `currency_valid: false`. Absent/null keeps the legacy
+missing-currency basis shape; exact canonical currency keeps its prior shape.
+The basis fingerprint therefore distinguishes empty, lowercase, other malformed,
+missing/null, and canonical currency evidence without changing exact amount text
+or established positive/zero/unknown semantics. Replay identity, persistence,
+schema/migrations, external-action approval and confirmation, GitHub delivery,
+and Slice 4 remain untouched.
+
+The dependency-free focused command
+`node --test test/monetary-truth-remediation.test.js` was expected RED **0/4**
+on exact parent `17f0a049b7edab17344c7bf1571746748a954fb6`: mixed AUD/USD
+was returned as one unitless `300.000002`, the exact same-AUD sum collapsed to
+`18014398509480.246`, malformed currency shared missing-currency RevenueAction
+evidence/fingerprints, and the browser had no grouped formatter while retaining
+client-side numeric reducers. The identical focused command is GREEN **4/4**.
+The directly affected intelligence/opportunity/action/browser-contract set is
+**76/76**, complete integration is **424/424**, managed Chromium is **53/53**,
+and the Vite 8.2.2 production build completes with **31 modules**. The first
+managed-browser attempt was stopped after three failures exposed a removed
+non-aggregate probability parser still used by an individual opportunity; the
+parser was restored. The next complete run was **52/53**, with only the old
+unitless weighted-total assertion failing; the corrected grouped-truth scenario
+then passed in the complete **53/53** run. Final `verify:fast`, harness, migration
+integrity, diff, artifact, and cleanliness results are recorded at checkpoint.
+`npm run verify:fast` passes the engineering harness plus integration
+**424/424**. The standalone harness and migration-static **19/19** pass;
+migrations `001`–`015` have an empty diff from base
+`9dc155912be7df46c23b2aa30facddeda7b4baa8`, migration `016` remains
+`ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`,
+and `git diff --check` passes. No PostgreSQL service/suite or full `verify` was
+run because persistence and schema are unchanged. Dependencies, `dist`, managed
+browser stores/output, and test artifacts are removed before the checkpoint; the
+final artifact scan and post-checkpoint porcelain status are empty.
+
 ## Assisted Pilot Safety Gate V1 Slice 2 bounded plan
 
 ### Grounded policy boundary

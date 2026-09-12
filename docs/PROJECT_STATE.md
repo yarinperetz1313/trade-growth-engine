@@ -88,6 +88,33 @@ no PostgreSQL suite or full `npm run verify` was run. Migration `016` remains
 SHA-256 `ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`;
 migrations `001`–`015` remain byte-identical to base.
 
+The bounded Slice 3 monetary-truth remediation closes the final two review
+findings without expanding the slice. Revenue intelligence and opportunity
+pipeline metrics now accumulate positive `NUMERIC(20,6)`-representable amounts
+as exact scaled integers inside authoritative currency groups only. Their
+retained scalar fields contain an exact decimal string only for one complete
+currency group, return `null` for mixed currencies or withheld known amounts,
+and remain `0` when no positive amount is known. Alphabetical
+`totals_by_currency` and explicit withheld counts expose the complete truth.
+Dashboard, Pipeline, and Revenue Command Center render those groups without a
+unitless combined amount, default currency, or FX. Existing JSON records without
+currency remain readable and their positive amounts are counted but withheld.
+
+RevenueAction factual evidence now retains a present malformed persisted
+currency verbatim with `currency_valid: false`; absent/null retains the legacy
+missing-currency basis shape and exact canonical currency retains its existing
+shape. Empty, lowercase, other malformed, missing/null, and canonical evidence
+therefore cannot collapse to the same basis fingerprint, while exact amount text
+and the existing positive/zero/unknown semantics remain unchanged. Focused RED
+at exact parent `17f0a049b7edab17344c7bf1571746748a954fb6` was **0/4** and
+focused GREEN is **4/4**. The directly affected integration set passes
+**76/76**, the complete integration suite passes **424/424**, managed Chromium
+passes **53/53**, and the Vite 8.2.2 production build completes with **31
+modules**. Final fast/harness and repository-integrity evidence is recorded in
+the active plan. No replay identity, persistence, schema, migration,
+RevenueAction approval/external-send boundary, GitHub state, or Slice 4 behavior
+changed.
+
 Assisted Pilot Safety Gate V1 Slice 2 now implements the PostgreSQL-only
 [raw-import expiry and tenant offboarding
 contract](architecture/PILOT_READINESS_FOUNDATION.md#import-safety-retention-and-deletion). Append-only

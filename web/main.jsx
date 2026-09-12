@@ -27,8 +27,10 @@ import {
   initializeBrowserAuth
 } from "./lib/auth";
 import {
+  buildCommercialValueSummary,
   compareOpportunityCommercialValues,
   formatCommercialValue,
+  formatCommercialValueSummary,
   hasCrossCurrencyCommercialValues,
   isKnownCommercialValue,
   selectBiggestOpportunity
@@ -60,10 +62,6 @@ function fractionalProbability(value) {
     probability <= 1
     ? probability
     : null;
-}
-
-function numericCommercialContribution(value) {
-  return isKnownCommercialValue(value) ? Number(value) : 0;
 }
 
 function pageFromHash() {
@@ -274,7 +272,7 @@ function Dashboard({ onNavigate }) {
       : "0.0";
 
   const projectedRevenue =
-    metrics?.weighted_pipeline_value;
+    metrics?.weighted_pipeline_value_summary;
 
   const priorityOpportunities =
     [...activeOpportunities]
@@ -320,8 +318,8 @@ function Dashboard({ onNavigate }) {
               ? "..."
               : error
                 ? "Unknown"
-              : money(
-                  metrics?.pipeline_value
+              : formatCommercialValueSummary(
+                  metrics?.pipeline_value_summary
                 )
           }
           change={
@@ -378,7 +376,7 @@ function Dashboard({ onNavigate }) {
               ? "..."
               : error
                 ? "Unknown"
-              : money(
+              : formatCommercialValueSummary(
                   projectedRevenue
                 )
           }
@@ -591,8 +589,8 @@ function Dashboard({ onNavigate }) {
                       </div>
 
                       <strong>
-                        {money(
-                          stageData.value
+                        {formatCommercialValueSummary(
+                          stageData.value_summary
                         )}
                       </strong>
 
@@ -1060,30 +1058,11 @@ function Pipeline() {
         item.stage !== "LOST"
     );
 
-  const totalValue =
-    active.reduce(
-      (sum, item) =>
-        sum +
-        numericCommercialContribution(item.value),
-      0
-    );
-
-  const weightedValue =
-    active.reduce(
-      (sum, item) => {
-        const candidate =
-          item.weighted_value ??
-          (isKnownCommercialValue(item.value) &&
-          fractionalProbability(item.probability) !== null
-            ? Number(item.value) *
-              fractionalProbability(item.probability)
-            : null);
-
-        return sum +
-          numericCommercialContribution(candidate);
-      },
-      0
-    );
+  const totalValue = buildCommercialValueSummary(active);
+  const weightedValue = buildCommercialValueSummary(
+    active,
+    item => item.weighted_value
+  );
 
   return (
     <div className="page">
@@ -1122,12 +1101,12 @@ function Pipeline() {
               ? "..."
               : loadError
                 ? "Unknown"
-                : money(totalValue)
+                : formatCommercialValueSummary(totalValue)
           }
           text={
             loadError
               ? "Pipeline data is unavailable."
-              : "Total value of active opportunities."
+              : "Active opportunity values grouped by authoritative currency."
           }
         />
 
@@ -1138,12 +1117,12 @@ function Pipeline() {
               ? "..."
               : loadError
                 ? "Unknown"
-                : money(weightedValue)
+                : formatCommercialValueSummary(weightedValue)
           }
           text={
             loadError
               ? "Pipeline data is unavailable."
-              : "Pipeline value adjusted by stage probability."
+              : "Recorded weighted values grouped by authoritative currency."
           }
         />
 

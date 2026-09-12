@@ -153,10 +153,14 @@ test("keeps positive commercial value distinct from zero and unknown values and 
   assert.equal(result.classifications.STRONG.count, 3);
   assert.equal(result.active_pipeline.value.known_count, 1);
   assert.equal(result.active_pipeline.value.unknown_count, 2);
-  assert.equal(result.active_pipeline.value.known_total, 5000);
+  assert.equal(result.active_pipeline.value.known_total, null);
+  assert.equal(result.active_pipeline.value.known_total_withheld, true);
+  assert.equal(result.active_pipeline.value.withheld_count, 1);
   assert.equal(result.active_pipeline.weighted_value.known_count, 1);
   assert.equal(result.active_pipeline.weighted_value.unknown_count, 2);
-  assert.equal(result.active_pipeline.weighted_value.known_total, 1000);
+  assert.equal(result.active_pipeline.weighted_value.known_total, null);
+  assert.equal(result.active_pipeline.weighted_value.known_total_withheld, true);
+  assert.equal(result.active_pipeline.weighted_value.withheld_count, 1);
   assert.deepEqual(result.value_semantics, {
     commercial_value_known_only_when_positive: true,
     zero_blank_or_non_numeric_value_is_unknown: true
@@ -254,7 +258,12 @@ test("classifies stale and missing-next-action work once per opportunity without
   assert.equal(result.classifications.STALE.count, 1);
   assert.equal(result.classifications.NO_NEXT_ACTION.count, 1);
   assert.equal(result.revenue_requiring_attention.opportunity_count, 1);
-  assert.equal(result.revenue_requiring_attention.value.known_total, 7000);
+  assert.equal(result.revenue_requiring_attention.value.known_total, null);
+  assert.equal(
+    result.revenue_requiring_attention.value.known_total_withheld,
+    true
+  );
+  assert.equal(result.revenue_requiring_attention.value.withheld_count, 1);
   assert.deepEqual(
     result.top_actions[0].classification_types,
     ["NO_NEXT_ACTION", "STALE", "AT_RISK"]
@@ -438,9 +447,14 @@ test("GET revenue intelligence is read-only, structured, and recalculates after 
     );
 
     assert.equal(after.status, 200);
-    assert.equal(after.data.data.active_pipeline.value.known_total, 12000);
+    assert.equal(after.data.data.active_pipeline.value.known_total, null);
+    assert.equal(after.data.data.active_pipeline.value.withheld_count, 1);
     assert.equal(after.data.data.active_pipeline.value.unknown_count, 1);
-    assert.equal(after.data.data.active_pipeline.weighted_value.known_total, 2400);
+    assert.equal(after.data.data.active_pipeline.weighted_value.known_total, null);
+    assert.equal(
+      after.data.data.active_pipeline.weighted_value.withheld_count,
+      1
+    );
 
     const missing = await request(
       baseUrl,

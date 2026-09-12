@@ -8,6 +8,14 @@ A `RevenueAction` is the durable, human-controlled record that turns the current
 
 Snapshots preserve the recommendation that existed at materialization. Current intelligence is recalculated separately and can supersede an active action; history is never rewritten to pretend the original recommendation did not exist.
 
+Factual commercial evidence retains exact positive amount text and exact valid
+currency. Absent and `null` currency preserve the legacy missing-currency basis
+shape. A present malformed persisted currency is retained verbatim and marked
+`currency_valid: false`; it is never omitted, trimmed, uppercased, defaulted, or
+treated as canonical. The basis fingerprint therefore distinguishes malformed
+currency from missing/null, from other malformed evidence, and from valid
+canonical currency while preserving the existing zero/unknown classification.
+
 ## Lifecycle
 Allowed transitions are server-side only:
 

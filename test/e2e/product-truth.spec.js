@@ -172,6 +172,24 @@ test("renders unknown commercial values honestly and selects the largest known v
     fallbackWeightedOpportunity,
     ...unknownOpportunities.filter(item => item.id !== "e2e-nonnumeric-value")
   ];
+  const pipelineValueSummary = {
+    known_total: null,
+    known_total_currency: null,
+    known_total_withheld: true,
+    known_count: 2,
+    unknown_count: 6,
+    withheld_count: 1,
+    totals_by_currency: [{ currency: "NZD", amount: "25000", count: 1 }]
+  };
+  const weightedPipelineValueSummary = {
+    known_total: "5000",
+    known_total_currency: "NZD",
+    known_total_withheld: false,
+    known_count: 1,
+    unknown_count: 7,
+    withheld_count: 0,
+    totals_by_currency: [{ currency: "NZD", amount: "5000", count: 1 }]
+  };
 
   await page.route(`${apiBaseUrl}/api/opportunities`, route =>
     route.fulfill({
@@ -185,10 +203,16 @@ test("renders unknown commercial values honestly and selects the largest known v
       body: JSON.stringify({
         ok: true,
         data: {
-          pipeline_value: 0,
-          weighted_pipeline_value: 0,
+          pipeline_value: null,
+          pipeline_value_summary: pipelineValueSummary,
+          weighted_pipeline_value: "5000",
+          weighted_pipeline_value_summary: weightedPipelineValueSummary,
           by_stage: {
-            QUALIFIED: { count: 1, value: 0 }
+            QUALIFIED: {
+              count: 8,
+              value: null,
+              value_summary: pipelineValueSummary
+            }
           }
         }
       })
@@ -242,8 +266,10 @@ test("renders unknown commercial values honestly and selects the largest known v
   }
 
   await page.goto("/#dashboard");
-  await expect(page.getByText("Pipeline Value").locator("..").getByText("Unknown")).toBeVisible();
-  await expect(page.getByText("Projected Revenue").locator("..").getByText("Unknown")).toBeVisible();
+  await expect(page.getByText("Pipeline Value").locator("..")).toContainText(
+    "NZD 25,000 · 1 known value withheld (currency unavailable or invalid)"
+  );
+  await expect(page.getByText("Projected Revenue").locator("..")).toContainText("NZD 5,000");
   const biggestOpportunity = page.getByText("Biggest Opportunity").locator("..");
   await expect(biggestOpportunity.getByText("NZD 25,000")).toBeVisible();
   await expect(biggestOpportunity).toContainText("E2E Known Value Roofing");
@@ -265,7 +291,11 @@ test("renders unknown commercial values honestly and selects the largest known v
   await expect(page.getByTestId(`opportunity-row-${fallbackWeightedOpportunity.id}`)).toContainText("2,400 · Currency unknown");
 
   await page.getByRole("button", { name: "Pipeline" }).click();
-  await expect(page.getByText("Weighted Pipeline", { exact: true }).locator("..")).toContainText("7,400 · Currency unknown");
+  await expect(page.getByText("Open Pipeline", { exact: true }).locator("..")).toContainText(
+    "NZD 25,000 · 1 known value withheld (currency unavailable or invalid)"
+  );
+  await expect(page.getByText("Weighted Pipeline", { exact: true }).locator("..")).toContainText("NZD 5,000");
+  await expect(page.getByText("Weighted Pipeline", { exact: true }).locator("..")).not.toContainText("7,400");
   await expect(
     page.locator(".deal-card").filter({ hasText: "E2E Known Value Roofing" })
   ).toContainText("NZD 25,000");

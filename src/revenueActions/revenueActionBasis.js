@@ -52,6 +52,13 @@ function factualEvidence(state) {
   };
   if (isCanonicalOpportunityCurrency(opportunity.currency)) {
     commercialValue.currency = opportunity.currency;
+  } else if (
+    Object.hasOwn(opportunity, "currency")
+    && opportunity.currency !== null
+    && opportunity.currency !== undefined
+  ) {
+    commercialValue.currency = clone(opportunity.currency);
+    commercialValue.currency_valid = false;
   }
 
   return {

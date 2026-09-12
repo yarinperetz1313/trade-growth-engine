@@ -32,6 +32,11 @@ const {
 const {
   knownPositiveCommercialValue
 } = require("../opportunities/commercialValue");
+const {
+  addMonetaryAmount,
+  createMonetaryAccumulator,
+  finalizeMonetarySummary
+} = require("../opportunities/monetarySummary");
 
 function isFiniteNumber(value) {
   const isNumericString =
@@ -53,35 +58,20 @@ function comparableProbability(value) {
 }
 
 function emptyValueSummary() {
-  return {
-    known_total: 0,
-    known_count: 0,
-    unknown_count: 0
-  };
+  return createMonetaryAccumulator();
 }
 
-function addCommercialValue(summary, value) {
-  if (!isKnownCommercialValue(value)) {
-    summary.unknown_count += 1;
-    return;
-  }
-
-  summary.known_count += 1;
-  summary.known_total += Number(value);
+function addCommercialValue(summary, opportunity) {
+  addMonetaryAmount(summary, opportunity?.value, opportunity?.currency);
 }
 
 function addWeightedValue(summary, opportunity) {
-  if (
-    !isKnownCommercialValue(opportunity?.value) ||
-    !isFiniteNumber(opportunity?.weighted_value)
-  ) {
-    summary.unknown_count += 1;
-    return;
-  }
-
-  summary.known_count += 1;
-  summary.known_total += Number(
-    opportunity.weighted_value
+  addMonetaryAmount(
+    summary,
+    isKnownCommercialValue(opportunity?.value)
+      ? opportunity?.weighted_value
+      : null,
+    opportunity?.currency
   );
 }
 
@@ -265,7 +255,7 @@ function buildRevenueIntelligence({
     activePipeline.count += 1;
     addCommercialValue(
       activePipeline.value,
-      opportunity.value
+      opportunity
     );
     addWeightedValue(
       activePipeline.weighted_value,
@@ -277,7 +267,7 @@ function buildRevenueIntelligence({
       classification.count += 1;
       addCommercialValue(
         classification.value,
-        opportunity.value
+        opportunity
       );
     }
 
@@ -289,7 +279,7 @@ function buildRevenueIntelligence({
       attention.opportunity_count += 1;
       addCommercialValue(
         attention.value,
-        opportunity.value
+        opportunity
       );
     }
 
@@ -348,6 +338,15 @@ function buildRevenueIntelligence({
           intelligence?.evidence?.unknown || []
       }
     });
+  }
+
+  activePipeline.value = finalizeMonetarySummary(activePipeline.value);
+  activePipeline.weighted_value = finalizeMonetarySummary(
+    activePipeline.weighted_value
+  );
+  attention.value = finalizeMonetarySummary(attention.value);
+  for (const classification of Object.values(classifications)) {
+    classification.value = finalizeMonetarySummary(classification.value);
   }
 
   return {

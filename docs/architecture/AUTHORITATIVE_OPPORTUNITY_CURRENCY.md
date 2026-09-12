@@ -65,3 +65,25 @@ Opportunity value actions submit currency only when the operator typed an exact
 canonical code; blank input supplies no currency. Display uses an explicit code
 only when persisted truth supplies one and otherwise labels the currency as
 unknown. There is no AUD/USD fallback or silent uppercasing/trimming.
+
+## Portfolio monetary truth
+
+Pipeline and revenue-intelligence accumulation accepts only positive amounts
+representable as `NUMERIC(20,6)` and converts each amount to exact scaled integer
+units. Totals are emitted as decimal strings in alphabetical authoritative
+currency groups. The retained scalar total is an exact decimal string
+only when every known amount belongs to one authoritative currency; it is `null`
+when currencies differ or any known amount lacks valid currency, and remains `0`
+when there are no known positive amounts. Grouped totals and withheld counts make
+that decision explicit. Missing and malformed currency values remain readable in
+legacy JSON, but their amounts are withheld rather than combined or assigned a
+unit. The browser renders these groups and never calculates or presents a
+unitless combined monetary total. There is no FX or tenant default.
+
+RevenueAction factual evidence continues to preserve its domain's positive-value
+and zero/unknown semantics. Exact valid currency remains the canonical code;
+absent and `null` retain their legacy missing-currency basis shape. A present
+malformed persisted currency is instead retained verbatim with
+`currency_valid: false`, so it fails closed as invalid evidence and cannot share
+a basis fingerprint with missing/null, a different malformed value, or a valid
+canonical currency.

@@ -8,7 +8,10 @@ import {
   recordPilotCaseSurfaced,
   scanStalledOpportunities
 } from "../lib/api";
-import { formatCommercialValue } from "../lib/commercialValue";
+import {
+  formatCommercialValue,
+  formatCommercialValueSummary
+} from "../lib/commercialValue";
 import {
   classifyRevenueLeakOperatingQueueError,
   detectorOutcomePresentation,
@@ -30,8 +33,7 @@ function countLabel(summary) {
 }
 
 function summaryMoney(summary) {
-  if (!summary || Number(summary.known_count) === 0) return "Unknown";
-  return formatCommercialValue(summary.known_total);
+  return formatCommercialValueSummary(summary);
 }
 
 function queueErrorCopy(error) {

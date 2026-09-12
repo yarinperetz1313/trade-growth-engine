@@ -114,6 +114,19 @@ function compareCanonicalDecimals(left, right) {
   return leftUnits < rightUnits ? -1 : leftUnits > rightUnits ? 1 : 0;
 }
 
+function decimalFromCanonicalUnits(value) {
+  if (typeof value !== "bigint") {
+    throw new TypeError("Canonical decimal units must be a bigint.");
+  }
+  const negative = value < 0n;
+  const absolute = negative ? -value : value;
+  const whole = absolute / (10n ** CANONICAL_NUMERIC_SCALE);
+  const fraction = String(absolute % (10n ** CANONICAL_NUMERIC_SCALE))
+    .padStart(Number(CANONICAL_NUMERIC_SCALE), "0")
+    .replace(/0+$/, "");
+  return `${negative ? "-" : ""}${whole}${fraction ? `.${fraction}` : ""}`;
+}
+
 function normalizeDecimalLiteral(value) {
   if (!isDecimalNumberLiteral(value)) return null;
   const literal = value.trim();
@@ -166,6 +179,7 @@ module.exports = {
   canonicalDecimalUnits,
   canonicalizeDecimalLiteral,
   compareCanonicalDecimals,
+  decimalFromCanonicalUnits,
   isDecimalNumberLiteral,
   isCanonicalNumericLiteralRepresentable,
   isExactZeroLiteral,

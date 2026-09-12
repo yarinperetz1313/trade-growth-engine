@@ -53,6 +53,88 @@ function canonicalCurrency(value) {
     : null;
 }
 
+function decimalFromUnits(value) {
+  const whole = value / 1000000n;
+  const fraction = String(value % 1000000n).padStart(6, "0").replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : String(whole);
+}
+
+export function buildCommercialValueSummary(
+  opportunities = [],
+  amountForOpportunity = opportunity => opportunity?.value
+) {
+  const totals = new Map();
+  let knownCount = 0;
+  let unknownCount = 0;
+  let withheldCount = 0;
+
+  for (const opportunity of opportunities) {
+    const amount = amountForOpportunity(opportunity);
+    const units = canonicalDecimalUnits(amount);
+    if (units === null || units <= 0n) {
+      unknownCount += 1;
+      continue;
+    }
+    knownCount += 1;
+    const currency = canonicalCurrency(opportunity?.currency);
+    if (currency === null) {
+      withheldCount += 1;
+      continue;
+    }
+    const aggregate = totals.get(currency) || { units: 0n, count: 0 };
+    aggregate.units += units;
+    aggregate.count += 1;
+    totals.set(currency, aggregate);
+  }
+
+  const totalsByCurrency = [...totals.entries()]
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([currency, aggregate]) => ({
+      currency,
+      amount: decimalFromUnits(aggregate.units),
+      count: aggregate.count
+    }));
+  const hasOneCompleteCurrency = knownCount > 0
+    && withheldCount === 0
+    && totalsByCurrency.length === 1;
+  return {
+    known_total: knownCount === 0
+      ? 0
+      : hasOneCompleteCurrency
+        ? totalsByCurrency[0].amount
+        : null,
+    known_total_currency: hasOneCompleteCurrency
+      ? totalsByCurrency[0].currency
+      : null,
+    known_total_withheld: knownCount > 0 && !hasOneCompleteCurrency,
+    known_count: knownCount,
+    unknown_count: unknownCount,
+    withheld_count: withheldCount,
+    totals_by_currency: totalsByCurrency
+  };
+}
+
+export function formatCommercialValueSummary(summary) {
+  if (!summary || !Array.isArray(summary.totals_by_currency)) return "Unknown";
+  if (!Number.isSafeInteger(summary.withheld_count) || summary.withheld_count < 0) {
+    return "Unknown";
+  }
+  const totals = summary.totals_by_currency.map(total => {
+    if (!total || canonicalCurrency(total.currency) === null) return null;
+    const formatted = formatCommercialValue(total.amount, total.currency);
+    return formatted === "Unknown" ? null : formatted;
+  });
+  if (totals.some(total => total === null)) return "Unknown";
+
+  if (summary.withheld_count > 0) {
+    const noun = summary.withheld_count === 1 ? "value" : "values";
+    totals.push(
+      `${summary.withheld_count} known ${noun} withheld (currency unavailable or invalid)`
+    );
+  }
+  return totals.length > 0 ? totals.join(" · ") : "Unknown";
+}
+
 function comparableOpportunityValues(opportunities) {
   return opportunities.flatMap(opportunity => {
     const units = canonicalDecimalUnits(opportunity?.value);
