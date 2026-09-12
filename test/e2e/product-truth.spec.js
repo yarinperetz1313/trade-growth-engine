@@ -98,7 +98,7 @@ test("fits the product shell inside a mobile viewport", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Opportunities" })).toBeVisible();
 });
 
-test("renders unknown commercial values honestly and selects the largest known value", async ({ page }) => {
+test("renders unknown commercial values honestly and withholds an unsafe biggest-value comparison", async ({ page }) => {
   const unknownOpportunity = {
     id: "e2e-unknown-value",
     business_name: "E2E Unknown Value Roofing",
@@ -271,8 +271,11 @@ test("renders unknown commercial values honestly and selects the largest known v
   );
   await expect(page.getByText("Projected Revenue").locator("..")).toContainText("NZD 5,000");
   const biggestOpportunity = page.getByText("Biggest Opportunity").locator("..");
-  await expect(biggestOpportunity.getByText("NZD 25,000")).toBeVisible();
-  await expect(biggestOpportunity).toContainText("E2E Known Value Roofing");
+  await expect(biggestOpportunity).toContainText("Unknown");
+  await expect(biggestOpportunity).toContainText(
+    "A biggest opportunity cannot be inferred while a known value lacks authoritative currency."
+  );
+  await expect(biggestOpportunity).not.toContainText("E2E Known Value Roofing");
   await expect(
     page.locator(".opportunity").filter({ hasText: "E2E Known Value Roofing" })
   ).toContainText("NZD 25,000");

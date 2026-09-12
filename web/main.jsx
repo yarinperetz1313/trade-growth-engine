@@ -32,6 +32,7 @@ import {
   formatCommercialValue,
   formatCommercialValueSummary,
   hasCrossCurrencyCommercialValues,
+  hasWithheldCommercialValues,
   isKnownCommercialValue,
   selectBiggestOpportunity
 } from "./lib/commercialValue";
@@ -291,6 +292,8 @@ function Dashboard({ onNavigate }) {
     selectBiggestOpportunity(activeOpportunities);
   const biggestOpportunityIsCrossCurrency =
     hasCrossCurrencyCommercialValues(activeOpportunities);
+  const biggestOpportunityHasWithheldValue =
+    hasWithheldCommercialValues(activeOpportunities);
 
   return (
     <div className="page">
@@ -651,6 +654,8 @@ function Dashboard({ onNavigate }) {
               text={
                 biggestOpportunityIsCrossCurrency
                   ? "A biggest opportunity cannot be inferred across currencies."
+                  : biggestOpportunityHasWithheldValue
+                    ? "A biggest opportunity cannot be inferred while a known value lacks authoritative currency."
                   : biggestOpportunity &&
                 isKnownCommercialValue(
                   biggestOpportunity.value
@@ -1061,7 +1066,9 @@ function Pipeline() {
   const totalValue = buildCommercialValueSummary(active);
   const weightedValue = buildCommercialValueSummary(
     active,
-    item => item.weighted_value
+    item => isKnownCommercialValue(item.value)
+      ? item.weighted_value
+      : null
   );
 
   return (
@@ -1496,14 +1503,16 @@ function Opportunities() {
                   );
 
                 const weighted =
-                  opportunity.weighted_value ??
-                  (isKnownCommercialValue(
+                  isKnownCommercialValue(
                     opportunity.value
-                  ) && probability !== null
-                    ? Number(
-                        opportunity.value
-                      ) * probability
-                    : null);
+                  )
+                    ? opportunity.weighted_value ??
+                      (probability !== null
+                        ? Number(
+                            opportunity.value
+                          ) * probability
+                        : null)
+                    : null;
 
                 return (
 

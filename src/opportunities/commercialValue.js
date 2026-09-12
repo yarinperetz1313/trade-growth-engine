@@ -14,6 +14,13 @@ function knownPositiveCommercialValue(value) {
   };
 }
 
+function weightedAmountWithKnownBase(opportunity) {
+  return knownPositiveCommercialValue(opportunity?.value) === null
+    ? null
+    : opportunity?.weighted_value;
+}
+
 module.exports = {
-  knownPositiveCommercialValue
+  knownPositiveCommercialValue,
+  weightedAmountWithKnownBase
 };

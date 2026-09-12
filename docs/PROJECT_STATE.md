@@ -99,6 +99,9 @@ and remain `0` when no positive amount is known. Alphabetical
 Dashboard, Pipeline, and Revenue Command Center render those groups without a
 unitless combined amount, default currency, or FX. Existing JSON records without
 currency remain readable and their positive amounts are counted but withheld.
+Pipeline client-side reduction exists and follows the same exact grouped/withheld
+contract as the authoritative summaries, including the requirement that weighted
+money is unknown when its base amount is unknown.
 
 RevenueAction factual evidence now retains a present malformed persisted
 currency verbatim with `currency_valid: false`; absent/null retains the legacy
@@ -114,6 +117,24 @@ modules**. Final fast/harness and repository-integrity evidence is recorded in
 the active plan. No replay identity, persistence, schema, migration,
 RevenueAction approval/external-send boundary, GitHub state, or Slice 4 behavior
 changed.
+
+The Slice 3 FINAL bounded monetary-consistency remediation makes weighted
+pipeline evidence depend on a known positive base value in both authoritative
+backend projections and the Pipeline browser reducer. Biggest Opportunity now
+withholds its claim when any otherwise known positive amount lacks canonical
+currency. Browser knownness and individual-value formatting use exact scaled
+integer parsing for plain, signed, and exponent `NUMERIC(20,6)` spellings, reject
+out-of-scale/out-of-precision values, and retain exact aggregate display beyond
+one row's numeric envelope. The completion record and regression now accurately
+state that Pipeline client-side reduction exists under the same exact grouped/
+withheld contract. Focused RED was **0/4** at
+`0443906812347e77d2b418c700caabcb9a039d70`; focused GREEN is **4/4**,
+the affected intelligence/opportunity/action/browser-contract set is **83/83**,
+replay identity is **22/22**, migration-static is **19/19**, managed Chromium is
+**53/53**, the Vite 8.2.2 production build is **31 modules**, and `verify:fast`
+passes the harness plus integration **428/428**. PostgreSQL was not run because
+persistence and schema are unchanged. Final standalone harness,
+migration-static **19/19**, unchanged-migration, diff, and artifact checks pass.
 
 Assisted Pilot Safety Gate V1 Slice 2 now implements the PostgreSQL-only
 [raw-import expiry and tenant offboarding

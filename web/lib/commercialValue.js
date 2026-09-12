@@ -1,18 +1,6 @@
 export function isKnownCommercialValue(value) {
-  if (
-    typeof value !== "number" &&
-    typeof value !== "string"
-  ) {
-    return false;
-  }
-
-  const numeric = Number(value);
-
-  return value !== null &&
-    value !== undefined &&
-    value !== "" &&
-    Number.isFinite(numeric) &&
-    numeric > 0;
+  const units = canonicalDecimalUnits(value);
+  return units !== null && units > 0n;
 }
 
 const DECIMAL_LITERAL = /^[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:e[+-]?\d+)?$/i;
@@ -57,6 +45,21 @@ function decimalFromUnits(value) {
   const whole = value / 1000000n;
   const fraction = String(value % 1000000n).padStart(6, "0").replace(/0+$/, "");
   return fraction ? `${whole}.${fraction}` : String(whole);
+}
+
+function groupCanonicalDecimal(value) {
+  const [integer, fraction] = value.split(".");
+  const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return fraction === undefined ? grouped : `${grouped}.${fraction}`;
+}
+
+function formatAggregateAmount(value, currency) {
+  if (
+    typeof value !== "string"
+    || !/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(value)
+    || /^0(?:\.0+)?$/.test(value)
+  ) return null;
+  return `${currency} ${groupCanonicalDecimal(value)}`;
 }
 
 export function buildCommercialValueSummary(
@@ -121,8 +124,7 @@ export function formatCommercialValueSummary(summary) {
   }
   const totals = summary.totals_by_currency.map(total => {
     if (!total || canonicalCurrency(total.currency) === null) return null;
-    const formatted = formatCommercialValue(total.amount, total.currency);
-    return formatted === "Unknown" ? null : formatted;
+    return formatAggregateAmount(total.amount, total.currency);
   });
   if (totals.some(total => total === null)) return "Unknown";
 
@@ -145,6 +147,15 @@ function comparableOpportunityValues(opportunities) {
   });
 }
 
+function hasWithheldCommercialValue(opportunities) {
+  return opportunities.some(opportunity => {
+    const units = canonicalDecimalUnits(opportunity?.value);
+    return units !== null
+      && units > 0n
+      && canonicalCurrency(opportunity?.currency) === null;
+  });
+}
+
 export function compareOpportunityCommercialValues(left, right) {
   const [leftValue] = comparableOpportunityValues([left]);
   const [rightValue] = comparableOpportunityValues([right]);
@@ -163,6 +174,7 @@ export function compareOpportunityCommercialValues(left, right) {
 }
 
 export function selectBiggestOpportunity(opportunities = []) {
+  if (hasWithheldCommercialValue(opportunities)) return null;
   const candidates = comparableOpportunityValues(opportunities);
   const currencies = new Set(candidates.map(candidate => candidate.currency));
   if (currencies.size !== 1) return null;
@@ -180,8 +192,13 @@ export function hasCrossCurrencyCommercialValues(opportunities = []) {
   ).size > 1;
 }
 
+export function hasWithheldCommercialValues(opportunities = []) {
+  return hasWithheldCommercialValue(opportunities);
+}
+
 export function formatCommercialValue(value, currency) {
-  if (!isKnownCommercialValue(value)) {
+  const units = canonicalDecimalUnits(value);
+  if (units === null || units <= 0n) {
     return "Unknown";
   }
 
@@ -189,19 +206,8 @@ export function formatCommercialValue(value, currency) {
     return "Unknown";
   }
 
-  const exact = typeof value === "string"
-    && /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)
-    ? value
-    : null;
-  const amount = exact === null
-    ? new Intl.NumberFormat("en-AU", {
-      maximumFractionDigits: 6
-    }).format(Number(value))
-    : (() => {
-      const [integer, fraction] = exact.split(".");
-      const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-      return fraction === undefined ? grouped : `${grouped}.${fraction}`;
-    })();
+  const exact = decimalFromUnits(units);
+  const amount = groupCanonicalDecimal(exact);
   return currency === null || currency === undefined
     ? `${amount} · Currency unknown`
     : `${currency} ${amount}`;

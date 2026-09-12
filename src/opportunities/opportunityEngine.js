@@ -7,6 +7,9 @@ const {
 const {
   summarizeOpportunityAmounts
 } = require("./monetarySummary");
+const {
+  weightedAmountWithKnownBase
+} = require("./commercialValue");
 
 const STAGES = [
   "NEW",
@@ -310,7 +313,7 @@ function buildPipelineMetrics(
   );
   const weightedPipelineValue = summarizeOpportunityAmounts(
     active,
-    opportunity => opportunity?.weighted_value
+    weightedAmountWithKnownBase
   );
 
   const won =
@@ -341,7 +344,7 @@ function buildPipelineMetrics(
     );
     const weightedValue = summarizeOpportunityAmounts(
       stageItems,
-      opportunity => opportunity?.weighted_value
+      weightedAmountWithKnownBase
     );
 
     byStage[stage] = {

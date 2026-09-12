@@ -210,8 +210,10 @@ one complete currency group. Mixed currencies or any withheld known amount make
 that scalar `null`; an empty positive set remains `0`. Legacy records with absent,
 null, or malformed currency remain readable, but their amounts are never given a
 unit or combined. Dashboard, Pipeline, and Revenue Command Center render the
-grouped/withheld truth, with no client-side numeric monetary reducer, default,
-FX, or cross-currency total.
+grouped/withheld truth. Pipeline client-side reduction exists and follows the
+same exact grouped/withheld contract, including withholding weighted money when
+required base-value evidence is unknown. No default, FX, or cross-currency total
+exists.
 
 A present malformed persisted RevenueAction currency is retained verbatim in
 factual evidence with `currency_valid: false`. Absent/null keeps the legacy
@@ -247,6 +249,44 @@ and `git diff --check` passes. No PostgreSQL service/suite or full `verify` was
 run because persistence and schema are unchanged. Dependencies, `dist`, managed
 browser stores/output, and test artifacts are removed before the checkpoint; the
 final artifact scan and post-checkpoint porcelain status are empty.
+
+### Slice 3 FINAL bounded monetary-consistency remediation
+
+This final remediation closes only the four fresh-review findings. Pipeline and
+revenue-intelligence weighted summaries now share one rule: recorded weighted
+money is unknown unless its required base value is a known positive
+`NUMERIC(20,6)` amount. Biggest Opportunity withholds its claim if any known
+positive amount lacks canonical currency, without defaulting currency or using
+FX. Browser individual-value knownness and display parse exact scaled integer
+units across plain, signed, and exponent spellings, reject out-of-scale or
+out-of-precision values, and retain the separate exact aggregate formatter for
+totals beyond a single row's numeric envelope. The Pipeline client-side reducer
+and completion evidence now explicitly follow the same grouped/withheld and
+weighted-base contract.
+
+The new dependency-free command
+`node --test test/final-monetary-consistency-remediation.test.js` was expected RED
+**0/4** on exact parent `0443906812347e77d2b418c700caabcb9a039d70`: it
+reproduced the authoritative weighted-summary disagreement, unsafe
+Biggest Opportunity selection, browser Number rounding/out-of-contract
+knownness, and inaccurate client-reducer evidence. The identical command is
+GREEN **4/4**; the four focused monetary/currency files are **16/16**. The
+affected intelligence/opportunity/action/browser-contract set is **83/83**
+outside the listener-restricted sandbox; its first sandboxed attempt had only
+`listen EPERM` setup failures. The complete replay-identity file is **22/22** and
+migration-static is **19/19**. Managed Chromium first returned **52/53** because
+the existing product-truth scenario still asserted the now-prohibited unsafe
+winner; the corrected scenario and complete managed suite are GREEN **53/53**.
+The Vite 8.2.2 production build completes with **31 modules**, and
+`npm run verify:fast` passes the engineering harness plus integration
+**428/428**. No PostgreSQL suite or full `verify` was run because persistence and
+schema are unchanged. Replay implementation, migration bodies, RevenueAction
+approval/external-send behavior, GitHub state, and Slice 4 remain untouched.
+The final standalone engineering harness and migration-static **19/19** pass;
+the migration-tree diff from the exact parent is empty, migration `016` remains
+SHA-256 `ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`,
+and `git diff --check` passes. Dependencies, `dist`, managed browser output, and
+test artifacts are removed before checkpointing.
 
 ## Assisted Pilot Safety Gate V1 Slice 2 bounded plan
 

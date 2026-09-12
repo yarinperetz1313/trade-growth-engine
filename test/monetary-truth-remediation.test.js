@@ -188,8 +188,11 @@ test("RevenueAction evidence fingerprints malformed persisted currency without c
   assert.notEqual(canonical.basisFingerprint, lowercase.basisFingerprint);
 });
 
-test("browser renders grouped server truth and contains no client-side monetary reducers", async () => {
-  const { formatCommercialValueSummary } = await browserCommercialValue;
+test("browser server summaries and client-side reduction share the exact grouped and withheld contract", async () => {
+  const {
+    buildCommercialValueSummary,
+    formatCommercialValueSummary
+  } = await browserCommercialValue;
   assert.equal(
     formatCommercialValueSummary({
       known_count: 2,
@@ -211,11 +214,46 @@ test("browser renders grouped server truth and contains no client-side monetary 
     }),
     "AUD 100.000001 · 1 known value withheld (currency unavailable or invalid)"
   );
+  assert.equal(
+    formatCommercialValueSummary({
+      known_count: 2,
+      withheld_count: 0,
+      totals_by_currency: [{
+        currency: "AUD",
+        amount: "199999999999999.999998",
+        count: 2
+      }]
+    }),
+    "AUD 199,999,999,999,999.999998"
+  );
+  assert.deepEqual(
+    buildCommercialValueSummary([
+      opportunity("client-exact", "+9007199254740.123456", "AUD"),
+      opportunity("client-withheld", "1.000001")
+    ]),
+    {
+      known_total: null,
+      known_total_currency: null,
+      known_total_withheld: true,
+      known_count: 2,
+      unknown_count: 0,
+      withheld_count: 1,
+      totals_by_currency: [{
+        currency: "AUD",
+        amount: "9007199254740.123456",
+        count: 1
+      }]
+    }
+  );
 
   const main = fs.readFileSync(path.join(process.cwd(), "web/main.jsx"), "utf8");
-  assert.doesNotMatch(main, /function numericCommercialContribution/);
   assert.match(main, /metrics\?\.pipeline_value_summary/);
   assert.match(main, /metrics\?\.weighted_pipeline_value_summary/);
+  assert.match(main, /const totalValue = buildCommercialValueSummary\(active\)/);
+  assert.match(
+    main,
+    /const weightedValue = buildCommercialValueSummary\([\s\S]*?isKnownCommercialValue\(item\.value\)[\s\S]*?item\.weighted_value[\s\S]*?: null[\s\S]*?\)/
+  );
 
   const commandCenter = fs.readFileSync(
     path.join(process.cwd(), "web/components/RevenueCommandCenter.jsx"),

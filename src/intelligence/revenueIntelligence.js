@@ -30,7 +30,8 @@ const {
   compareCanonicalDecimals
 } = require("../imports/numericEvidence");
 const {
-  knownPositiveCommercialValue
+  knownPositiveCommercialValue,
+  weightedAmountWithKnownBase
 } = require("../opportunities/commercialValue");
 const {
   addMonetaryAmount,
@@ -68,9 +69,7 @@ function addCommercialValue(summary, opportunity) {
 function addWeightedValue(summary, opportunity) {
   addMonetaryAmount(
     summary,
-    isKnownCommercialValue(opportunity?.value)
-      ? opportunity?.weighted_value
-      : null,
+    weightedAmountWithKnownBase(opportunity),
     opportunity?.currency
   );
 }
