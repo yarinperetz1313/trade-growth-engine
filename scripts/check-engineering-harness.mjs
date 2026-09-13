@@ -251,6 +251,11 @@ function validateDatabaseFoundationContract() {
     "test:db must use the built-in Node runner for database tests"
   );
   requireText(
+    packageJson.scripts["test:db"] || "",
+    "--test-concurrency=1",
+    "test:db must serialize database test files because migrations bootstrap cluster-global roles"
+  );
+  requireText(
     packageJson.scripts["db:migrate"] || "",
     "scripts/migrate-db.mjs",
     "db:migrate must use the append-only migration runner"

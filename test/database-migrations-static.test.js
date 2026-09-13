@@ -760,7 +760,7 @@ test("migration 014 rejects privileged and non-allowlisted role memberships", ()
   );
 });
 
-test("runner, package scripts, Compose, and CI use the real pinned PostgreSQL gate", () => {
+test("runner, serialized database files, Compose, and CI use the real pinned PostgreSQL gate", () => {
   const runner = read("scripts/migrate-db.mjs");
   const runnerPolicy = read("scripts/migration-runner-policy.mjs");
   const packageJson = JSON.parse(read("package.json"));
@@ -782,7 +782,7 @@ test("runner, package scripts, Compose, and CI use the real pinned PostgreSQL ga
   assert.equal(packageJson.scripts["db:migrate"], "node scripts/migrate-db.mjs");
   assert.equal(
     packageJson.scripts["test:db"],
-    "node --test test/database/*.test.js"
+    "node --test --test-concurrency=1 test/database/*.test.js"
   );
   assert.match(packageJson.scripts.verify, /npm run test:db/);
   assert.match(compose, /image: postgres:16\.15/);

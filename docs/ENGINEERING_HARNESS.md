@@ -31,7 +31,7 @@ Generated reports and local terminal output are evidence, not source-of-truth po
 
 `npm run verify` is not weakened: it runs harness → integration → real database → E2E → build. Use `OPENSSL_CONF=/dev/null` only when the host requires it; that is an environment constraint, not proof that browser E2E or PostgreSQL passed.
 
-For local database verification, start the pinned disposable service with `docker compose -f compose.test.yml up -d`, export `TGE_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55432/tge_test`, run `npm run test:db`, then stop it with `docker compose -f compose.test.yml down`. The suite creates and drops an ephemeral database and a non-superuser login; use only a dedicated administrative test server. `npm run db:migrate` separately requires `TGE_DATABASE_URL` and never falls back to a production-looking generic variable.
+For local database verification, start the pinned disposable service with `docker compose -f compose.test.yml up -d`, export `TGE_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55432/tge_test`, run `npm run test:db`, then stop it with `docker compose -f compose.test.yml down`. The database test files run serially because their isolated databases share one PostgreSQL cluster and migration `002` bootstraps cluster-global roles. The suite creates and drops an ephemeral database and a non-superuser login; use only a dedicated administrative test server. `npm run db:migrate` separately requires `TGE_DATABASE_URL` and never falls back to a production-looking generic variable.
 
 ### Mechanical invariant ownership
 
@@ -42,7 +42,7 @@ For local database verification, start the pinned disposable service with `docke
 - executable/configuration and relevant untracked documentation have no developer-home absolute path;
 - `src/intelligence/` has no web-client dependency or `fetch` call;
 - E2E retains managed-store creation/seeding/cleanup, `LOCAL_STORE_DIR` injection, serial fixed-port configuration, and empty seeded `revenue_actions` and `revenue_leak_cases` collections.
-- migration `001` retains its locked checksum; append-only migrations through authoritative opportunity currency `016` (after PR-3 `005`–`009`, PR-4 `010`, PR-5C `011`, RevenueLeakCase `012`, pilot evidence `013`, secure Pilot readiness `014`, and raw-import expiry/offboarding `015`), the checksum-ledger runner, audited-baseline refusal, post-bootstrap owner-role execution, pinned PostgreSQL 16.15 Compose/CI service, explicit database URLs, and full-gate wiring remain present.
+- migration `001` retains its locked checksum; append-only migrations through authoritative opportunity currency `016` (after PR-3 `005`–`009`, PR-4 `010`, PR-5C `011`, RevenueLeakCase `012`, pilot evidence `013`, secure Pilot readiness `014`, and raw-import expiry/offboarding `015`), the checksum-ledger runner, audited-baseline refusal, post-bootstrap owner-role execution, serialized database test files, pinned PostgreSQL 16.15 Compose/CI service, explicit database URLs, and full-gate wiring remain present.
 - the PR-4 Auth0 decision, issuer-bound membership, hashed assisted invitations, memory-only browser SDK configuration, and deployment-gated real OTP acceptance contract remain aligned across code and canonical docs.
 - the active Pilot Readiness plan and its two canonical contracts agree on a small set of locked production facts; it does not scan historical plans or certify provisioned infrastructure.
 
