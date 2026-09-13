@@ -19,6 +19,15 @@ monolithic `npm run verify`. Migrations are unchanged. Fresh independent
 approval remains pending; no GitHub delivery or later slice is implied.
 Detailed failure, correction, and benchmark evidence is in the active plan.
 
+The 2026-09-13 GPT-5.6 Sol / High recovery adopted those two clean native
+checkpoints without rewriting their historical authorship. Independent Sol
+checks passed the four-finding regression **4/4**, the directly affected
+currency/monetary/persistence set **73/73**, a fresh PostgreSQL 16.15
+compatibility boundary **3/3**, and `verify:fast` with integration **432/432**.
+The earlier exact-content PostgreSQL **91/91**, managed Chromium **54/54**, and
+production-build evidence was not repeated. Fresh independent Astra review and
+GitHub delivery remain pending.
+
 Assisted Pilot Safety Gate V1 Slice 3 now implements the optional
 [authoritative opportunity currency](architecture/AUTHORITATIVE_OPPORTUNITY_CURRENCY.md)
 contract locally. Exact uppercase three-letter codes flow through backward-safe

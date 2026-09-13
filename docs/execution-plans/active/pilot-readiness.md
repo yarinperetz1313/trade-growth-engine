@@ -56,6 +56,28 @@ Coordinator to verify after handoff. Final dependency/build/database cleanup
 and the factual evidence checkpoint precede handoff. Independent final review
 and GitHub delivery remain pending; Slice 4 remains unstarted.
 
+### GPT-5.6 Sol adoption and finalization
+
+Native Codex / GPT-5.6 Sol / High adopted checkpoints `0b35013` and `604ad69`
+without resetting or recreating the worktree. It audited the complete Slice 3
+range and preserved the prior agent's two necessary verification corrections:
+truthful withheld summaries for currency-less PostgreSQL fixtures and distinct
+document URLs for each managed-browser weighted-display fixture.
+
+Independent Sol verification passed the dedicated remediation **4/4**, the
+directly affected currency, monetary, persistence, action, and browser-contract
+set **73/73**, and a fresh PostgreSQL 16.15 boundary **3/3** covering
+non-opportunity compatibility insert/read/update plus both corrected withheld
+summaries. The first PostgreSQL invocation did not start assertions because the
+prior owner had already removed its dependency symlink; the corrected run used
+a lockfile-identical cache containing `pg`. `npm run verify:fast` then passed
+the engineering harness and integration **432/432**. The earlier exact-content
+PostgreSQL **91/91**, managed Chromium **54/54**, and production build (**31
+modules**) were not repeated, and no second monolithic `npm run verify` was
+claimed. No product, schema, migration, replay, FX, or later-slice behavior was
+added during adoption. Fresh independent GPT-6 Astra / High review remains the
+next gate.
+
 ## Outcome
 
 - **PR-0 through PR-2 are COMPLETE.** PR-2's PostgreSQL 16.15 authority remains [GitHub Actions run 33304131266](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33304131266): harness, 68 integration tests, 11 database tests, 7 Chromium E2E tests, and the production build passed.
