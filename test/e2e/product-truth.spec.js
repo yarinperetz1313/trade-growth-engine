@@ -361,10 +361,10 @@ test("individual weighted displays agree with exact revenue truth and never infe
       revenue_requiring_attention: { opportunity_count: 0, value: summary }, classifications: {}, top_actions: []
     });
   });
-  for (const [value, weighted_value, display] of fixtures) {
+  for (const [index, [value, weighted_value, display]] of fixtures.entries()) {
     current = { id: "astra-weighted", business_name: "Exact weighted trade", stage: "QUALIFIED", probability: 1, value, weighted_value, currency: "AUD" };
     expected = display;
-    await page.goto("/#opportunities");
+    await page.goto(`/?weighted-case=${index}#opportunities`);
     await expect(page.getByTestId("opportunity-row-astra-weighted").locator(":scope > span").nth(2)).toHaveText(expected);
     await expect(page.getByTestId("revenue-weighted-pipeline-value")).toHaveText(expected);
     await page.getByTestId("opportunity-row-astra-weighted").click();

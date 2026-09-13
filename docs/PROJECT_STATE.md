@@ -8,9 +8,16 @@ equivalent redundant-zero decimal spellings, global stripping of unrelated
 collections' currency compatibility fields, and individual weighted displays
 that inferred lossy money or ignored unknown base evidence. The new four-test
 regression is RED **0/4** on `520da22` and GREEN **4/4** after correction.
-Affected/full verification and fresh independent approval are still pending;
-no GitHub delivery or later slice is implied. Detailed evidence is in the
-active Pilot Readiness plan.
+Checkpoint `0b35013` preserved the focused fix before broader verification.
+Affected integration passed **54/54**, and final gate components passed
+integration **432/432**, PostgreSQL 16.15 **91/91**, managed Chromium **54/54**,
+and production build (**31 modules**). The single monolithic full-gate attempt
+stopped at an unchanged migration-role bootstrap race and two stale database
+summary assertions; after narrowly correcting those assertions, only the
+remaining component gates were run. It is not reported as a successful
+monolithic `npm run verify`. Migrations are unchanged. Fresh independent
+approval remains pending; no GitHub delivery or later slice is implied.
+Detailed failure, correction, and benchmark evidence is in the active plan.
 
 Assisted Pilot Safety Gate V1 Slice 3 now implements the optional
 [authoritative opportunity currency](architecture/AUTHORITATIVE_OPPORTUNITY_CURRENCY.md)

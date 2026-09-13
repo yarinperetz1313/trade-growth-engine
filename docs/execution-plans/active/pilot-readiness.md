@@ -23,9 +23,38 @@ and absent weighted evidence displayed rounded inferred money. The identical
 command is GREEN **4/4** after the minimal fix. Harness and diff hygiene pass.
 Mapper coverage spans prospects, tasks, activities, and RevenueActions. New
 real-PostgreSQL insert/read/update and managed browser individual-surface
-regressions are included for the subsequent affected/full gate. A clean
-checkpoint is being created immediately after focused green; affected and
-full delivery verification remain pending and are not implied by this entry.
+regressions are included for the subsequent affected/full gate. Clean checkpoint
+`0b35013042a879770072dafb742a56214283738c` was created immediately after
+focused green, before broader verification.
+
+Affected integration passed **54/54** and the real PostgreSQL compatibility
+regression passed **1/1**. The initial managed browser selection passed **1/2**:
+the new multi-fixture test reused hash navigation and observed its previous
+mocked record. Giving each fixture a distinct document URL fixed the test
+isolation; the single corrected scenario passed **1/1** without product edits.
+
+One `npm run verify` attempt passed harness and integration **432/432**, then
+stopped at PostgreSQL **69/91**. Twenty failures came from the unchanged
+migration-002 parallel role bootstrap (`23505`, duplicate `tge_owner`) on the
+fresh cluster. Two older database assertions still expected unitless scalar
+totals for currency-less values instead of the already-established withheld
+summary contract. Their correction retains the raw opportunity amount assertion
+and asserts the full withheld summary, not an invented currency. Those two
+contracts plus the new persistence regression passed **3/3**. The full command
+was not repeated: its remaining component gates then passed PostgreSQL 16.15
+**91/91**, managed Chromium **54/54**, and the Vite 8.2.2 build (**31 modules**).
+Thus every full-gate component has successful evidence, but the one monolithic
+`npm run verify` invocation itself did not pass. Migrations `001`–`015` remain
+byte-identical to base and migration `016` remains
+`ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`.
+
+Verification completed at `2026-09-13T10:36:38Z` (9m 07s from preflight).
+Native runtime benchmark: no ACP, timeout, lost completion, restart, duplicate
+worker, delegation, or human/manual intervention; test-fixture corrections were
+performed by this same owner. Terminal targeted-wake receipt is for the parent
+Coordinator to verify after handoff. Final dependency/build/database cleanup
+and the factual evidence checkpoint precede handoff. Independent final review
+and GitHub delivery remain pending; Slice 4 remains unstarted.
 
 ## Outcome
 

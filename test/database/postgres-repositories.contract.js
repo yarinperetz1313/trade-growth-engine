@@ -1245,12 +1245,20 @@ function registerPostgresRepositoryContractTests({
         "CREATE_TASK"
       );
       assert.equal(executed.data.refreshed.pipeline_metrics.total, 1);
-      assert.equal(executed.data.refreshed.pipeline_metrics.pipeline_value, 1200);
+      assert.equal(executed.data.refreshed.opportunity.value, 1200);
+      assert.equal(executed.data.refreshed.pipeline_metrics.pipeline_value, null);
       assert.equal(executed.data.refreshed.revenue_intelligence.active_pipeline.count, 1);
-      assert.equal(
-        executed.data.refreshed.revenue_intelligence.active_pipeline.value.known_total,
-        1200
-      );
+      const withheldSummary = {
+        known_total: null,
+        known_total_currency: null,
+        known_total_withheld: true,
+        known_count: 1,
+        unknown_count: 0,
+        withheld_count: 1,
+        totals_by_currency: []
+      };
+      assert.deepEqual(executed.data.refreshed.pipeline_metrics.pipeline_value_summary, withheldSummary);
+      assert.deepEqual(executed.data.refreshed.revenue_intelligence.active_pipeline.value, withheldSummary);
       for (const checkpoint of [
         "afterTaskPersisted",
         "afterActivityPersisted",
@@ -2771,9 +2779,13 @@ function registerPostgresRepositoryContractTests({
       generatedAt
     });
     assert.deepEqual(revenue.active_pipeline.value, {
-      known_total: 20000,
+      known_total: null,
+      known_total_currency: null,
+      known_total_withheld: true,
       known_count: 1,
-      unknown_count: 6
+      unknown_count: 6,
+      withheld_count: 1,
+      totals_by_currency: []
     });
     assert.equal(
       revenue.top_actions.some(item =>
