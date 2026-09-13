@@ -53,6 +53,13 @@ contract below.
 
 Imports are tenant-scoped and staged: CSV/XLSX upload → preview → explicit commit. Exact duplicates are skipped; ambiguous records require explicit user resolution; imports never merge into or overwrite existing CRM data implicitly. Every PR-2 ID-map row references its exact staging source and exactly one real tenant-owned prospect, opportunity, task, activity, or RevenueAction through a typed foreign key. Runtime may only select and insert batch, staging, ID-map, and audit evidence.
 
+Assisted Pilot Safety Gate V1 Slice 3 adds the optional, exact per-opportunity
+currency contract through append-only migration `016`, reviewed CSV mapping,
+canonical commit/replay, repository/API boundaries, deterministic leak-value
+classification, and browser presentation. Missing currency remains unknown and
+there is no default or FX behavior. See
+[Authoritative opportunity currency](AUTHORITATIVE_OPPORTUNITY_CURRENCY.md).
+
 PR-5C adds only the narrow `PREVIEWED → COMMITTED` transition and row outcomes
 needed for canonical commit through append-only migration `011`; runtime keeps
 no unrestricted import `UPDATE` or `DELETE`. Migration `015` adds the exact

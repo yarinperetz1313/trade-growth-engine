@@ -165,8 +165,12 @@ test("characterizes legacy unknown values, closed exclusions, relationships, and
     assert.equal(intelligence.score.commercial_potential, null);
     assert.deepEqual(revenue.active_pipeline.value, {
       known_total: 0,
+      known_total_currency: null,
+      known_total_withheld: false,
       known_count: 0,
-      unknown_count: 1
+      unknown_count: 1,
+      withheld_count: 0,
+      totals_by_currency: []
     });
     assert.equal(revenue.top_actions[0].value.known, false);
     assert.equal(revenue.top_actions[0].value.amount, null);
@@ -179,9 +183,13 @@ test("characterizes legacy unknown values, closed exclusions, relationships, and
   });
   assert.equal(portfolio.active_pipeline.count, 7);
   assert.deepEqual(portfolio.active_pipeline.value, {
-    known_total: 20000,
+    known_total: null,
+    known_total_currency: null,
+    known_total_withheld: true,
     known_count: 1,
-    unknown_count: 6
+    unknown_count: 6,
+    withheld_count: 1,
+    totals_by_currency: []
   });
   assert.equal(
     portfolio.top_actions.find(item => item.opportunity_id === "opp-zero").value.known,

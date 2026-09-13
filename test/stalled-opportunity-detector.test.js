@@ -315,7 +315,7 @@ test("closed opportunities are evaluable no-leaks and malformed action evidence 
 
 test("commercial value keeps exact decimals, known zero, and unknown distinct", () => {
   const exact = evaluate();
-  const zero = evaluate({ opportunity: { value: 0, currency: "aud" } });
+  const zero = evaluate({ opportunity: { value: 0, currency: "AUD" } });
   const unknown = evaluate({ opportunity: { value: "unknown", currency: undefined } });
   const amountWithoutCurrency = evaluate({ opportunity: { value: "75.250000", currency: undefined } });
 
@@ -344,6 +344,17 @@ test("commercial value keeps exact decimals, known zero, and unknown distinct", 
   assert.equal(evaluate({
     opportunity: { value: "10", currency: "A$" }
   }).reason_code, "COMMERCIAL_CURRENCY_INVALID");
+  assert.equal(evaluate({
+    opportunity: { value: "10", currency: "aud" }
+  }).reason_code, "COMMERCIAL_CURRENCY_INVALID");
+  assert.equal(evaluate({
+    opportunity: { value: "10", currency: " AUD " }
+  }).reason_code, "COMMERCIAL_CURRENCY_INVALID");
+  const emptyCurrency = evaluate({
+    opportunity: { value: "10", currency: "" }
+  });
+  assert.equal(emptyCurrency.outcome, "DATA_HEALTH_SUPPRESSED");
+  assert.equal(emptyCurrency.reason_code, "COMMERCIAL_CURRENCY_INVALID");
 });
 
 test("identical canonical evidence has a stable version independent of collection order and run time", () => {

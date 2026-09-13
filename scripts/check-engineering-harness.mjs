@@ -232,6 +232,9 @@ function validateDatabaseFoundationContract() {
   const rawExpiryOffboardingMigration = readFile(
     "database/migrations/015_raw_import_expiry_tenant_offboarding.sql"
   );
+  const opportunityCurrencyMigration = readFile(
+    "database/migrations/016_authoritative_opportunity_currency.sql"
+  );
   const migrationFiles = fs
     .readdirSync(path.join(rootDir, "database", "migrations"))
     .filter(fileName => /^\d{3}_[a-z0-9_]+\.sql$/.test(fileName))
@@ -246,6 +249,11 @@ function validateDatabaseFoundationContract() {
     packageJson.scripts["test:db"] || "",
     "test/database/*.test.js",
     "test:db must use the built-in Node runner for database tests"
+  );
+  requireText(
+    packageJson.scripts["test:db"] || "",
+    "--test-concurrency=1",
+    "test:db must serialize database test files because migrations bootstrap cluster-global roles"
   );
   requireText(
     packageJson.scripts["db:migrate"] || "",
@@ -373,6 +381,26 @@ function validateDatabaseFoundationContract() {
     "Migration 015 must provide targetless tenant offboarding"
   );
   requireText(
+    opportunityCurrencyMigration,
+    "add column currency text",
+    "Migration 016 must add authoritative optional opportunity currency"
+  );
+  requireText(
+    opportunityCurrencyMigration,
+    "octet_length(currency) <> 3",
+    "Migration 016 must require exactly three currency bytes"
+  );
+  requireText(
+    opportunityCurrencyMigration,
+    "get_byte(convert_to(currency, 'UTF8'), 2) between 65 and 90",
+    "Migration 016 must reject non-ASCII or non-uppercase currency bytes"
+  );
+  requireText(
+    opportunityCurrencyMigration,
+    "'016'::text as schema_version",
+    "Migration 016 must advance the bounded runtime readiness probe"
+  );
+  requireText(
     databaseTest,
     "TGE_TEST_DATABASE_URL",
     "Database tests must require an explicit real PostgreSQL URL"
@@ -402,7 +430,8 @@ function validateDatabaseFoundationContract() {
       "012_revenue_leak_case_foundation.sql",
       "013_privacy_minimized_pilot_evidence.sql",
       "014_secure_pilot_runtime_readiness.sql",
-      "015_raw_import_expiry_tenant_offboarding.sql"
+      "015_raw_import_expiry_tenant_offboarding.sql",
+      "016_authoritative_opportunity_currency.sql"
     ])
   ) {
     failures.push(

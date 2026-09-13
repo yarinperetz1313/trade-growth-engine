@@ -69,7 +69,8 @@ test("uploads adversarial CSV evidence, changes deterministic mapping, confirms,
   await expect(page.getByText("4 unknown values preserved")).toBeVisible();
   await expect(page.getByRole("region", { name: "Source identity evidence" })).toContainText("source-1");
   await expect(page.getByRole("region", { name: "Source identity evidence" })).toContainText("Inferred typeTEXT");
-  await expect(page.getByRole("region", { name: /^Mapping evidence for / })).toHaveCount(13);
+  await expect(page.getByRole("region", { name: /^Mapping evidence for / })).toHaveCount(14);
+  await expect(page.getByRole("region", { name: "Mapping evidence for currency" })).toContainText("Optional");
   await expect(page.getByRole("region", { name: "Mapping evidence for value" })).toContainText("UNKNOWN_VALUE_PRESERVED");
   await expect(page.getByText("created_at: 0/2 covered · 0 invalid · 2 missing (0%)")).toBeVisible();
   await expect(page.getByText("updated_at: 0/2 covered · 0 invalid · 2 missing (0%)")).toBeVisible();
@@ -89,7 +90,7 @@ test("uploads adversarial CSV evidence, changes deterministic mapping, confirms,
   await page.getByRole("button", { name: "Continue to confirmation" }).click();
   await expect(page.getByRole("heading", { name: "Confirm canonical import" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Source identity evidence" })).toContainText("external_id");
-  await expect(page.getByRole("region", { name: /^Mapping evidence for / })).toHaveCount(13);
+  await expect(page.getByRole("region", { name: /^Mapping evidence for / })).toHaveCount(14);
   await expect(page.getByRole("region", { name: "Mapping evidence for value" })).toContainText("quoted value");
   await expect(page.getByRole("region", { name: "Mapping evidence for value" })).toContainText("1250.50");
   const commit = page.getByRole("button", { name: "Commit 2 rows" });

@@ -139,7 +139,8 @@ if (!testDatabaseUrl) {
         ["012", "012_revenue_leak_case_foundation.sql"],
         ["013", "013_privacy_minimized_pilot_evidence.sql"],
         ["014", "014_secure_pilot_runtime_readiness.sql"],
-        ["015", "015_raw_import_expiry_tenant_offboarding.sql"]
+        ["015", "015_raw_import_expiry_tenant_offboarding.sql"],
+        ["016", "016_authoritative_opportunity_currency.sql"]
       ]
     );
     assert.equal(
@@ -151,7 +152,7 @@ if (!testDatabaseUrl) {
       sha256(fs.readFileSync(
         path.join(
           repositoryRoot,
-          "database/migrations/015_raw_import_expiry_tenant_offboarding.sql"
+          "database/migrations/016_authoritative_opportunity_currency.sql"
         )
       ))
     );
@@ -231,12 +232,12 @@ if (!testDatabaseUrl) {
           migrationsDirectory: retroactiveDirectory,
           logger: silentLogger
         }),
-        /retroactive; append-only migrations must follow 015/
+        /retroactive; append-only migrations must follow 016/
       );
 
       copyMigrations(brokenDirectory);
       fs.writeFileSync(
-        path.join(brokenDirectory, "016_broken_transaction.sql"),
+        path.join(brokenDirectory, "017_broken_transaction.sql"),
         "create table tge.must_rollback (id integer);\nselect 1 / 0;\n"
       );
       await assert.rejects(
@@ -248,13 +249,13 @@ if (!testDatabaseUrl) {
         error => {
           assert.match(
             error.message,
-            /Migration 016_broken_transaction\.sql failed \[22012\]: division by zero/
+            /Migration 017_broken_transaction\.sql failed \[22012\]: division by zero/
           );
           assert.equal(error.code, "22012");
           assert.equal(error.migrationLine, undefined);
           assert.deepEqual(error.migration, {
-            id: "016",
-            fileName: "016_broken_transaction.sql"
+            id: "017",
+            fileName: "017_broken_transaction.sql"
           });
           assert.equal(error.cause?.message, "division by zero");
           for (const unsafeField of [
@@ -286,7 +287,7 @@ if (!testDatabaseUrl) {
             to_regclass('tge.must_rollback') as relation,
             exists (
               select 1 from tge_migration.schema_migrations
-              where migration_id = '016'
+              where migration_id = '017'
             ) as ledger_row
         `
       );
@@ -297,7 +298,7 @@ if (!testDatabaseUrl) {
 
       copyMigrations(ownerDirectory);
       fs.writeFileSync(
-        path.join(ownerDirectory, "016_owner_default_probe.sql"),
+        path.join(ownerDirectory, "017_owner_default_probe.sql"),
         `
           create function tge.owner_default_probe()
           returns integer
@@ -310,7 +311,7 @@ if (!testDatabaseUrl) {
         migrationsDirectory: ownerDirectory,
         logger: silentLogger
       });
-      assert.deepEqual(ownerProbe.applied, ["016"]);
+      assert.deepEqual(ownerProbe.applied, ["017"]);
       const ownerProbeSecurity = await adminClient.query(
         `
           select
@@ -334,6 +335,186 @@ if (!testDatabaseUrl) {
       fs.rmSync(retroactiveDirectory, { recursive: true, force: true });
       fs.rmSync(brokenDirectory, { recursive: true, force: true });
       fs.rmSync(ownerDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("migration 016 preserves old unknown rows, backfills exact JSON currency, and fails closed transactionally", async () => {
+    const upgradeDatabaseName = `tge_currency_upgrade_${randomUUID().replaceAll("-", "")}`;
+    const upgradeUrl = replaceDatabase(testDatabaseUrl, upgradeDatabaseName);
+    const migrationDirectory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tge-currency-upgrade-")
+    );
+    let upgradeClient;
+
+    copyMigrations(migrationDirectory);
+    fs.unlinkSync(path.join(
+      migrationDirectory,
+      "016_authoritative_opportunity_currency.sql"
+    ));
+    await maintenanceClient.query(
+      `create database ${quoteIdentifier(upgradeDatabaseName)}`
+    );
+
+    try {
+      await runMigrations({
+        connectionString: upgradeUrl,
+        migrationsDirectory: migrationDirectory,
+        logger: silentLogger
+      });
+      upgradeClient = new Client({ connectionString: upgradeUrl });
+      await upgradeClient.connect();
+      const tenantId = randomUUID();
+      await upgradeClient.query(
+        `insert into tge.tenants (id, slug, name)
+         values ($1, 'currency-upgrade', 'Currency Upgrade')`,
+        [tenantId]
+      );
+      await upgradeClient.query(
+        `insert into tge.opportunities (
+           tenant_id, id, business_name, stage, commercial_value_state,
+           legacy_payload, current_payload
+         ) values
+           ($1, 'old-known', 'Old Known', 'QUALIFIED', 'MISSING',
+            $2::jsonb, $2::jsonb),
+           ($1, 'old-unknown', 'Old Unknown', 'QUALIFIED', 'MISSING',
+            $3::jsonb, $3::jsonb),
+           ($1, 'old-invalid', 'Old Invalid', 'QUALIFIED', 'MISSING',
+            $4::jsonb, $4::jsonb)`,
+        [
+          tenantId,
+          JSON.stringify({ currency: "NZD", preserved: { exact: true } }),
+          JSON.stringify({ preserved: "missing-currency" }),
+          JSON.stringify({ currency: "Ａ", preserved: "reject-non-ascii" })
+        ]
+      );
+      const beforeUpgrade = await upgradeClient.query(
+        `select id, current_payload from tge.opportunities
+         where tenant_id = $1 order by id`,
+        [tenantId]
+      );
+      assert.equal(
+        beforeUpgrade.rows.find(row => row.id === "old-invalid")
+          .current_payload.currency,
+        "Ａ"
+      );
+      fs.copyFileSync(
+        path.join(
+          repositoryRoot,
+          "database/migrations/016_authoritative_opportunity_currency.sql"
+        ),
+        path.join(
+          migrationDirectory,
+          "016_authoritative_opportunity_currency.sql"
+        )
+      );
+
+      await assert.rejects(
+        runMigrations({
+          connectionString: upgradeUrl,
+          migrationsDirectory: migrationDirectory,
+          logger: silentLogger
+        }),
+        error => error?.code === "22023"
+      );
+      const rolledBack = await upgradeClient.query(
+        `select
+           exists (
+             select 1 from information_schema.columns
+             where table_schema = 'tge' and table_name = 'opportunities'
+               and column_name = 'currency'
+           ) as column_exists,
+           exists (
+             select 1 from tge_migration.schema_migrations
+             where migration_id = '016'
+           ) as ledger_exists`
+      );
+      assert.deepEqual(rolledBack.rows[0], {
+        column_exists: false,
+        ledger_exists: false
+      });
+
+      await upgradeClient.query(
+        `delete from tge.opportunities where tenant_id = $1 and id = 'old-invalid'`,
+        [tenantId]
+      );
+      await runMigrations({
+        connectionString: upgradeUrl,
+        migrationsDirectory: migrationDirectory,
+        logger: silentLogger
+      });
+      const upgraded = await upgradeClient.query(
+        `select id, currency, current_payload
+         from tge.opportunities
+         where tenant_id = $1
+         order by id`,
+        [tenantId]
+      );
+      assert.deepEqual(upgraded.rows, [
+        {
+          id: "old-known",
+          currency: "NZD",
+          current_payload: { currency: "NZD", preserved: { exact: true } }
+        },
+        {
+          id: "old-unknown",
+          currency: null,
+          current_payload: { preserved: "missing-currency" }
+        }
+      ]);
+
+      const constraint = await upgradeClient.query(
+        `select pg_get_constraintdef(oid) as definition
+         from pg_constraint
+         where conrelid = 'tge.opportunities'::regclass
+           and conname = 'opportunities_currency_check'`
+      );
+      assert.match(constraint.rows[0].definition, /octet_length\(currency\) <> 3/);
+      for (const ordinal of [0, 1, 2]) {
+        assert.match(
+          constraint.rows[0].definition,
+          new RegExp(
+            `get_byte\\(convert_to\\(currency, 'UTF8'::name\\), ${ordinal}\\) >= 65`,
+            "i"
+          )
+        );
+        assert.match(
+          constraint.rows[0].definition,
+          new RegExp(
+            `get_byte\\(convert_to\\(currency, 'UTF8'::name\\), ${ordinal}\\) <= 90`,
+            "i"
+          )
+        );
+      }
+
+      for (const invalid of ["Ａ", "K", "Å", "ÅB", "ABÇ", "usd", "USD "]) {
+        await assert.rejects(
+          upgradeClient.query(
+            `update tge.opportunities set currency = $2
+             where tenant_id = $1 and id = 'old-known'`,
+            [tenantId, invalid]
+          ),
+          error => error?.code === "23514",
+          invalid
+        );
+      }
+      const stillExact = await upgradeClient.query(
+        `select currency from tge.opportunities
+         where tenant_id = $1 and id = 'old-known'`,
+        [tenantId]
+      );
+      assert.equal(stillExact.rows[0].currency, "NZD");
+    } finally {
+      if (upgradeClient) await upgradeClient.end();
+      await maintenanceClient.query(
+        `select pg_terminate_backend(pid)
+         from pg_stat_activity
+         where datname = $1 and pid <> pg_backend_pid()`,
+        [upgradeDatabaseName]
+      );
+      await maintenanceClient.query(
+        `drop database if exists ${quoteIdentifier(upgradeDatabaseName)}`
+      );
+      fs.rmSync(migrationDirectory, { recursive: true, force: true });
     }
   });
 
@@ -1065,7 +1246,7 @@ if (!testDatabaseUrl) {
       "select * from tge.pilot_runtime_readiness()"
     );
     assert.deepEqual(result.rows, [{
-      schema_version: "015",
+      schema_version: "016",
       runtime_role_member: true,
       login_nonprivileged: true,
       required_relations_available: true

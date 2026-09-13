@@ -55,13 +55,14 @@ const ANALYSIS_TARGETS = Object.freeze({
     ["priority", "STATUS", false],
     ["qualification_score", "NUMBER", false],
     ["value", "NUMBER", false],
+    ["currency", "TEXT", false],
     ["probability", "NUMBER", false],
     ["weighted_value", "NUMBER", false],
     ["next_action", "TEXT", false],
     ["contact_name", "TEXT", false],
     ["created_at", "TIMESTAMP", false],
     ["updated_at", "TIMESTAMP", false]
-  ], ["business_name", "contact_name", "id", "stage", "value"]),
+  ], ["business_name", "contact_name", "currency", "id", "stage", "value"]),
   tasks: targetContract([
     ["id", "TEXT", true],
     ["opportunity_id", "TEXT", true],

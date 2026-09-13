@@ -52,6 +52,15 @@ input fingerprint instead of being discarded. They cannot reconcile against a
 committed valid request and return the same bounded already-committed conflict
 as any other materially changed replay.
 
+The one upgrade bridge for opportunity commits predating authoritative
+currency is explicit and fail closed. It recomputes the legacy target vector
+and both stored fingerprints, verifies tenant, opportunity collection, source
+system/hash, headers, reviewed columns, row outcomes, raw-payload hashes, and
+canonical payload hashes, and accepts only an omitted or explicitly unmapped
+currency. Currency-aware commits carry `CANONICAL_IMPORT_V2_CURRENCY`; an
+unknown explicit fingerprint version or any material evidence change cannot
+reconcile.
+
 ## Atomicity and identity
 
 The public repository opens one tenant transaction, locks the batch and all
@@ -131,6 +140,14 @@ becomes canonical `unknown`, and missing, blank, null, unknown, and nonnumeric
 states are never invented as zero. Unrepresentable optional unknown values
 remain in immutable staging evidence rather than being invented in canonical
 columns.
+
+Reviewed opportunity currency is part of the complete normalized selection
+vector and canonical payload fingerprint. Exact valid codes are persisted
+unchanged; missing/blank/null/unknown currency is omitted rather than defaulted.
+Malformed currency blocks the whole commit before materialization. Amount and
+currency states remain independent, and failed audit/Pilot evidence carries
+bounded codes/counts rather than raw currency cells. See
+[Authoritative opportunity currency](AUTHORITATIVE_OPPORTUNITY_CURRENCY.md).
 
 Migration 011 checks and security-definer functions reject missing hashes,
 outcomes, and request/input fingerprints explicitly; PostgreSQL `NULL` cannot

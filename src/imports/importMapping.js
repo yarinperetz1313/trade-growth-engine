@@ -6,6 +6,9 @@ const {
   isGreaterThanOneLiteral,
   isNegativeNumberLiteral
 } = require("./numericEvidence");
+const {
+  isCanonicalOpportunityCurrency
+} = require("../opportunities/opportunityCurrency");
 
 class ImportMappingError extends Error {
   constructor(code, message, status = 400) {
@@ -57,13 +60,14 @@ const TARGETS = Object.freeze({
       field("priority", "STATUS", false, ["deal priority"]),
       field("qualification_score", "NUMBER", false, ["qualification score", "lead score", "score"]),
       field("value", "NUMBER", false, ["amount", "commercial value", "deal value", "quote value"]),
+      field("currency", "TEXT", false, ["currency code", "deal currency", "opportunity currency", "iso currency"]),
       field("probability", "NUMBER", false, ["win probability", "close probability"]),
       field("weighted_value", "NUMBER", false, ["weighted value"]),
       field("next_action", "TEXT", false, ["next action", "next step"]),
       field("contact_name", "TEXT", false, ["contact", "contact name", "primary contact"]),
       ...commonTimestamps
     ],
-    important: ["business_name", "contact_name", "id", "stage", "value"]
+    important: ["business_name", "contact_name", "currency", "id", "stage", "value"]
   }),
   tasks: Object.freeze({
     fields: [
@@ -426,6 +430,13 @@ function validateRows(records, headers, fields, targetCollection, sourceIdentity
       }
       if (mappedField.declaredType === "TIMESTAMP" && !validTimestamp(evidence.raw)) {
         errors.push({ code: "TIMESTAMP_INVALID", ...issueBase });
+      }
+      if (
+        targetCollection === "opportunities"
+        && mappedField.targetField === "currency"
+        && !isCanonicalOpportunityCurrency(evidence.raw)
+      ) {
+        errors.push({ code: "COMMERCIAL_CURRENCY_INVALID", ...issueBase });
       }
       if (
         targetCollection === "opportunities"

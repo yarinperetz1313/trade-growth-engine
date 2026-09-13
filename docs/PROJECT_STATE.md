@@ -1,6 +1,166 @@
 # Project State
 
-_Last locally audited on 2026-09-11. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+_Last locally audited on 2026-09-12. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+
+The 2026-09-13 native Astra remediation checkpoint corrects four additional
+Slice 3 P2 findings: malformed currency type coercion, browser rejection of
+equivalent redundant-zero decimal spellings, global stripping of unrelated
+collections' currency compatibility fields, and individual weighted displays
+that inferred lossy money or ignored unknown base evidence. The new four-test
+regression is RED **0/4** on `520da22` and GREEN **4/4** after correction.
+Checkpoint `0b35013` preserved the focused fix before broader verification.
+Affected integration passed **54/54**, and final gate components passed
+integration **432/432**, PostgreSQL 16.15 **91/91**, managed Chromium **54/54**,
+and production build (**31 modules**). The single monolithic full-gate attempt
+stopped at an unchanged migration-role bootstrap race and two stale database
+summary assertions; after narrowly correcting those assertions, only the
+remaining component gates were run. It is not reported as a successful
+monolithic `npm run verify`. Migrations are unchanged. Fresh independent
+approval remains pending; no GitHub delivery or later slice is implied.
+Detailed failure, correction, and benchmark evidence is in the active plan.
+
+The 2026-09-13 GPT-5.6 Sol / High recovery adopted those two clean native
+checkpoints without rewriting their historical authorship. Independent Sol
+checks passed the four-finding regression **4/4**, the directly affected
+currency/monetary/persistence set **73/73**, a fresh PostgreSQL 16.15
+compatibility boundary **3/3**, and `verify:fast` with integration **432/432**.
+The earlier exact-content PostgreSQL **91/91**, managed Chromium **54/54**, and
+production-build evidence was not repeated. Fresh independent Astra review and
+GitHub delivery remain pending.
+
+Assisted Pilot Safety Gate V1 Slice 3 now implements the optional
+[authoritative opportunity currency](architecture/AUTHORITATIVE_OPPORTUNITY_CURRENCY.md)
+contract locally. Exact uppercase three-letter codes flow through backward-safe
+JSON writes, append-only PostgreSQL migration `016`, reviewed CSV mapping/Data
+Health, atomic canonical commit and replay, opportunity APIs, deterministic
+RevenueLeakCase value classification, and browser import/opportunity surfaces.
+Missing/null currency remains unknown; malformed, padded, or lowercase supplied
+evidence fails closed. Amount and currency remain independent. There is no
+currency default, locale/tenant inference, silent normalization, FX conversion,
+probability/expected-value behavior, JSON cutover, or dual write.
+
+The migration preserves forced RLS and existing runtime grants. A temporary
+owner-only migration policy permits the all-tenant preflight/backfill and is
+dropped in the same transaction; malformed legacy evidence rolls every change
+back. Exact valid current/legacy JSON currency is promoted, missing/null remains
+SQL `NULL`, and compatibility payloads and unknown fields are preserved. Local
+evidence includes one complete local `npm run verify`: engineering harness,
+integration **408/408**, real PostgreSQL 16.15 **90/90**, managed Chromium
+**53/53**, and the Vite 8.2.2 production build (**31 modules**), plus
+`git diff --check`.
+Migration `016` SHA-256 is
+`ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`;
+migrations `001`–`015` remain byte-identical to base. This does not prove
+provider provisioning, production/deployment behavior, GitHub gates, external
+acceptance, or coordinator-led independent review.
+
+The bounded Slice 3 fresh-review remediation preserves exact replay across the
+currency-vector upgrade only for unversioned, materially identical legacy
+opportunity commits. It rechecks legacy request/input fingerprints, tenant,
+collection, source, headers, mapping, and staged/canonical row evidence; new
+commits are currency-versioned and unknown explicit versions fail closed.
+Migration `016` now enforces exact uppercase ASCII bytes independently of
+collation. Empty or otherwise invalid persisted currency produces Data Health
+suppression while only absent/null stays unknown. Opportunity-specific
+dashboard, Biggest Opportunity, pipeline, and Revenue Command Center displays
+retain authoritative currency and exact decimal strings, and an in-place
+opportunity route change clears unsaved currency input. Remediation evidence is
+focused integration **134/134**, focused PostgreSQL **1/1**, focused managed
+Chromium **2/2**, and one complete local `npm run verify`: harness, integration
+**408/408**, PostgreSQL 16.15 **90/90**, Chromium **53/53**, and the production
+build (**31 modules**).
+
+Slice 3 Recovery Checkpoint 1 closes the remaining legacy replay identity
+anchoring defect without beginning decimal ranking. Every unversioned legacy
+opportunity replay now reconstructs canonical row identity from the locked
+staging payload and reconciles tenant, batch, upload fingerprint,
+headers, row counts, source system/record, target, disposition, raw hash,
+canonical hash, stored result, and committed ID-map evidence before returning a
+stored result. Tampered adjacent hashes or result identity cannot mask changed
+raw/request evidence. Current `CANONICAL_IMPORT_V2_CURRENCY` fingerprints retain
+their strict exact-match path and unknown explicit versions still fail closed.
+Focused RED was **0/8** (the parent plus seven independently exposed tamper
+vectors); GREEN is focused **9/9**, the complete repository file **22/22**, the
+directly affected import/reconciliation set **56/56**, import mapping **14/14**,
+and migration-static **19/19**, with the standalone engineering harness and
+`git diff --check` passing. Migration `016` remains unchanged at SHA-256
+`ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`, and
+migrations `001`–`015` remain byte-identical to checkpoint parent `d42346e`.
+
+Slice 3 Recovery Checkpoint 2 closes only the exact-decimal ranking defect.
+Dashboard Biggest Opportunity and equal-score priority ordering now compare
+authoritative same-currency `NUMERIC(20,6)` values as exact scaled integers,
+with stable opportunity-ID ties; Biggest Opportunity declines to infer a result
+when more than one authoritative currency is present. Revenue intelligence uses
+the same exact server-side representation within deterministic currency groups
+and never compares monetary magnitude across currencies. RevenueAction factual
+evidence and basis fingerprints retain the original exact amount and optional
+authoritative currency, so a one-millionth amount change or currency change can
+supersede stale action evidence without collapsing through JavaScript numbers.
+Known positive, known zero, unknown, invalid, and missing-currency inputs retain
+their existing domain-specific classification semantics, and the
+RevenueLeakCase queue reuses the shared exact comparator without changing its
+ordering contract.
+
+The new focused regression was expected RED **0/4** at `67e2c10`: the dashboard
+selector did not exist, exact revenue-action ranking reversed a pair separated
+by one millionth beyond safe JavaScript integer precision, and RevenueAction
+evidence rounded the amount and omitted currency. GREEN is focused **4/4** and
+the directly affected integration set **53/53**. The final proportional gate
+passed the engineering harness plus integration **420/420**, managed Chromium
+**53/53**, the Vite 8.2.2 production build (**31 modules**), migration integrity,
+and `git diff --check`. No persistence, schema, replay, or migration changed, so
+no PostgreSQL suite or full `npm run verify` was run. Migration `016` remains
+SHA-256 `ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`;
+migrations `001`–`015` remain byte-identical to base.
+
+The bounded Slice 3 monetary-truth remediation closes the final two review
+findings without expanding the slice. Revenue intelligence and opportunity
+pipeline metrics now accumulate positive `NUMERIC(20,6)`-representable amounts
+as exact scaled integers inside authoritative currency groups only. Their
+retained scalar fields contain an exact decimal string only for one complete
+currency group, return `null` for mixed currencies or withheld known amounts,
+and remain `0` when no positive amount is known. Alphabetical
+`totals_by_currency` and explicit withheld counts expose the complete truth.
+Dashboard, Pipeline, and Revenue Command Center render those groups without a
+unitless combined amount, default currency, or FX. Existing JSON records without
+currency remain readable and their positive amounts are counted but withheld.
+Pipeline client-side reduction exists and follows the same exact grouped/withheld
+contract as the authoritative summaries, including the requirement that weighted
+money is unknown when its base amount is unknown.
+
+RevenueAction factual evidence now retains a present malformed persisted
+currency verbatim with `currency_valid: false`; absent/null retains the legacy
+missing-currency basis shape and exact canonical currency retains its existing
+shape. Empty, lowercase, other malformed, missing/null, and canonical evidence
+therefore cannot collapse to the same basis fingerprint, while exact amount text
+and the existing positive/zero/unknown semantics remain unchanged. Focused RED
+at exact parent `17f0a049b7edab17344c7bf1571746748a954fb6` was **0/4** and
+focused GREEN is **4/4**. The directly affected integration set passes
+**76/76**, the complete integration suite passes **424/424**, managed Chromium
+passes **53/53**, and the Vite 8.2.2 production build completes with **31
+modules**. Final fast/harness and repository-integrity evidence is recorded in
+the active plan. No replay identity, persistence, schema, migration,
+RevenueAction approval/external-send boundary, GitHub state, or Slice 4 behavior
+changed.
+
+The Slice 3 FINAL bounded monetary-consistency remediation makes weighted
+pipeline evidence depend on a known positive base value in both authoritative
+backend projections and the Pipeline browser reducer. Biggest Opportunity now
+withholds its claim when any otherwise known positive amount lacks canonical
+currency. Browser knownness and individual-value formatting use exact scaled
+integer parsing for plain, signed, and exponent `NUMERIC(20,6)` spellings, reject
+out-of-scale/out-of-precision values, and retain exact aggregate display beyond
+one row's numeric envelope. The completion record and regression now accurately
+state that Pipeline client-side reduction exists under the same exact grouped/
+withheld contract. Focused RED was **0/4** at
+`0443906812347e77d2b418c700caabcb9a039d70`; focused GREEN is **4/4**,
+the affected intelligence/opportunity/action/browser-contract set is **83/83**,
+replay identity is **22/22**, migration-static is **19/19**, managed Chromium is
+**53/53**, the Vite 8.2.2 production build is **31 modules**, and `verify:fast`
+passes the harness plus integration **428/428**. PostgreSQL was not run because
+persistence and schema are unchanged. Final standalone harness,
+migration-static **19/19**, unchanged-migration, diff, and artifact checks pass.
 
 Assisted Pilot Safety Gate V1 Slice 2 now implements the PostgreSQL-only
 [raw-import expiry and tenant offboarding

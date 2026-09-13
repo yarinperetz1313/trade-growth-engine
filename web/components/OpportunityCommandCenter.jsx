@@ -9,7 +9,8 @@ import {
 } from "../lib/api";
 import {
   formatCommercialValue,
-  isKnownCommercialValue
+  isKnownCommercialValue,
+  weightedAmountWithKnownBase
 } from "../lib/commercialValue";
 
 const ACTIVE_REVENUE_ACTION_STATUSES = new Set([
@@ -128,6 +129,9 @@ export default function OpportunityCommandCenter({
     useState("");
 
   const [value, setValue] =
+    useState("");
+
+  const [currency, setCurrency] =
     useState("");
 
   const [revenueActions, setRevenueActions] =
@@ -249,6 +253,7 @@ export default function OpportunityCommandCenter({
   useEffect(() => {
     const revenueActionLoadGeneration = ++revenueActionGeneration.current;
     const intelligenceLoadGeneration = ++intelligenceGeneration.current;
+    setCurrency("");
     setRevenueActions([]);
     setPayload(null);
     setExecutionLoading(null);
@@ -319,6 +324,9 @@ export default function OpportunityCommandCenter({
 
   const hasValidValueInput =
     isKnownCommercialValue(value);
+
+  const hasValidCurrencyInput =
+    currency === "" || /^[A-Z]{3}$/.test(currency);
 
   const hasStaleRisk =
     Number(scoreData?.stale_risk) >=
@@ -540,6 +548,7 @@ export default function OpportunityCommandCenter({
 
       setContactName("");
       setValue("");
+      setCurrency("");
 
       await loadIntelligence({
         notifyOpportunityUpdated: false,
@@ -695,7 +704,8 @@ export default function OpportunityCommandCenter({
 
           <div className="oc-value" data-testid="opportunity-value">
             {formatCommercialValue(
-              currentOpportunity.value
+              currentOpportunity.value,
+              currentOpportunity.currency
             )}
           </div>
         </div>
@@ -782,13 +792,22 @@ export default function OpportunityCommandCenter({
                     e.target.value
                   )
                 }
-                placeholder="Estimated deal value (AUD)"
+                placeholder="Estimated commercial value"
+              />
+
+              <input
+                type="text"
+                value={currency}
+                onChange={e => setCurrency(e.target.value)}
+                placeholder="Currency code (optional)"
+                aria-label="Opportunity currency code"
               />
 
               <button
                 className="oc-primary-button"
                 disabled={
                   !hasValidValueInput ||
+                  !hasValidCurrencyInput ||
                   actionLoading ===
                     "value"
                 }
@@ -798,7 +817,8 @@ export default function OpportunityCommandCenter({
                     "value",
                     {
                       value:
-                        Number(value)
+                        Number(value),
+                      ...(currency === "" ? {} : { currency })
                     }
                   )
                 }
@@ -1124,13 +1144,22 @@ export default function OpportunityCommandCenter({
                       e.target.value
                     )
                   }
-                  placeholder="Value in AUD"
+                  placeholder="Commercial value"
+                />
+
+                <input
+                  type="text"
+                  value={currency}
+                  onChange={e => setCurrency(e.target.value)}
+                  placeholder="Currency code (optional)"
+                  aria-label="Opportunity currency code"
                 />
 
                 <button
                   className="oc-secondary-button"
                   disabled={
                     !hasValidValueInput ||
+                    !hasValidCurrencyInput ||
                     actionLoading ===
                       "value"
                   }
@@ -1140,7 +1169,8 @@ export default function OpportunityCommandCenter({
                       "value",
                       {
                         value:
-                          Number(value)
+                          Number(value),
+                        ...(currency === "" ? {} : { currency })
                       }
                     )
                   }
@@ -1241,7 +1271,8 @@ export default function OpportunityCommandCenter({
               <span>Value</span>
               <strong>
                 {formatCommercialValue(
-                  currentOpportunity.value
+                  currentOpportunity.value,
+                  currentOpportunity.currency
                 )}
               </strong>
             </div>
@@ -1250,7 +1281,8 @@ export default function OpportunityCommandCenter({
               <span>Weighted value</span>
               <strong>
                 {formatCommercialValue(
-                  currentOpportunity.weighted_value
+                  weightedAmountWithKnownBase(currentOpportunity),
+                  currentOpportunity.currency
                 )}
               </strong>
             </div>

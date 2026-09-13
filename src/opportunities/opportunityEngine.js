@@ -4,6 +4,12 @@ const {
   findRecord,
   updateRecord
 } = require("../services/localStore");
+const {
+  summarizeOpportunityAmounts
+} = require("./monetarySummary");
+const {
+  weightedAmountWithKnownBase
+} = require("./commercialValue");
 
 const STAGES = [
   "NEW",
@@ -301,26 +307,14 @@ function buildPipelineMetrics(
           "LOST"
     );
 
-  const pipelineValue =
-    active.reduce(
-      (sum, opportunity) =>
-        sum +
-        Number(
-          opportunity.value || 0
-        ),
-      0
-    );
-
-  const weightedPipelineValue =
-    active.reduce(
-      (sum, opportunity) =>
-        sum +
-        Number(
-          opportunity.weighted_value ||
-            0
-        ),
-      0
-    );
+  const pipelineValue = summarizeOpportunityAmounts(
+    active,
+    opportunity => opportunity?.value
+  );
+  const weightedPipelineValue = summarizeOpportunityAmounts(
+    active,
+    weightedAmountWithKnownBase
+  );
 
   const won =
     opportunities.filter(
@@ -329,15 +323,10 @@ function buildPipelineMetrics(
         "WON"
     );
 
-  const wonValue =
-    won.reduce(
-      (sum, opportunity) =>
-        sum +
-        Number(
-          opportunity.value || 0
-        ),
-      0
-    );
+  const wonValue = summarizeOpportunityAmounts(
+    won,
+    opportunity => opportunity?.value
+  );
 
   const byStage = {};
 
@@ -349,31 +338,22 @@ function buildPipelineMetrics(
           stage
       );
 
+    const value = summarizeOpportunityAmounts(
+      stageItems,
+      opportunity => opportunity?.value
+    );
+    const weightedValue = summarizeOpportunityAmounts(
+      stageItems,
+      weightedAmountWithKnownBase
+    );
+
     byStage[stage] = {
       count:
         stageItems.length,
-
-      value:
-        stageItems.reduce(
-          (sum, opportunity) =>
-            sum +
-            Number(
-              opportunity.value ||
-                0
-            ),
-          0
-        ),
-
-      weighted_value:
-        stageItems.reduce(
-          (sum, opportunity) =>
-            sum +
-            Number(
-              opportunity.weighted_value ||
-                0
-            ),
-          0
-        )
+      value: value.known_total,
+      value_summary: value,
+      weighted_value: weightedValue.known_total,
+      weighted_value_summary: weightedValue
     };
   }
 
@@ -385,12 +365,21 @@ function buildPipelineMetrics(
       active.length,
 
     pipeline_value:
+      pipelineValue.known_total,
+
+    pipeline_value_summary:
       pipelineValue,
 
     weighted_pipeline_value:
+      weightedPipelineValue.known_total,
+
+    weighted_pipeline_value_summary:
       weightedPipelineValue,
 
     won_value:
+      wonValue.known_total,
+
+    won_value_summary:
       wonValue,
 
     by_stage:

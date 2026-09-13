@@ -14,6 +14,9 @@ const {
 const {
   qualifyProspect
 } = require("../../intelligence/qualificationEngine");
+const {
+  assertOpportunityCurrency
+} = require("../../opportunities/opportunityCurrency");
 
 const TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 const TASK_STATUSES = ["OPEN", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
@@ -399,13 +402,27 @@ function createTenantCoreService(repositories, { createId, clock }) {
       });
     },
 
-    setValue({ opportunityId, value }) {
+    setValue(input) {
+      const { opportunityId, value } = input;
+      const currencyProvided = Object.hasOwn(input, "currency");
       const numeric = Number(value);
       if (typeof value === "boolean" || !Number.isFinite(numeric) || numeric <= 0) {
         return Promise.resolve(failure(
           "INVALID_VALUE",
           "Opportunity value must be a positive number.",
           { field: "value" }
+        ));
+      }
+      let suppliedCurrency;
+      try {
+        suppliedCurrency = currencyProvided
+          ? assertOpportunityCurrency(input.currency)
+          : undefined;
+      } catch (error) {
+        return Promise.resolve(failure(
+          error.code,
+          error.message,
+          { field: error.field }
         ));
       }
       const rounded = Math.round(numeric);
@@ -415,21 +432,25 @@ function createTenantCoreService(repositories, { createId, clock }) {
           { lock: true }
         );
         if (!opportunity) return opportunityNotFound(opportunityId);
-        const changed = Number(opportunity.value || 0) !== rounded;
+        const currency = currencyProvided ? suppliedCurrency : opportunity.currency;
+        const changed = Number(opportunity.value || 0) !== rounded
+          || (currencyProvided && opportunity.currency !== currency);
         if (changed) {
           await scoped.opportunities.update(opportunityId, {
             value: rounded,
+            ...(currencyProvided ? { currency } : {}),
             weighted_value: Math.round(rounded * Number(opportunity.probability || 0))
           });
         }
         const activity = await createActivityOnce(scoped, {
           opportunityId,
           type: "VALUE_UPDATED",
-          description: `Opportunity value updated to ${rounded}`,
-          actionKey: `value:${opportunityId}:${rounded}`,
+          description: `Opportunity value updated to ${rounded} ${currency ?? "(currency unknown)"}`,
+          actionKey: `value:${opportunityId}:${rounded}:${currency ?? "UNKNOWN"}`,
           actionType: "VALUE",
           semanticValue: rounded,
-          metadata: { value: rounded, action_type: "VALUE" }
+          semanticCurrency: currency,
+          metadata: { value: rounded, currency: currency ?? null, action_type: "VALUE" }
         });
         return mutationResponse(scoped, opportunityId, {
           changed,
@@ -557,7 +578,8 @@ function findEquivalentActivity(activities, {
   actionKey,
   actionType,
   semanticTitle,
-  semanticValue
+  semanticValue,
+  semanticCurrency
 }) {
   const normalizedTitle = semanticTitle === undefined
     ? null
@@ -575,6 +597,12 @@ function findEquivalentActivity(activities, {
       metadataActionType &&
       actionType &&
       metadataActionType !== actionType
+    ) {
+      return false;
+    }
+    if (
+      actionType === "VALUE"
+      && (activity.metadata?.currency ?? null) !== (semanticCurrency ?? null)
     ) {
       return false;
     }

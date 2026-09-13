@@ -32,6 +32,9 @@ const {
   isExactZeroLiteral,
   jsonNumberLiteral
 } = require("../../imports/numericEvidence");
+const {
+  assertOpportunityCurrency
+} = require("../../opportunities/opportunityCurrency");
 
 function clone(value) {
   if (value === undefined) return undefined;
@@ -110,14 +113,15 @@ function toNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
-function compactLegacyPayload(record) {
+function compactLegacyPayload(record, modeledFields) {
   const payload = clone(record) || {};
   for (const field of SYSTEM_FIELDS) delete payload[field];
+  for (const field of modeledFields) delete payload[field];
   return payload;
 }
 
-function commonInsertFields(record, { sourceOrdinal } = {}) {
-  const payload = compactLegacyPayload(record);
+function commonInsertFields(record, { sourceOrdinal } = {}, modeledFields = []) {
+  const payload = compactLegacyPayload(record, modeledFields);
   return {
     legacy_payload: clone(payload),
     current_payload: clone(payload),
@@ -167,12 +171,13 @@ function opportunityToRow(record, options) {
       : value.state === "NULL"
         ? JSON_NULL
         : value.raw,
+    currency: assertOpportunityCurrency(record.currency) ?? null,
     probability: record.probability ?? null,
     weighted_value: record.weighted_value ?? null,
     next_action: record.next_action ?? null,
     contact_name: record.contact_name ?? null,
     metadata: record.metadata ?? {},
-    ...commonInsertFields(record, options)
+    ...commonInsertFields(record, options, ["currency"])
   });
 }
 
@@ -328,6 +333,11 @@ function opportunityFromRow(row) {
   );
   optional(record, "next_action", row.next_action);
   optional(record, "contact_name", row.contact_name);
+  if (row.currency !== null && row.currency !== undefined) {
+    record.currency = assertOpportunityCurrency(row.currency);
+  } else if (Object.hasOwn(record, "currency")) {
+    record.currency = assertOpportunityCurrency(record.currency);
+  }
   optionalJson(record, "metadata", row.metadata, {});
 
   if (row.commercial_value_state === "MISSING") {

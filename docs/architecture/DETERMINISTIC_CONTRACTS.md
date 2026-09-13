@@ -25,8 +25,12 @@ reconcile a RevenueLeakCase; all other outcomes are read-only explanations.
 
 Commercial value is independent of eligibility. It is `KNOWN` only when both the
 lossless non-negative canonical amount (including zero) and three-letter currency
-are authoritative; otherwise valid missing evidence remains `UNKNOWN`. The rule
+are authoritative. Currency is read only from persisted `opportunity.currency`
+and must match `^[A-Z]{3}$` exactly; lowercase or padded evidence is invalid,
+not normalized. Otherwise valid missing evidence remains `UNKNOWN`. The rule
 does not consume probability, expected value, recovered revenue, or attribution.
+The source contract is defined in
+[Authoritative opportunity currency](AUTHORITATIVE_OPPORTUNITY_CURRENCY.md).
 
 The explicit tenant-wide scan admits at most 100 canonical opportunities and
 returns every admitted version-1 outcome in stable opportunity-ID order. It
@@ -45,4 +49,4 @@ attribution.
 
 
 ## Revenue portfolio
-The revenue portfolio is a deterministic read model over active opportunities and their existing deal intelligence. Commercial value is known only when it is a positive finite value. Missing, `null`, zero, blank, and non-numeric values are unknown and excluded from known totals; each ranked action exposes `value.known` so the UI never turns unknown into `$0`. This accounting does not change deal-intelligence scoring or the positive-value mutation rule. `STRONG`, `AT_RISK`, `STALE`, `NO_NEXT_ACTION`, and `VALUE_UNKNOWN` remain structured classifications rather than close-probability claims. Classifications can overlap; attention is a deduplicated per-opportunity union of actionable gaps, including `VALUE_UNKNOWN`. `STRONG` is health evidence, not an exemption from actionability. Ranked actions carry the opportunity ID, recorded evidence, and existing action metadata; ties end with the opportunity ID so ordering is stable.
+The revenue portfolio is a deterministic read model over active opportunities and their existing deal intelligence. Commercial value is known only when it is a positive `NUMERIC(20,6)`-representable value. Missing, `null`, zero, blank, non-numeric, and unrepresentable values are unknown and excluded from known totals; each ranked action exposes `value.known` so the UI never turns unknown into `$0`. Exact scaled-integer accumulation occurs only inside authoritative currency groups. A known positive amount with absent or malformed currency is counted but withheld from monetary totals. The legacy scalar total is an exact decimal string only for one complete authoritative-currency group, `null` for grouped or withheld truth, and `0` when no positive amount is known. Group arrays and withheld counts are additive response fields; no cross-currency or unitless total, FX, or default currency exists. This accounting does not change deal-intelligence scoring or the positive-value mutation rule. `STRONG`, `AT_RISK`, `STALE`, `NO_NEXT_ACTION`, and `VALUE_UNKNOWN` remain structured classifications rather than close-probability claims. Classifications can overlap; attention is a deduplicated per-opportunity union of actionable gaps, including `VALUE_UNKNOWN`. `STRONG` is health evidence, not an exemption from actionability. Ranked actions carry the opportunity ID, recorded evidence, and existing action metadata; ties end with the opportunity ID so ordering is stable. Monetary magnitude is compared only within the same canonical currency group.

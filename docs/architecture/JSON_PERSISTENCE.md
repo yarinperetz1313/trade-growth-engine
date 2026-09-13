@@ -23,6 +23,14 @@
 
 Tests and harnesses must use `LOCAL_STORE_DIR` so developer data remains untouched.
 
+Opportunity `currency` is an optional first-class field. Existing JSON records
+without it remain unchanged and truthfully unknown; explicit `null` remains
+unknown, and unrelated JSON-compatible fields are preserved. New mutation and
+PostgreSQL-mapping boundaries accept only exact `^[A-Z]{3}$` strings, `null`, or
+absence and never supply a default. JSON remains the local authority with no
+cutover or dual write. See
+[Authoritative opportunity currency](AUTHORITATIVE_OPPORTUNITY_CURRENCY.md).
+
 The executable legacy compatibility baseline and PR-2 persistence handoff are canonical in [Legacy JSON Compatibility Contract](LEGACY_JSON_COMPATIBILITY.md).
 
 ## RevenueAction collections

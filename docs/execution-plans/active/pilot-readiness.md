@@ -1,5 +1,83 @@
 # Pilot Readiness
 
+## Native Astra four-finding remediation checkpoint — 2026-09-13
+
+Starting pin: `520da227f3dd1b24a96f2335d4484164b73da69b`, clean and six
+commits ahead of `9dc155912be7df46c23b2aa30facddeda7b4baa8`, with an equal
+remote feature head. Native Codex / GPT-6 Astra / High began at
+`2026-09-13T10:27:31Z`; no ACP, delegation, or runtime changes were used.
+
+Exactly four P2 findings are corrected: strict string-aware currency authority
+in revenue projections and browser formatting; decimal normalization accepting
+redundant-zero spellings without a browser-only text-length bound (with the
+same PostgreSQL exponent envelope); opportunity-only modeled currency filtering;
+and recorded-only individual weighted displays behind the same known-positive
+base rule as portfolio summaries. Portfolio zero still follows its existing
+unknown contract; the separate RevenueLeakCase known-zero contract is unchanged.
+No schema, replay, FX, inferred currency, or later-slice behavior changes.
+
+`node --test test/astra-currency-remediation.test.js` was deterministically
+RED **0/4**: malformed array currency crashed `localeCompare`; equivalent long
+decimal text became unknown; non-opportunity compatibility currency vanished;
+and absent weighted evidence displayed rounded inferred money. The identical
+command is GREEN **4/4** after the minimal fix. Harness and diff hygiene pass.
+Mapper coverage spans prospects, tasks, activities, and RevenueActions. New
+real-PostgreSQL insert/read/update and managed browser individual-surface
+regressions are included for the subsequent affected/full gate. Clean checkpoint
+`0b35013042a879770072dafb742a56214283738c` was created immediately after
+focused green, before broader verification.
+
+Affected integration passed **54/54** and the real PostgreSQL compatibility
+regression passed **1/1**. The initial managed browser selection passed **1/2**:
+the new multi-fixture test reused hash navigation and observed its previous
+mocked record. Giving each fixture a distinct document URL fixed the test
+isolation; the single corrected scenario passed **1/1** without product edits.
+
+One `npm run verify` attempt passed harness and integration **432/432**, then
+stopped at PostgreSQL **69/91**. Twenty failures came from the unchanged
+migration-002 parallel role bootstrap (`23505`, duplicate `tge_owner`) on the
+fresh cluster. Two older database assertions still expected unitless scalar
+totals for currency-less values instead of the already-established withheld
+summary contract. Their correction retains the raw opportunity amount assertion
+and asserts the full withheld summary, not an invented currency. Those two
+contracts plus the new persistence regression passed **3/3**. The full command
+was not repeated: its remaining component gates then passed PostgreSQL 16.15
+**91/91**, managed Chromium **54/54**, and the Vite 8.2.2 build (**31 modules**).
+Thus every full-gate component has successful evidence, but the one monolithic
+`npm run verify` invocation itself did not pass. Migrations `001`–`015` remain
+byte-identical to base and migration `016` remains
+`ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`.
+
+Verification completed at `2026-09-13T10:36:38Z` (9m 07s from preflight).
+Native runtime benchmark: no ACP, timeout, lost completion, restart, duplicate
+worker, delegation, or human/manual intervention; test-fixture corrections were
+performed by this same owner. Terminal targeted-wake receipt is for the parent
+Coordinator to verify after handoff. Final dependency/build/database cleanup
+and the factual evidence checkpoint precede handoff. Independent final review
+and GitHub delivery remain pending; Slice 4 remains unstarted.
+
+### GPT-5.6 Sol adoption and finalization
+
+Native Codex / GPT-5.6 Sol / High adopted checkpoints `0b35013` and `604ad69`
+without resetting or recreating the worktree. It audited the complete Slice 3
+range and preserved the prior agent's two necessary verification corrections:
+truthful withheld summaries for currency-less PostgreSQL fixtures and distinct
+document URLs for each managed-browser weighted-display fixture.
+
+Independent Sol verification passed the dedicated remediation **4/4**, the
+directly affected currency, monetary, persistence, action, and browser-contract
+set **73/73**, and a fresh PostgreSQL 16.15 boundary **3/3** covering
+non-opportunity compatibility insert/read/update plus both corrected withheld
+summaries. The first PostgreSQL invocation did not start assertions because the
+prior owner had already removed its dependency symlink; the corrected run used
+a lockfile-identical cache containing `pg`. `npm run verify:fast` then passed
+the engineering harness and integration **432/432**. The earlier exact-content
+PostgreSQL **91/91**, managed Chromium **54/54**, and production build (**31
+modules**) were not repeated, and no second monolithic `npm run verify` was
+claimed. No product, schema, migration, replay, FX, or later-slice behavior was
+added during adoption. Fresh independent GPT-6 Astra / High review remains the
+next gate.
+
 ## Outcome
 
 - **PR-0 through PR-2 are COMPLETE.** PR-2's PostgreSQL 16.15 authority remains [GitHub Actions run 33304131266](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33304131266): harness, 68 integration tests, 11 database tests, 7 Chromium E2E tests, and the production build passed.
@@ -8,6 +86,7 @@
 - **PR-5A implements bounded CSV staging/preview; PR-5B implements draft mapping, validation, and Data Health; PR-5C implements controlled atomic canonical commit and existing-ID-map reconciliation; PR-5D implements the contract-mocked browser workflow and adversarial browser states.** Slice 2 separately implements the reviewed raw-evidence retention/deletion boundary. JSON cutover, deployment, and production provisioning remain out of scope.
 - **TGE Assisted Pilot Safety Gate V1 PR-1 is COMPLETE as a verified local checkpoint from pinned base `e5e8f5fc432caa52b879bfa92a56bd6946ae89f9`.** The explicit secure pilot runtime/readiness bootstrap described in [Secure Pilot Runtime](../../architecture/SECURE_PILOT_RUNTIME.md) was initially implemented through `e6aa122`; the bounded three-finding security remediation is checkpointed at `1718556`, followed by the final bounded startup-logging remediation recorded below. GitHub delivery, external provisioning, retention deletion, currency, and later milestone slices remain out of scope.
 - **TGE Assisted Pilot Safety Gate V1 Slice 2 is COMPLETE as a locally verified checkpoint from exact base `873ae275590acbfe89cc0752f1774e40950d5ad0`.** Starting invariants were verified on 2026-09-10: the required `raw-import-expiry-offboarding` worktree and `feat/raw-import-expiry-offboarding` branch, HEAD/base/merge-base all `873ae275590acbfe89cc0752f1774e40950d5ad0`, ancestry `0 behind / 0 ahead`, empty normal and ignored/untracked status, and no `node_modules` or `dist`. The bounded slice implements database-authoritative seven-day raw-import expiry and narrow, staged tenant access/raw-evidence offboarding. It does not implement opportunity currency, provider provisioning, an operator runbook, or a legally unapproved canonical CRM deletion policy.
+- **TGE Assisted Pilot Safety Gate V1 Slice 3 is COMPLETE as a locally verified checkpoint candidate from exact base `9dc155912be7df46c23b2aa30facddeda7b4baa8`; coordinator-led independent review, exact-head GitHub gates, and merge remain pending.** Starting invariants were verified on 2026-09-11: the required `authoritative-opportunity-currency` worktree and `feat/authoritative-opportunity-currency` branch, HEAD/local main/origin main/merge-base all at the required base, ancestry `0 behind / 0 ahead`, empty normal and ignored/untracked status, and no `node_modules` or `dist`. The approved slice is limited to one optional authoritative opportunity currency through local JSON compatibility, PostgreSQL persistence, CSV mapping/Data Health/canonical commit, deterministic leak-value consumption, and relevant browser presentation. Missing currency remains unknown; no default, inference, FX, tenant currency policy, analytics expansion, provider work, runbook acceptance, or later slice is included.
 
 The canonical architecture is the [foundation](../../architecture/PILOT_READINESS_FOUNDATION.md), with the identity path detailed in [Authentication and TenantContext](../../architecture/AUTHENTICATION_AND_TENANT_CONTEXT.md). Provisioning and release evidence live in the [production gate](../../operations/PILOT_PRODUCTION_GATE.md).
 
@@ -16,7 +95,7 @@ The canonical architecture is the [foundation](../../architecture/PILOT_READINES
 | Area | Contract |
 | --- | --- |
 | Current product | Local JSON remains the local runtime/test persistence authority. Deterministic intelligence and manual RevenueAction approval are unchanged. |
-| Database foundation | PostgreSQL 16.15 uses append-only migrations. `001` remains 2,752 bytes with SHA-256 `d08f3b7e5c97e05a5ec7f96242543fbbf437d7af4edea34d22dc09db910cfc62`; PR-3 owns unchanged migrations `005`–`009`; PR-4 follows with `010_auth_membership_and_invitations.sql`; PR-5C appends `011_canonical_import_commit.sql`; Issue #8 appends `012_revenue_leak_case_foundation.sql`; pilot evidence appends `013_privacy_minimized_pilot_evidence.sql`; secure Pilot readiness appends `014_secure_pilot_runtime_readiness.sql`; Slice 2 appends `015_raw_import_expiry_tenant_offboarding.sql`. |
+| Database foundation | PostgreSQL 16.15 uses append-only migrations. `001` remains 2,752 bytes with SHA-256 `d08f3b7e5c97e05a5ec7f96242543fbbf437d7af4edea34d22dc09db910cfc62`; PR-3 owns unchanged migrations `005`–`009`; PR-4 follows with `010_auth_membership_and_invitations.sql`; PR-5C appends `011_canonical_import_commit.sql`; Issue #8 appends `012_revenue_leak_case_foundation.sql`; pilot evidence appends `013_privacy_minimized_pilot_evidence.sql`; secure Pilot readiness appends `014_secure_pilot_runtime_readiness.sql`; Slice 2 appends `015_raw_import_expiry_tenant_offboarding.sql`; Slice 3 appends `016_authoritative_opportunity_currency.sql`. |
 | Identity | Auth0 AU, New Universal Login, passwordless email OTP, Authorization Code Flow with PKCE. No Classic Login, magic links, Auth0 Organizations invitations, or public signup. |
 | Authorization | TGE resolves exactly one active membership by `(issuer, subject)`, derives immutable `TenantContext`, and applies centralized OWNER/ADMIN/MEMBER policy. Client tenant, email, role, headers, query values, and JWT custom claims are never authority. |
 | Isolation | Server authorization, explicit tenant repository predicates, and forced PostgreSQL RLS remain separate required layers. Transaction-local GUCs are trusted server inputs only after membership resolution. |
@@ -46,6 +125,246 @@ The canonical architecture is the [foundation](../../architecture/PILOT_READINES
 ### Append-only database change
 
 PR-3 migrations `005`–`009` remain byte-identical. PR-4 migration `010` keeps migrations `001`–`009` unchanged. It adds issuer and lifecycle status to memberships, changes membership identity to `(tenant_id, identity_issuer, subject_id)`, adds invitation storage/RLS, adds identity/request context functions, and exposes only narrow runtime functions for invitation availability and atomic consumption. PR-2's non-bypass runtime role, forced RLS, immutable audit history, global `PUBLIC EXECUTE` revocation, and legacy-`public` quarantine remain intact.
+
+## Assisted Pilot Safety Gate V1 Slice 3 bounded plan
+
+### Grounded currency boundary
+
+- `opportunity.currency` is the single optional authoritative field. A supplied value is valid only as an exact uppercase three-letter ASCII code matching `^[A-Z]{3}$`; no locale, tenant, amount, prospect, other row, browser state, or formatter supplies or normalizes it. Missing or explicit null remains unknown. Malformed, padded, lowercase, non-string, or otherwise non-lossless supplied currency fails closed at mapping or persistence boundaries.
+- Amount and currency are independent evidence. A valid amount without currency remains commercially unknown for RevenueLeakCase; currency without a valid amount does not create known commercial value. Known zero still requires authoritative currency. No probability, expected value, recovered value, cross-currency total, or FX behavior is added.
+- Local JSON remains the local authority and retains unknown JSON-compatible fields. Existing records without `currency` remain readable without adding a fabricated property. PostgreSQL remains tenant-scoped and append-only; existing rows gain nullable unknown currency only, with no JSON cutover or dual write.
+
+### Direct `orch-add-feature` fallback
+
+1. Add genuinely new RED tests for exact valid/missing/null/invalid currency; JSON backward compatibility and unknown-field preservation; PostgreSQL mapper/round-trip/update behavior; CSV proposal, row validation, Data Health, canonical materialization, fingerprints, exact duplicate replay and evidence minimization; detector known/unknown/suppression semantics; browser response-vector validation, mapping flow, and non-default presentation; migration/RLS/least-privilege/tenant-isolation behavior.
+2. Append only `016_authoritative_opportunity_currency.sql`, adding a nullable constrained opportunity currency column without changing migrations `001`–`015`, grants, RLS, tenant predicates, decimal columns, or canonical-commit transaction/lock behavior. Advance only the schema/readiness/harness assertions required by the append-only migration.
+3. Implement one shared server-side currency contract across opportunity PostgreSQL mappers and CSV mapping/commit. Carry exact authoritative currency through canonical payload fingerprints, import provenance, repository reads and ordinary updates while preserving unknown payload fields and absent JSON shape. Make the detector consume only that persisted field and reject noncanonical evidence rather than normalizing it.
+4. Extend the strict browser import contract and fixtures with the complete optional currency field. Remove AUD-specific opportunity-entry/presentation fallbacks; render an explicit currency only when the opportunity supplies a canonical code, otherwise present the recorded amount without inventing a unit. Do not redesign portfolio/pipeline analytics or introduce cross-currency aggregation.
+5. Turn focused tests GREEN without weakening validation, authorization, RLS, least privilege, audit/evidence minimization, timeouts, or production gates. Self-review the actual diff for scope, information leakage, replay identity, unknown preservation, and migration immutability.
+6. Run focused integration and browser-contract tests, migration static tests, real PostgreSQL 16.15 tests, engineering harness, `git diff --check`, `npm run verify:fast`, production build, managed Chromium, and full `npm run verify` against a fresh disposable PostgreSQL 16.15 service when available. Record exact results here and in `docs/PROJECT_STATE.md`; remove services, dependencies, `dist`, and test artifacts; confirm clean ignored/untracked status; then create the authorized checkpoint commit without GitHub or main-branch actions.
+
+### Slice 3 starting migration integrity evidence
+
+Before edits, migrations `001`–`015` were byte-identical to base `9dc155912be7df46c23b2aa30facddeda7b4baa8`. Their SHA-256 values are, in order: `d08f3b7e5c97e05a5ec7f96242543fbbf437d7af4edea34d22dc09db910cfc62`, `a95f94263c5a1dd1a246a3be905e7f27bd5f4222ba871c137cf90fa2faf17c1c`, `311a02a67deb09ad44b2782f90c2ff3c67d6a537ca9b9ed1f116cafd37a149a8`, `ad9633daf1dd791c8889c79745d8741bace24e0827b76d3fec59d6d73371aa2d`, `2e9bc0029cbfdc03828de7784aa19014de3f7e988cc8f5668bcacd729e206a66`, `f110d2f7937c6133ed1785df05be8c3ca725add7d207a6d94b8a27610b3bca6f`, `514d12b74519405b28e76960244483880f01092b30bcac650a97f247469f4dc6`, `7e4f8b74df1ecc496fa6c7ac8b55169d3e7db7efccdcf3f1f7d0ad37aa95cd72`, `f248d2d5a7363331cd4f4732551a62f9ac28f3315ad5e9777ded1547657d3736`, `fcb19ddba6c2d5bc654af0c3a3172505675dd5c4160876d717b51943b2863e03`, `df50ee0697bb7849b3575f9f5aef40673855ec77a4ebcfcd0cf0d8d5e59ca04b`, `0ec9ffaf16987d84b319b6dc579edea86bbedcd3cff65f8b9d881f9c4dbba6d8`, `b27c7d6c69990f459b1e51c0d902d55f6a1f44fbf17accb69459b2c26465f6a8`, `699cb9c1e7fc4319f71cf7e98e99934706f9f75a8f0f00ae9c22ff90c5c9ea10`, and `1f33b8656dbd2c3a05adc9a540412efcac41a8540673bee0e52e510b0e40fcd5`.
+
+### Slice 3 initial RED evidence
+
+The dependency-free focused command `node --test test/opportunity-currency.test.js test/import-mapping.test.js test/stalled-opportunity-detector.test.js test/import-browser-contracts.test.js test/database-migrations-static.test.js` was **EXPECTED RED: 55 passed / 9 failed** on unchanged product code. The failures prove that migration `016` does not exist, PostgreSQL mapping does not carry or validate currency, deterministic import and the strict browser vector omit currency, and the detector still normalizes lowercase/padded currency instead of requiring exact authoritative evidence. The browser formatter regression was **1/2**, exposing the hard-coded AUD result `$1,251` instead of explicit or unknown currency truth. After installing the locked dependencies, focused canonical-commit currency tests were **0/2** because currency was not a supported reviewed target, and the local HTTP value-action regression was **0/1** because the action dropped explicit `AUD`. A focused disposable-PostgreSQL 16.15 repository contract was **0/1** with SQLSTATE `42703` because the authoritative column did not exist. Sandbox/listener setup failures were excluded from product RED evidence.
+
+### Slice 3 implementation and progressive GREEN evidence
+
+The shared exact currency contract now validates local JSON writes,
+PostgreSQL mappers/repositories and local/PostgreSQL value mutations. Migration
+`016` adds the nullable constrained column, promotes only exact valid legacy
+payload evidence, and advances runtime readiness. Its cross-tenant backfill uses
+a transaction-scoped `tge_owner` policy because forced RLS correctly hides rows
+without tenant context; the policy is dropped before commit and rolls back with
+the whole migration on invalid legacy evidence. Runtime grants and forced RLS
+remain unchanged. CSV mapping/Data Health, canonical materialization and
+fingerprints, replay/reconciliation, detector classification, browser response
+contracts, opportunity entry, and presentation now carry only explicit currency.
+
+Focused product tests are GREEN, including the three real PostgreSQL currency
+contracts for backward upgrade/rollback, repository/core mutation and RLS, and
+canonical import/replay. The standalone engineering harness passes. The full
+integration suite passes **404/404**, the complete PostgreSQL 16.15 database gate
+passes **90/90**, and managed Chromium passes **51/51** after an initial
+currency-aware browser expectation run of **48/51**. Migration `016` SHA-256 is
+`232fa715c2d2062186b0027d429119fe3e18fb110b03b63214f378eb3fe910d6`;
+migrations `001`–`015` retain the exact starting hashes above. `git diff --check`
+passes. The full sequential `npm run verify` gate passes the harness, integration
+**404/404**, PostgreSQL 16.15 **90/90**, managed Chromium **51/51**, and the Vite
+8.2.2 production build (**31 modules**). Its first permitted attempt encountered
+a transient PostgreSQL catalog setup race (`tuple concurrently updated`) in
+unchanged migration `002`; no test process remained, and the unchanged retry
+passed completely. These are local implementation results only: no provider, production,
+deployment, external OTP, later-slice acceptance, GitHub gate, or independent
+review is claimed.
+
+### Slice 3 bounded fresh-review remediation
+
+The five bounded review findings are closed without expanding Slice 3. An
+unversioned pre-currency opportunity commit now reconciles only after exact
+legacy input/request fingerprints and the tenant, opportunity collection,
+source system/hash, headers, reviewed columns, staged raw hashes, row outcomes,
+and canonical hashes all agree. New commits record
+`CANONICAL_IMPORT_V2_CURRENCY`; mapped currency, an unknown explicit version,
+or any material replay change fails closed. Migration `016` now validates and
+constrains exactly three uppercase ASCII bytes independently of collation.
+Persisted present currency—including the empty string—is invalid unless it is
+exact canonical ASCII, producing `COMMERCIAL_CURRENCY_INVALID` under Data
+Health suppression; absent/null stays unknown and blank CSV cells remain
+omitted. Dashboard priority and Biggest Opportunity cards, pipeline deal
+cards, and Revenue Command Center ranked actions retain exact authoritative
+currency and decimal evidence. In-place opportunity-id navigation clears the
+unsaved currency draft.
+
+Fresh regression evidence was RED before the fixes: the dependency-free review
+set was **44/49** with one failure for each finding, the exact Revenue Command
+Center projection was **0/1**, and managed Chromium was **0/2** for route state
+and opportunity presentation. After the bounded fixes, the combined focused
+set passed **59/59**, the affected integration set passed **134/134**, focused
+managed Chromium passed **2/2**, and the migration-focused disposable
+PostgreSQL 16.15 test passed **1/1**. The single complete `npm run verify`
+passed the harness, integration **408/408**, PostgreSQL 16.15 **90/90**,
+managed Chromium **53/53**, and the Vite 8.2.2 production build (**31
+modules**). `git diff --check` passes. Migration `016` SHA-256 is
+`ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`;
+migrations `001`–`015` remain byte-identical to base
+`9dc155912be7df46c23b2aa30facddeda7b4baa8`.
+
+### Slice 3 Recovery Checkpoint 1 — legacy replay identity anchoring
+
+This recovery checkpoint closes only the P2 legacy replay identity defect. An
+unversioned opportunity commit can no longer take the current-version
+fingerprint shortcut. The compatibility branch reconstructs the canonical plan
+from tenant/batch-scoped locked staging rows, validates the persisted CSV
+preview/header and upload fingerprint, and reconciles every
+source record, target, disposition, raw hash, canonical hash, result-row
+identity, and summary against the authoritative committed ID map. A changed raw
+payload with a recomputed adjacent staging hash therefore conflicts when the
+committed ID-map raw evidence remains unchanged. Current
+`CANONICAL_IMPORT_V2_CURRENCY` replay remains an exact fingerprint match;
+unknown explicit versions remain closed. No migration, schema, currency
+default/inference, FX, ranking, browser, or later-slice behavior changed.
+
+The focused command
+`node --test --test-name-pattern='pre-currency opportunity commit' test/import-repository.test.js`
+was expected RED **0/8**: the parent and all seven subtests showed that tampered
+staging `source_system`, `source_record_id`, `target_id`, stored-result source or
+target identity, recomputed adjacent raw hash, and ID-map raw hash all returned
+`COMMITTED`. After the fix, the focused current/legacy replay command passed
+**9/9**, the complete import repository file passed **22/22**, and the directly
+affected `test/import-repository.test.js`, `test/import-commit.test.js`, and
+`test/import-staging.test.js` set passed **56/56** using dependencies installed
+only in a disposable external directory. `test/import-mapping.test.js` passed
+**14/14**, `test/database-migrations-static.test.js` passed **19/19**, the
+standalone engineering harness passed, and `git diff --check` passed. No
+PostgreSQL service was running and no schema changed, so no PostgreSQL suite was
+started for this checkpoint. Migrations `001`–`015` are byte-identical to parent
+`d42346ec6a026c7d142f16584f86290db14dd52f`; unchanged migration `016` remains
+SHA-256 `ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`.
+
+### Slice 3 Recovery Checkpoint 2 — exact decimal ranking
+
+This checkpoint changes only monetary ranking and RevenueAction basis evidence.
+Browser and server comparators convert representable `NUMERIC(20,6)` literals
+to exact scaled integers, preserve the original amount, apply stable ID ties,
+and compare amounts only inside an authoritative currency group. Dashboard
+Biggest Opportunity reports no inferred winner across multiple currencies.
+Revenue intelligence deterministically groups canonical currencies, puts
+missing currency after canonical evidence without comparing its amount, and
+then applies the existing probability/action/ID fallbacks. RevenueAction basis
+evidence retains exact amount plus optional authoritative currency, so exact
+decimal or currency changes produce different fingerprints while legacy
+number/no-currency fingerprints remain stable. Known-positive, zero, unknown,
+invalid, and missing-currency inputs retain their existing domain-specific
+classification semantics. The RevenueLeakCase operating queue now consumes the
+shared exact server comparator with no contract change. No replay, persistence,
+schema, migration, FX, default, inference, or later-slice behavior is added.
+
+The focused `node --test test/exact-decimal-ranking.test.js` regression was
+expected RED **0/4** at exact parent `67e2c10`: dashboard exact/cross-currency
+selection was absent, revenue-action ranking reversed amounts separated by one
+millionth beyond safe JavaScript integer precision, and RevenueAction evidence
+rounded the amount and omitted currency. The implemented regression passes
+**4/4**; the directly affected integration set passes **53/53**. Final evidence
+is `npm run verify:fast` with harness and integration **420/420**, managed
+Chromium **53/53**, Vite 8.2.2 production build **31 modules**, migration
+integrity, and `git diff --check`. No PostgreSQL suite or full `npm run verify`
+was run because no persistence or schema changed. Migrations `001`–`015` remain
+byte-identical to base and unchanged `016` remains SHA-256
+`ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`.
+
+### Slice 3 bounded monetary-truth remediation
+
+This remediation closes only the final P1 portfolio-total and P2
+RevenueAction-currency-evidence findings. Revenue intelligence and opportunity
+pipeline summaries convert each positive `NUMERIC(20,6)`-representable amount
+to exact scaled integer units and sum only within an exact authoritative
+currency. They expose alphabetical `totals_by_currency`, known/unknown/withheld
+counts, and retain the legacy scalar field as an exact decimal string only for
+one complete currency group. Mixed currencies or any withheld known amount make
+that scalar `null`; an empty positive set remains `0`. Legacy records with absent,
+null, or malformed currency remain readable, but their amounts are never given a
+unit or combined. Dashboard, Pipeline, and Revenue Command Center render the
+grouped/withheld truth. Pipeline client-side reduction exists and follows the
+same exact grouped/withheld contract, including withholding weighted money when
+required base-value evidence is unknown. No default, FX, or cross-currency total
+exists.
+
+A present malformed persisted RevenueAction currency is retained verbatim in
+factual evidence with `currency_valid: false`. Absent/null keeps the legacy
+missing-currency basis shape; exact canonical currency keeps its prior shape.
+The basis fingerprint therefore distinguishes empty, lowercase, other malformed,
+missing/null, and canonical currency evidence without changing exact amount text
+or established positive/zero/unknown semantics. Replay identity, persistence,
+schema/migrations, external-action approval and confirmation, GitHub delivery,
+and Slice 4 remain untouched.
+
+The dependency-free focused command
+`node --test test/monetary-truth-remediation.test.js` was expected RED **0/4**
+on exact parent `17f0a049b7edab17344c7bf1571746748a954fb6`: mixed AUD/USD
+was returned as one unitless `300.000002`, the exact same-AUD sum collapsed to
+`18014398509480.246`, malformed currency shared missing-currency RevenueAction
+evidence/fingerprints, and the browser had no grouped formatter while retaining
+client-side numeric reducers. The identical focused command is GREEN **4/4**.
+The directly affected intelligence/opportunity/action/browser-contract set is
+**76/76**, complete integration is **424/424**, managed Chromium is **53/53**,
+and the Vite 8.2.2 production build completes with **31 modules**. The first
+managed-browser attempt was stopped after three failures exposed a removed
+non-aggregate probability parser still used by an individual opportunity; the
+parser was restored. The next complete run was **52/53**, with only the old
+unitless weighted-total assertion failing; the corrected grouped-truth scenario
+then passed in the complete **53/53** run. Final `verify:fast`, harness, migration
+integrity, diff, artifact, and cleanliness results are recorded at checkpoint.
+`npm run verify:fast` passes the engineering harness plus integration
+**424/424**. The standalone harness and migration-static **19/19** pass;
+migrations `001`–`015` have an empty diff from base
+`9dc155912be7df46c23b2aa30facddeda7b4baa8`, migration `016` remains
+`ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`,
+and `git diff --check` passes. No PostgreSQL service/suite or full `verify` was
+run because persistence and schema are unchanged. Dependencies, `dist`, managed
+browser stores/output, and test artifacts are removed before the checkpoint; the
+final artifact scan and post-checkpoint porcelain status are empty.
+
+### Slice 3 FINAL bounded monetary-consistency remediation
+
+This final remediation closes only the four fresh-review findings. Pipeline and
+revenue-intelligence weighted summaries now share one rule: recorded weighted
+money is unknown unless its required base value is a known positive
+`NUMERIC(20,6)` amount. Biggest Opportunity withholds its claim if any known
+positive amount lacks canonical currency, without defaulting currency or using
+FX. Browser individual-value knownness and display parse exact scaled integer
+units across plain, signed, and exponent spellings, reject out-of-scale or
+out-of-precision values, and retain the separate exact aggregate formatter for
+totals beyond a single row's numeric envelope. The Pipeline client-side reducer
+and completion evidence now explicitly follow the same grouped/withheld and
+weighted-base contract.
+
+The new dependency-free command
+`node --test test/final-monetary-consistency-remediation.test.js` was expected RED
+**0/4** on exact parent `0443906812347e77d2b418c700caabcb9a039d70`: it
+reproduced the authoritative weighted-summary disagreement, unsafe
+Biggest Opportunity selection, browser Number rounding/out-of-contract
+knownness, and inaccurate client-reducer evidence. The identical command is
+GREEN **4/4**; the four focused monetary/currency files are **16/16**. The
+affected intelligence/opportunity/action/browser-contract set is **83/83**
+outside the listener-restricted sandbox; its first sandboxed attempt had only
+`listen EPERM` setup failures. The complete replay-identity file is **22/22** and
+migration-static is **19/19**. Managed Chromium first returned **52/53** because
+the existing product-truth scenario still asserted the now-prohibited unsafe
+winner; the corrected scenario and complete managed suite are GREEN **53/53**.
+The Vite 8.2.2 production build completes with **31 modules**, and
+`npm run verify:fast` passes the engineering harness plus integration
+**428/428**. No PostgreSQL suite or full `verify` was run because persistence and
+schema are unchanged. Replay implementation, migration bodies, RevenueAction
+approval/external-send behavior, GitHub state, and Slice 4 remain untouched.
+The final standalone engineering harness and migration-static **19/19** pass;
+the migration-tree diff from the exact parent is empty, migration `016` remains
+SHA-256 `ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`,
+and `git diff --check` passes. Dependencies, `dist`, managed browser output, and
+test artifacts are removed before checkpointing.
 
 ## Assisted Pilot Safety Gate V1 Slice 2 bounded plan
 
@@ -250,6 +569,9 @@ No local mock or deterministic seam may be reported as real Auth0/SMTP proof.
 | Slice 2 staging/maintenance concurrency remediation | State-synchronized staging/canonical-finalization regression and two-worker/two-tenant regression running `scripts/run-maintenance-cleanup.mjs`; focused migration/service and affected auth/import/persistence files; complete affected PostgreSQL file; `npm run verify:fast`; `npm run test:db`; final harness, migration hash, and diff checks | **EXPECTED RED at `5ac47b4`: 0/1 each.** Staging was proven queued behind canonical finalization but resolved instead of rejecting the now-`COMMITTED` batch; the forced production-command overlap exited with `MAINTENANCE_CLEANUP_FAILED`. **PASS:** focused races **1/1** each; migration/service **17/17**; affected auth/import/persistence **147/147**; affected PostgreSQL 16.15 **17/17**; engineering harness plus integration **387/387**; complete PostgreSQL **84/84**; standalone harness and harness/migration-static **22/22**; clean diff check; migrations `001`–`014` byte-identical. Browser E2E and production build were intentionally not run because no browser or web-production source changed. |
 | Slice 2 final database invitation-guard remediation | Least-privilege runtime direct SQL after terminal offboarding; state-synchronized direct insert/offboarding overlap; focused invitation/auth/migration tests; complete affected PostgreSQL file; `npm run verify:fast`; `npm run test:db`; final harness, migration hash, artifact, ancestry, and diff checks | **EXPECTED RED at `97b6f4c`: 0/1 each.** The terminal barrier returned `false` but direct runtime SQL inserted one `PENDING` terminal invitation; under the forced overlap offboarding did not wait and the direct insert survived terminal state. **PASS:** direct denial and overlap **1/1** each; focused invitation/auth/migration **61/61**; affected PostgreSQL 16.15 **18/18**; engineering harness plus integration **388/388**; complete PostgreSQL **85/85**. Migration `015` alone adds the trigger-enforced active-OWNER/terminal tenant-before-child barrier while retaining repository behavior and the existing runtime table grant. Migrations `001`–`014` remain byte-identical. Browser E2E and production build were intentionally not run because no browser or web-production source changed. |
 | Slice 2 bounded final security/migration remediation | Named PostgreSQL upgrade/helper regressions before and after the migration correction; `node --test test/raw-import-expiry-migration.test.js`; focused import/auth/persistence files; complete affected PostgreSQL file; `npm run test:db`; isolated failing DB contract; corrected `npm run test:db`; `npm run verify:fast`; `npm run test:harness`; migration hashes and final hygiene | **EXPECTED RED at `1da7a3d`: 0/2.** Migration `015` rolled back with `23514` on a schema-014-valid 24-hour deadline, and direct runtime lifecycle conflict SQL succeeded instead of rejecting. **PASS:** identical regressions **2/2**; migration static **14/14**; focused import/auth/persistence **115/115**; affected PostgreSQL 16.15 **20/20**. The first full DB run was **86/87** because the established legacy fixture lacked explicit issuer context at the new exact-context guard. Resolving that path to its canonical issuer passed the isolated contract **1/1**; the now-terminal `EXPIRED` expectation was also removed, and the complete DB suite then passed **87/87**. Engineering harness plus integration passed **389/389**; the standalone final harness also passed. Migration `015` SHA-256 is `1f33b8656dbd2c3a05adc9a540412efcac41a8540673bee0e52e510b0e40fcd5`; migrations `001`–`014` remain byte-identical. Browser E2E and production build were intentionally not run because no browser or product source changed. |
+| Slice 3 full local gate | `TGE_TEST_DATABASE_URL=postgresql://yarinperetz@127.0.0.1:55432/postgres npm run verify` against a disposable Homebrew PostgreSQL 16.15 cluster; `git diff --check`; SHA-256/base comparison of migrations `001`–`015` | **PASS:** engineering harness; integration **404/404**; database **90/90**; managed Chromium **51/51**; Vite 8.2.2 production build **31 modules** with only the existing chunk-size warning; clean diff check; migrations `001`–`015` byte-identical. The first listener-permitted full attempt hit a transient `tuple concurrently updated` catalog race in unchanged migration `002`; the unchanged retry passed completely. This is local evidence only; cleanup and checkpoint are performed after the recorded gate. |
+| Slice 3 Recovery Checkpoint 1 | Focused legacy replay tamper RED/GREEN; complete import repository; directly affected import commit/staging reconciliation; import mapping; migration-static; standalone harness; migration hashes; `git diff --check` | **EXPECTED RED: 0/8** across seven independently exposed identity/raw tamper vectors. **PASS:** focused current/legacy replay **9/9**; repository **22/22**; affected import/reconciliation **56/56**; mapping **14/14**; migration-static **19/19**; harness and diff check. No PostgreSQL service/suite, full Verify, browser, or build was run. Migrations `001`–`015` are byte-identical to `d42346e`; unchanged `016` is `ee981ed3362d1a5d111a487d4edb68b4f5343830adf3c2b9e1a1e033e8531ab3`. |
+| Slice 3 Recovery Checkpoint 2 | Focused exact-decimal ranking RED/GREEN; directly affected intelligence/action/queue integration; `npm run verify:fast`; managed browser; production build; migration hashes; `git diff --check` | **EXPECTED RED at `67e2c10`: 0/4.** **PASS:** focused **4/4**; affected integration **53/53**; engineering harness plus integration **420/420**; managed Chromium **53/53**; Vite 8.2.2 build **31 modules**; unchanged migration proof and clean diff check. No PostgreSQL suite or full Verify was run because persistence and schema are unchanged. |
 | PR-5A initial full local gate at `178409c` | `TGE_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/postgres npm run verify` against an isolated PostgreSQL 16.15 cluster | **PASS:** harness; integration **142/142**; database **45/45**; managed Chromium **14/14**; production build. The temporary database cluster was removed after verification. This is historical evidence for that checkpoint. |
 | PR-5A bounded review-fix checkpoint (parent `dc5e3c9`) | `npm run verify:fast` on the code and tests recorded by this document's checkpoint | **PASS:** harness; integration **144/144**. Database, managed Chromium, and production build were not rerun for this bounded transport-error fix. |
 | PR-5C controlled canonical commit | `npm run verify:fast`; `TGE_TEST_DATABASE_URL=postgresql://127.0.0.1:55433/postgres npm run test:db` against disposable PostgreSQL 16.15; `npm run build` | **PASS:** harness; integration **174/174**; database **47/47**; production build (Vite 8.2.2, 22 modules). Browser E2E was intentionally not run because PR-5D/browser flow is outside this slice. The disposable cluster was stopped and removed. |

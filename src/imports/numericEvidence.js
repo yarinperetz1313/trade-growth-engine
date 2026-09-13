@@ -80,6 +80,53 @@ function canonicalizeDecimalLiteral(value) {
   return `${sign}0.${"0".repeat(-decimalIndex)}${normalized.digits}`;
 }
 
+function canonicalDecimalUnits(value) {
+  const normalized = normalizeDecimalLiteral(value);
+  if (
+    !normalized
+    || normalized.exponent < POSTGRES_NUMERIC_MIN_INPUT_EXPONENT
+    || normalized.exponent > POSTGRES_NUMERIC_MAX_INPUT_EXPONENT
+  ) return null;
+  if (normalized.zero) return 0n;
+
+  const integerDigits = BigInt(normalized.digits.length) + normalized.power;
+  const fractionalDigits = normalized.power < 0n ? -normalized.power : 0n;
+  if (
+    integerDigits > CANONICAL_NUMERIC_PRECISION - CANONICAL_NUMERIC_SCALE
+    || fractionalDigits > CANONICAL_NUMERIC_SCALE
+  ) return null;
+
+  const units = BigInt(normalized.digits)
+    * (10n ** (normalized.power + CANONICAL_NUMERIC_SCALE));
+  return normalized.negative ? -units : units;
+}
+
+function compareCanonicalDecimals(left, right) {
+  const leftUnits = canonicalDecimalUnits(left);
+  const rightUnits = canonicalDecimalUnits(right);
+  if (leftUnits === null || rightUnits === null) {
+    const error = new TypeError(
+      "Decimal comparison requires NUMERIC(20,6)-representable literals."
+    );
+    error.code = "CANONICAL_DECIMAL_INVALID";
+    throw error;
+  }
+  return leftUnits < rightUnits ? -1 : leftUnits > rightUnits ? 1 : 0;
+}
+
+function decimalFromCanonicalUnits(value) {
+  if (typeof value !== "bigint") {
+    throw new TypeError("Canonical decimal units must be a bigint.");
+  }
+  const negative = value < 0n;
+  const absolute = negative ? -value : value;
+  const whole = absolute / (10n ** CANONICAL_NUMERIC_SCALE);
+  const fraction = String(absolute % (10n ** CANONICAL_NUMERIC_SCALE))
+    .padStart(Number(CANONICAL_NUMERIC_SCALE), "0")
+    .replace(/0+$/, "");
+  return `${negative ? "-" : ""}${whole}${fraction ? `.${fraction}` : ""}`;
+}
+
 function normalizeDecimalLiteral(value) {
   if (!isDecimalNumberLiteral(value)) return null;
   const literal = value.trim();
@@ -129,7 +176,10 @@ module.exports = {
   CANONICAL_NUMERIC_SCALE,
   DECIMAL_NUMBER_PATTERN,
   areDecimalLiteralsEquivalent,
+  canonicalDecimalUnits,
   canonicalizeDecimalLiteral,
+  compareCanonicalDecimals,
+  decimalFromCanonicalUnits,
   isDecimalNumberLiteral,
   isCanonicalNumericLiteralRepresentable,
   isExactZeroLiteral,

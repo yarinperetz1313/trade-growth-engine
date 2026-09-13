@@ -174,7 +174,11 @@ test("sets value from numeric primitives or strings, recalculates intelligence, 
     );
     assert.equal(
       first.data.pipeline_metrics.weighted_pipeline_value,
-      2400
+      null
+    );
+    assert.equal(
+      first.data.pipeline_metrics.weighted_pipeline_value_summary.withheld_count,
+      1
     );
 
     const second = await request(
@@ -191,6 +195,49 @@ test("sets value from numeric primitives or strings, recalculates intelligence, 
         .filter(item => item.type === "VALUE_UPDATED")
         .length,
       1
+    );
+  });
+});
+
+test("value action records only explicit canonical currency and rejects malformed currency atomically", async () => {
+  await withServer(async baseUrl => {
+    const recorded = await request(
+      baseUrl,
+      "POST",
+      "/api/opportunities/opp-1/intelligence/value",
+      { value: "12000", currency: "AUD" }
+    );
+    assert.equal(recorded.status, 200);
+    assert.equal(recorded.data.opportunity.value, 12000);
+    assert.equal(recorded.data.opportunity.currency, "AUD");
+    assert.equal(recorded.data.activity.metadata.currency, "AUD");
+
+    const rejected = await request(
+      baseUrl,
+      "POST",
+      "/api/opportunities/opp-1/intelligence/value",
+      { value: "24000", currency: "aud" }
+    );
+    assert.equal(rejected.status, 400);
+    assert.equal(rejected.data.error, "OPPORTUNITY_CURRENCY_INVALID");
+    const persisted = readCollection("opportunities").find(item => item.id === "opp-1");
+    assert.equal(persisted.value, 12000);
+    assert.equal(persisted.currency, "AUD");
+
+    const changedCurrency = await request(
+      baseUrl,
+      "POST",
+      "/api/opportunities/opp-1/intelligence/value",
+      { value: "12000", currency: "USD" }
+    );
+    assert.equal(changedCurrency.status, 200);
+    assert.equal(changedCurrency.data.changed, true);
+    assert.equal(changedCurrency.data.opportunity.currency, "USD");
+    assert.deepEqual(
+      readCollection("activities")
+        .filter(item => item.type === "VALUE_UPDATED")
+        .map(item => item.metadata.currency),
+      ["AUD", "USD"]
     );
   });
 });
@@ -516,6 +563,18 @@ test("Command Center delegates intelligence mutations through configured API hel
     component,
     /<strong>Action failed<\/strong>/
   );
+});
+
+test("Command Center submits only explicit exact currency and never presents AUD as a default", () => {
+  const component = fs.readFileSync(
+    path.join(process.cwd(), "web/components/OpportunityCommandCenter.jsx"),
+    "utf8"
+  );
+
+  assert.match(component, /currency === "" \|\| \/\^\[A-Z\]\{3\}\$\//);
+  assert.match(component, /\.\.\.\(currency === "" \? \{\} : \{ currency \}\)/);
+  assert.match(component, /currentOpportunity\.currency/);
+  assert.doesNotMatch(component, /value \(AUD\)|value in AUD/i);
 });
 
 test("rejects typed JSON payloads at task mutation boundaries", async () => {

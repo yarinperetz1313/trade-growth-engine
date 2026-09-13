@@ -98,7 +98,7 @@ test("fits the product shell inside a mobile viewport", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Opportunities" })).toBeVisible();
 });
 
-test("renders unknown commercial values honestly and selects the largest known value", async ({ page }) => {
+test("renders unknown commercial values honestly and withholds an unsafe biggest-value comparison", async ({ page }) => {
   const unknownOpportunity = {
     id: "e2e-unknown-value",
     business_name: "E2E Unknown Value Roofing",
@@ -155,6 +155,7 @@ test("renders unknown commercial values honestly and selects the largest known v
     id: "e2e-known-value",
     business_name: "E2E Known Value Roofing",
     value: 25000,
+    currency: "NZD",
     weighted_value: 5000
   };
   const fallbackWeightedOpportunity = {
@@ -171,6 +172,24 @@ test("renders unknown commercial values honestly and selects the largest known v
     fallbackWeightedOpportunity,
     ...unknownOpportunities.filter(item => item.id !== "e2e-nonnumeric-value")
   ];
+  const pipelineValueSummary = {
+    known_total: null,
+    known_total_currency: null,
+    known_total_withheld: true,
+    known_count: 2,
+    unknown_count: 6,
+    withheld_count: 1,
+    totals_by_currency: [{ currency: "NZD", amount: "25000", count: 1 }]
+  };
+  const weightedPipelineValueSummary = {
+    known_total: "5000",
+    known_total_currency: "NZD",
+    known_total_withheld: false,
+    known_count: 1,
+    unknown_count: 7,
+    withheld_count: 0,
+    totals_by_currency: [{ currency: "NZD", amount: "5000", count: 1 }]
+  };
 
   await page.route(`${apiBaseUrl}/api/opportunities`, route =>
     route.fulfill({
@@ -184,10 +203,16 @@ test("renders unknown commercial values honestly and selects the largest known v
       body: JSON.stringify({
         ok: true,
         data: {
-          pipeline_value: 0,
-          weighted_pipeline_value: 0,
+          pipeline_value: null,
+          pipeline_value_summary: pipelineValueSummary,
+          weighted_pipeline_value: "5000",
+          weighted_pipeline_value_summary: weightedPipelineValueSummary,
           by_stage: {
-            QUALIFIED: { count: 1, value: 0 }
+            QUALIFIED: {
+              count: 8,
+              value: null,
+              value_summary: pipelineValueSummary
+            }
           }
         }
       })
@@ -241,11 +266,19 @@ test("renders unknown commercial values honestly and selects the largest known v
   }
 
   await page.goto("/#dashboard");
-  await expect(page.getByText("Pipeline Value").locator("..").getByText("Unknown")).toBeVisible();
-  await expect(page.getByText("Projected Revenue").locator("..").getByText("Unknown")).toBeVisible();
+  await expect(page.getByText("Pipeline Value").locator("..")).toContainText(
+    "NZD 25,000 · 1 known value withheld (currency unavailable or invalid)"
+  );
+  await expect(page.getByText("Projected Revenue").locator("..")).toContainText("NZD 5,000");
   const biggestOpportunity = page.getByText("Biggest Opportunity").locator("..");
-  await expect(biggestOpportunity.getByText("$25,000")).toBeVisible();
-  await expect(biggestOpportunity).toContainText("E2E Known Value Roofing");
+  await expect(biggestOpportunity).toContainText("Unknown");
+  await expect(biggestOpportunity).toContainText(
+    "A biggest opportunity cannot be inferred while a known value lacks authoritative currency."
+  );
+  await expect(biggestOpportunity).not.toContainText("E2E Known Value Roofing");
+  await expect(
+    page.locator(".opportunity").filter({ hasText: "E2E Known Value Roofing" })
+  ).toContainText("NZD 25,000");
 
   await page.getByRole("button", { name: "Opportunities" }).click();
   for (const opportunity of unknownOpportunities) {
@@ -254,14 +287,22 @@ test("renders unknown commercial values honestly and selects the largest known v
     await expect(unknownRow).not.toContainText("$0");
   }
 
-  await expect(page.getByTestId(`opportunity-row-${knownOpportunity.id}`)).toContainText("$25,000");
+  await expect(page.getByTestId(`opportunity-row-${knownOpportunity.id}`)).toContainText("NZD 25,000");
   await expect(page.getByTestId(`opportunity-row-${knownOpportunity.id}`)).toContainText("20%");
-  await expect(page.getByTestId(`opportunity-row-${knownOpportunity.id}`)).toContainText("$5,000");
+  await expect(page.getByTestId(`opportunity-row-${knownOpportunity.id}`)).toContainText("NZD 5,000");
   await expect(page.getByTestId(`opportunity-row-${fallbackWeightedOpportunity.id}`)).toContainText("20%");
-  await expect(page.getByTestId(`opportunity-row-${fallbackWeightedOpportunity.id}`)).toContainText("$2,400");
+  await expect(page.getByTestId(`opportunity-row-${fallbackWeightedOpportunity.id}`)).toContainText("Unknown");
+  await expect(page.getByTestId(`opportunity-row-${fallbackWeightedOpportunity.id}`)).not.toContainText("2,400");
 
   await page.getByRole("button", { name: "Pipeline" }).click();
-  await expect(page.getByText("Weighted Pipeline", { exact: true }).locator("..")).toContainText("$7,400");
+  await expect(page.getByText("Open Pipeline", { exact: true }).locator("..")).toContainText(
+    "NZD 25,000 · 1 known value withheld (currency unavailable or invalid)"
+  );
+  await expect(page.getByText("Weighted Pipeline", { exact: true }).locator("..")).toContainText("NZD 5,000");
+  await expect(page.getByText("Weighted Pipeline", { exact: true }).locator("..")).not.toContainText("7,400");
+  await expect(
+    page.locator(".deal-card").filter({ hasText: "E2E Known Value Roofing" })
+  ).toContainText("NZD 25,000");
   await page.getByRole("button", { name: "Opportunities" }).click();
 
   await page.getByTestId("opportunity-row-e2e-boolean-value").click();
@@ -273,11 +314,63 @@ test("renders unknown commercial values honestly and selects the largest known v
   await expect(page.getByTestId("opportunity-value")).toHaveText("Unknown");
 
   const setValue = page.getByRole("button", { name: "Set Value", exact: true });
-  const secondaryValueInput = setValue.locator("xpath=preceding-sibling::input");
+  const secondaryValueInput = setValue.locator("xpath=preceding-sibling::input[@type='number']");
   await secondaryValueInput.fill("0");
   await expect(setValue).toBeDisabled();
   await secondaryValueInput.fill("-10");
   await expect(setValue).toBeDisabled();
+  await secondaryValueInput.fill("100");
+  const currencyInput = setValue.locator(
+    "xpath=preceding-sibling::input[@aria-label='Opportunity currency code']"
+  );
+  await currencyInput.fill("aud");
+  await expect(setValue).toBeDisabled();
+  await currencyInput.fill("AUD");
+  await expect(setValue).toBeEnabled();
+});
+
+test("individual weighted displays agree with exact revenue truth and never infer missing evidence", async ({ page }) => {
+  const fixtures = [
+    ["9007199254740.123456", "9007199254740.123455", "AUD 9,007,199,254,740.123455"],
+    ["9007199254740.123456", `9007199254740.123456${"0".repeat(110)}`, "AUD 9,007,199,254,740.123456"],
+    ["9007199254740.123456", undefined, "Unknown"],
+    [null, "100.000001", "Unknown"],
+    ["0", "100.000001", "Unknown"],
+    ["100", "0", "Unknown"]
+  ];
+  let current;
+  let expected;
+  const fulfill = (route, data) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data }) });
+  await page.route(`${apiBaseUrl}/api/opportunities`, route => fulfill(route, [current]));
+  await page.route(`${apiBaseUrl}/api/opportunities/astra-weighted/intelligence`, route => fulfill(route, {
+    opportunity: current,
+    intelligence: { resolved: {}, score: {}, health: {}, evidence: { known: [], unknown: [] }, activity: { count: 0 }, tasks: { open: 0 }, next_best_action: {} }
+  }));
+  await page.route(`${apiBaseUrl}/api/opportunities/astra-weighted/revenue-actions`, route => fulfill(route, []));
+  await page.route(`${apiBaseUrl}/api/intelligence/revenue`, route => {
+    const summary = {
+      known_total: 0, known_count: 0, unknown_count: 1, withheld_count: 0, totals_by_currency: []
+    };
+    if (expected !== "Unknown") {
+      summary.known_count = 1;
+      summary.unknown_count = 0;
+      summary.totals_by_currency = [{ currency: "AUD", amount: expected.slice(4).replaceAll(",", ""), count: 1 }];
+    }
+    return fulfill(route, {
+      active_pipeline: { value: summary, weighted_value: summary },
+      revenue_requiring_attention: { opportunity_count: 0, value: summary }, classifications: {}, top_actions: []
+    });
+  });
+  for (const [index, [value, weighted_value, display]] of fixtures.entries()) {
+    current = { id: "astra-weighted", business_name: "Exact weighted trade", stage: "QUALIFIED", probability: 1, value, weighted_value, currency: "AUD" };
+    expected = display;
+    await page.goto(`/?weighted-case=${index}#opportunities`);
+    await expect(page.getByTestId("opportunity-row-astra-weighted").locator(":scope > span").nth(2)).toHaveText(expected);
+    await expect(page.getByTestId("revenue-weighted-pipeline-value")).toHaveText(expected);
+    await page.getByTestId("opportunity-row-astra-weighted").click();
+    const snapshot = page.locator(".oc-snapshot > div").filter({ has: page.getByText("Weighted value", { exact: true }) });
+    await expect(snapshot.locator("strong")).toHaveText(expected);
+  }
 });
 
 test("keeps initial core request failures distinct from empty and known-zero states", async ({ page }) => {

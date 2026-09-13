@@ -131,6 +131,73 @@ test("canonical commit preserves exact commercial evidence and known numeric zer
   assert.equal(plan.rows[0].rawPayloadSha256, plan.evidence.records[0].rawPayloadSha256);
 });
 
+test("canonical commit fingerprints and materializes only explicit valid currency truth", () => {
+  const evidence = stagedEvidence(
+    "source_id,id,business_name,stage,value,currency,probability\n" +
+    "src-1,opp-1,Known Trade,QUALIFIED,1250.50,AUD,0.5\n" +
+    "src-2,opp-2,Amount Only,QUALIFIED,9000,,0.5\n" +
+    "src-3,opp-3,Currency Only,QUALIFIED,,NZD,0.5"
+  );
+  const input = commitInput({
+    selections: [
+      ...commitInput().selections,
+      { targetField: "currency", sourceColumn: "currency", selectedType: "TEXT" }
+    ]
+  });
+  const plan = buildCanonicalCommitPlan(evidence, input);
+
+  assert.equal(plan.outcome, "READY");
+  assert.equal(plan.rows[0].canonicalRecord.currency, "AUD");
+  assert.equal(Object.hasOwn(plan.rows[1].canonicalRecord, "currency"), false);
+  assert.equal(plan.rows[2].canonicalRecord.currency, "NZD");
+  assert.equal(Object.hasOwn(plan.rows[2].canonicalRecord, "value"), true);
+  assert.equal(plan.rows[2].canonicalRecord.value, "");
+  assert.equal(JSON.stringify(plan.pilotEvidenceFacts).includes("AUD"), false);
+  assert.equal(JSON.stringify(plan.pilotEvidenceFacts).includes("NZD"), false);
+
+  const changed = structuredClone(input);
+  changed.idempotencyKey = input.idempotencyKey;
+  const changedEvidence = stagedEvidence(
+    "source_id,id,business_name,stage,value,currency,probability\n" +
+    "src-1,opp-1,Known Trade,QUALIFIED,1250.50,USD,0.5\n" +
+    "src-2,opp-2,Amount Only,QUALIFIED,9000,,0.5\n" +
+    "src-3,opp-3,Currency Only,QUALIFIED,,NZD,0.5"
+  );
+  const changedPlan = buildCanonicalCommitPlan(changedEvidence, changed);
+  assert.notEqual(
+    changedPlan.rows[0].canonicalPayloadSha256,
+    plan.rows[0].canonicalPayloadSha256
+  );
+});
+
+test("canonical commit fails closed on malformed currency with exact internal evidence", () => {
+  const plan = buildCanonicalCommitPlan(stagedEvidence(
+    "source_id,id,business_name,stage,value,currency,probability\n" +
+    "private-source,opp-private,Private Trade,QUALIFIED,10,A$,0.5"
+  ), commitInput({
+    selections: [
+      ...commitInput().selections,
+      { targetField: "currency", sourceColumn: "currency", selectedType: "TEXT" }
+    ]
+  }));
+
+  assert.equal(plan.outcome, "FAILED");
+  assert.equal(plan.failures[0].code, "CANONICAL_ROW_VALIDATION_FAILED");
+  assert.equal(
+    plan.failures[0].validationErrors.some(issue => (
+      issue.code === "COMMERCIAL_CURRENCY_INVALID"
+    )),
+    true
+  );
+  assert.equal(JSON.stringify(plan.failures).includes("Private Trade"), false);
+  assert.equal(JSON.stringify(plan.failures).includes("private-source"), false);
+  const currencyIssue = plan.failures[0].validationErrors.find(issue => (
+    issue.code === "COMMERCIAL_CURRENCY_INVALID"
+  ));
+  assert.equal(currencyIssue.rawEvidence.raw, "A$");
+  assert.equal(currencyIssue.rawEvidence.valueKind, "NONNUMERIC");
+});
+
 test("canonical commit derives privacy-minimized Data Health coverage separately from quality", () => {
   const plan = buildCanonicalCommitPlan(stagedEvidence(
     "source_id,id,business_name,stage,value,probability\n" +

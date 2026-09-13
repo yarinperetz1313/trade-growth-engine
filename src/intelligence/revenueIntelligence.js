@@ -26,6 +26,20 @@ const CLASSIFICATION_PRIORITY = {
   STRONG: 4
 };
 
+const {
+  compareCanonicalDecimals
+} = require("../imports/numericEvidence");
+const {
+  knownPositiveCommercialValue,
+  weightedAmountWithKnownBase
+} = require("../opportunities/commercialValue");
+const { isCanonicalOpportunityCurrency } = require("../opportunities/opportunityCurrency");
+const {
+  addMonetaryAmount,
+  createMonetaryAccumulator,
+  finalizeMonetarySummary
+} = require("../opportunities/monetarySummary");
+
 function isFiniteNumber(value) {
   const isNumericString =
     typeof value === "string" &&
@@ -38,10 +52,7 @@ function isFiniteNumber(value) {
 }
 
 function isKnownCommercialValue(value) {
-  return (
-    isFiniteNumber(value) &&
-    Number(value) > 0
-  );
+  return knownPositiveCommercialValue(value) !== null;
 }
 
 function comparableProbability(value) {
@@ -49,35 +60,18 @@ function comparableProbability(value) {
 }
 
 function emptyValueSummary() {
-  return {
-    known_total: 0,
-    known_count: 0,
-    unknown_count: 0
-  };
+  return createMonetaryAccumulator();
 }
 
-function addCommercialValue(summary, value) {
-  if (!isKnownCommercialValue(value)) {
-    summary.unknown_count += 1;
-    return;
-  }
-
-  summary.known_count += 1;
-  summary.known_total += Number(value);
+function addCommercialValue(summary, opportunity) {
+  addMonetaryAmount(summary, opportunity?.value, opportunity?.currency);
 }
 
 function addWeightedValue(summary, opportunity) {
-  if (
-    !isKnownCommercialValue(opportunity?.value) ||
-    !isFiniteNumber(opportunity?.weighted_value)
-  ) {
-    summary.unknown_count += 1;
-    return;
-  }
-
-  summary.known_count += 1;
-  summary.known_total += Number(
-    opportunity.weighted_value
+  addMonetaryAmount(
+    summary,
+    weightedAmountWithKnownBase(opportunity),
+    opportunity?.currency
   );
 }
 
@@ -171,13 +165,25 @@ function compareTopActions(left, right) {
     return rightStaleRisk - leftStaleRisk;
   }
 
-  const leftValue =
-    left.value.known ? left.value.amount : -1;
-  const rightValue =
-    right.value.known ? right.value.amount : -1;
+  if (left.value.known !== right.value.known) {
+    return left.value.known ? -1 : 1;
+  }
 
-  if (leftValue !== rightValue) {
-    return rightValue - leftValue;
+  if (left.value.known) {
+    const leftCurrency = left.value.currency;
+    const rightCurrency = right.value.currency;
+    if (leftCurrency !== rightCurrency) {
+      if (leftCurrency === null) return 1;
+      if (rightCurrency === null) return -1;
+      return leftCurrency.localeCompare(rightCurrency);
+    }
+    if (leftCurrency !== null) {
+      const amount = compareCanonicalDecimals(
+        String(right.value.amount),
+        String(left.value.amount)
+      );
+      if (amount !== 0) return amount;
+    }
   }
 
   const leftProbability = comparableProbability(
@@ -249,7 +255,7 @@ function buildRevenueIntelligence({
     activePipeline.count += 1;
     addCommercialValue(
       activePipeline.value,
-      opportunity.value
+      opportunity
     );
     addWeightedValue(
       activePipeline.weighted_value,
@@ -261,7 +267,7 @@ function buildRevenueIntelligence({
       classification.count += 1;
       addCommercialValue(
         classification.value,
-        opportunity.value
+        opportunity
       );
     }
 
@@ -273,7 +279,7 @@ function buildRevenueIntelligence({
       attention.opportunity_count += 1;
       addCommercialValue(
         attention.value,
-        opportunity.value
+        opportunity
       );
     }
 
@@ -303,7 +309,10 @@ function buildRevenueIntelligence({
       value: {
         known: isKnownCommercialValue(opportunity.value),
         amount: isKnownCommercialValue(opportunity.value)
-          ? Number(opportunity.value)
+          ? opportunity.value
+          : null,
+        currency: isCanonicalOpportunityCurrency(opportunity.currency)
+          ? opportunity.currency
           : null
       },
       classification_types: types,
@@ -329,6 +338,15 @@ function buildRevenueIntelligence({
           intelligence?.evidence?.unknown || []
       }
     });
+  }
+
+  activePipeline.value = finalizeMonetarySummary(activePipeline.value);
+  activePipeline.weighted_value = finalizeMonetarySummary(
+    activePipeline.weighted_value
+  );
+  attention.value = finalizeMonetarySummary(attention.value);
+  for (const classification of Object.values(classifications)) {
+    classification.value = finalizeMonetarySummary(classification.value);
   }
 
   return {
