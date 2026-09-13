@@ -1,5 +1,32 @@
 # Pilot Readiness
 
+## Native Astra four-finding remediation checkpoint — 2026-09-13
+
+Starting pin: `520da227f3dd1b24a96f2335d4484164b73da69b`, clean and six
+commits ahead of `9dc155912be7df46c23b2aa30facddeda7b4baa8`, with an equal
+remote feature head. Native Codex / GPT-6 Astra / High began at
+`2026-09-13T10:27:31Z`; no ACP, delegation, or runtime changes were used.
+
+Exactly four P2 findings are corrected: strict string-aware currency authority
+in revenue projections and browser formatting; decimal normalization accepting
+redundant-zero spellings without a browser-only text-length bound (with the
+same PostgreSQL exponent envelope); opportunity-only modeled currency filtering;
+and recorded-only individual weighted displays behind the same known-positive
+base rule as portfolio summaries. Portfolio zero still follows its existing
+unknown contract; the separate RevenueLeakCase known-zero contract is unchanged.
+No schema, replay, FX, inferred currency, or later-slice behavior changes.
+
+`node --test test/astra-currency-remediation.test.js` was deterministically
+RED **0/4**: malformed array currency crashed `localeCompare`; equivalent long
+decimal text became unknown; non-opportunity compatibility currency vanished;
+and absent weighted evidence displayed rounded inferred money. The identical
+command is GREEN **4/4** after the minimal fix. Harness and diff hygiene pass.
+Mapper coverage spans prospects, tasks, activities, and RevenueActions. New
+real-PostgreSQL insert/read/update and managed browser individual-surface
+regressions are included for the subsequent affected/full gate. A clean
+checkpoint is being created immediately after focused green; affected and
+full delivery verification remain pending and are not implied by this entry.
+
 ## Outcome
 
 - **PR-0 through PR-2 are COMPLETE.** PR-2's PostgreSQL 16.15 authority remains [GitHub Actions run 33304131266](https://github.com/yarinperetz1313/trade-growth-engine/actions/runs/33304131266): harness, 68 integration tests, 11 database tests, 7 Chromium E2E tests, and the production build passed.

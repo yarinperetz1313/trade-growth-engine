@@ -3,6 +3,12 @@ export function isKnownCommercialValue(value) {
   return units !== null && units > 0n;
 }
 
+export function weightedAmountWithKnownBase(opportunity) {
+  return isKnownCommercialValue(opportunity?.value)
+    ? opportunity?.weighted_value
+    : null;
+}
+
 const DECIMAL_LITERAL = /^[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:e[+-]?\d+)?$/i;
 const NUMERIC_SCALE = 6n;
 const NUMERIC_INTEGER_DIGITS = 14n;
@@ -12,18 +18,20 @@ function canonicalDecimalUnits(value) {
   if (typeof value === "number" && !Number.isFinite(value)) return null;
 
   const literal = String(value).trim();
-  if (literal.length === 0 || literal.length > 128 || !DECIMAL_LITERAL.test(literal)) {
+  if (literal.length === 0 || !DECIMAL_LITERAL.test(literal)) {
     return null;
   }
   const negative = literal.startsWith("-");
   const unsigned = literal.replace(/^[+-]/, "");
   const [coefficient, exponentText = "0"] = unsigned.split(/e/i);
+  const exponent = BigInt(exponentText);
+  if (exponent < -2147483648n || exponent > 2147483647n) return null;
   const [integerPart = "", fractionPart = ""] = coefficient.split(".");
   let digits = `${integerPart}${fractionPart}`.replace(/^0+/, "");
   if (digits === "") return 0n;
   const trailingZeros = digits.match(/0+$/)?.[0].length || 0;
   if (trailingZeros > 0) digits = digits.slice(0, -trailingZeros);
-  const power = BigInt(exponentText)
+  const power = exponent
     - BigInt(fractionPart.length)
     + BigInt(trailingZeros);
   const integerDigits = BigInt(digits.length) + power;
@@ -202,7 +210,7 @@ export function formatCommercialValue(value, currency) {
     return "Unknown";
   }
 
-  if (currency !== null && currency !== undefined && !/^[A-Z]{3}$/.test(currency)) {
+  if (currency !== null && currency !== undefined && canonicalCurrency(currency) === null) {
     return "Unknown";
   }
 

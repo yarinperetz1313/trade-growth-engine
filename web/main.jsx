@@ -34,7 +34,8 @@ import {
   hasCrossCurrencyCommercialValues,
   hasWithheldCommercialValues,
   isKnownCommercialValue,
-  selectBiggestOpportunity
+  selectBiggestOpportunity,
+  weightedAmountWithKnownBase
 } from "./lib/commercialValue";
 
 const nav = [
@@ -1503,16 +1504,7 @@ function Opportunities() {
                   );
 
                 const weighted =
-                  isKnownCommercialValue(
-                    opportunity.value
-                  )
-                    ? opportunity.weighted_value ??
-                      (probability !== null
-                        ? Number(
-                            opportunity.value
-                          ) * probability
-                        : null)
-                    : null;
+                  weightedAmountWithKnownBase(opportunity);
 
                 return (
 

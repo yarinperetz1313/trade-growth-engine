@@ -9,7 +9,8 @@ import {
 } from "../lib/api";
 import {
   formatCommercialValue,
-  isKnownCommercialValue
+  isKnownCommercialValue,
+  weightedAmountWithKnownBase
 } from "../lib/commercialValue";
 
 const ACTIVE_REVENUE_ACTION_STATUSES = new Set([
@@ -1280,7 +1281,7 @@ export default function OpportunityCommandCenter({
               <span>Weighted value</span>
               <strong>
                 {formatCommercialValue(
-                  currentOpportunity.weighted_value,
+                  weightedAmountWithKnownBase(currentOpportunity),
                   currentOpportunity.currency
                 )}
               </strong>

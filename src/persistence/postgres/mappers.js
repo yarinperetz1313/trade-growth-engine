@@ -22,7 +22,6 @@ const SYSTEM_FIELDS = new Set([
   "commercial_value",
   "commercial_value_state",
   "commercial_value_raw",
-  "currency",
   "revenue_action_id"
 ]);
 const JSON_NULL = Symbol("postgres-json-null");
@@ -114,14 +113,15 @@ function toNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
-function compactLegacyPayload(record) {
+function compactLegacyPayload(record, modeledFields) {
   const payload = clone(record) || {};
   for (const field of SYSTEM_FIELDS) delete payload[field];
+  for (const field of modeledFields) delete payload[field];
   return payload;
 }
 
-function commonInsertFields(record, { sourceOrdinal } = {}) {
-  const payload = compactLegacyPayload(record);
+function commonInsertFields(record, { sourceOrdinal } = {}, modeledFields = []) {
+  const payload = compactLegacyPayload(record, modeledFields);
   return {
     legacy_payload: clone(payload),
     current_payload: clone(payload),
@@ -177,7 +177,7 @@ function opportunityToRow(record, options) {
     next_action: record.next_action ?? null,
     contact_name: record.contact_name ?? null,
     metadata: record.metadata ?? {},
-    ...commonInsertFields(record, options)
+    ...commonInsertFields(record, options, ["currency"])
   });
 }
 

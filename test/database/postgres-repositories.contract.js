@@ -603,6 +603,30 @@ function registerPostgresRepositoryContractTests({
     );
   });
 
+  test("PostgreSQL non-opportunity currency compatibility survives insert read and unrelated update", async () => {
+    const repositories = createPostgresRepositories({ pool: createPool() });
+    const { context, tenantId } = await createTenant("currency-compatibility");
+    for (const [index, currency] of ["NZD", { custom: ["legacy", "currency"] }, null].entries()) {
+      const inserted = await repositories.prospects.insert(context, {
+        id: `currency-compatible-${index}`,
+        business_name: "Compatible prospect",
+        currency,
+        unrelated: { preserve: true }
+      });
+      assert.deepEqual(inserted.currency, currency);
+      assert.deepEqual((await repositories.prospects.findById(context, inserted.id)).currency, currency);
+      const updated = await repositories.prospects.update(context, inserted.id, { business_name: "Renamed" });
+      assert.deepEqual(updated.currency, currency);
+      assert.deepEqual(updated.unrelated, { preserve: true });
+      const persisted = await getAdminClient().query(
+        "select legacy_payload, current_payload from tge.prospects where tenant_id = $1 and id = $2",
+        [tenantId, inserted.id]
+      );
+      assert.deepEqual(persisted.rows[0].legacy_payload.currency, currency);
+      assert.deepEqual(persisted.rows[0].current_payload.currency, currency);
+    }
+  });
+
   test("PostgreSQL opportunity currency is exact, nullable, tenant-isolated, and database constrained", async () => {
     const pool = createPool();
     const repositories = createPostgresRepositories({ pool });

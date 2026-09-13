@@ -291,7 +291,8 @@ test("renders unknown commercial values honestly and withholds an unsafe biggest
   await expect(page.getByTestId(`opportunity-row-${knownOpportunity.id}`)).toContainText("20%");
   await expect(page.getByTestId(`opportunity-row-${knownOpportunity.id}`)).toContainText("NZD 5,000");
   await expect(page.getByTestId(`opportunity-row-${fallbackWeightedOpportunity.id}`)).toContainText("20%");
-  await expect(page.getByTestId(`opportunity-row-${fallbackWeightedOpportunity.id}`)).toContainText("2,400 · Currency unknown");
+  await expect(page.getByTestId(`opportunity-row-${fallbackWeightedOpportunity.id}`)).toContainText("Unknown");
+  await expect(page.getByTestId(`opportunity-row-${fallbackWeightedOpportunity.id}`)).not.toContainText("2,400");
 
   await page.getByRole("button", { name: "Pipeline" }).click();
   await expect(page.getByText("Open Pipeline", { exact: true }).locator("..")).toContainText(
@@ -326,6 +327,50 @@ test("renders unknown commercial values honestly and withholds an unsafe biggest
   await expect(setValue).toBeDisabled();
   await currencyInput.fill("AUD");
   await expect(setValue).toBeEnabled();
+});
+
+test("individual weighted displays agree with exact revenue truth and never infer missing evidence", async ({ page }) => {
+  const fixtures = [
+    ["9007199254740.123456", "9007199254740.123455", "AUD 9,007,199,254,740.123455"],
+    ["9007199254740.123456", `9007199254740.123456${"0".repeat(110)}`, "AUD 9,007,199,254,740.123456"],
+    ["9007199254740.123456", undefined, "Unknown"],
+    [null, "100.000001", "Unknown"],
+    ["0", "100.000001", "Unknown"],
+    ["100", "0", "Unknown"]
+  ];
+  let current;
+  let expected;
+  const fulfill = (route, data) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data }) });
+  await page.route(`${apiBaseUrl}/api/opportunities`, route => fulfill(route, [current]));
+  await page.route(`${apiBaseUrl}/api/opportunities/astra-weighted/intelligence`, route => fulfill(route, {
+    opportunity: current,
+    intelligence: { resolved: {}, score: {}, health: {}, evidence: { known: [], unknown: [] }, activity: { count: 0 }, tasks: { open: 0 }, next_best_action: {} }
+  }));
+  await page.route(`${apiBaseUrl}/api/opportunities/astra-weighted/revenue-actions`, route => fulfill(route, []));
+  await page.route(`${apiBaseUrl}/api/intelligence/revenue`, route => {
+    const summary = {
+      known_total: 0, known_count: 0, unknown_count: 1, withheld_count: 0, totals_by_currency: []
+    };
+    if (expected !== "Unknown") {
+      summary.known_count = 1;
+      summary.unknown_count = 0;
+      summary.totals_by_currency = [{ currency: "AUD", amount: expected.slice(4).replaceAll(",", ""), count: 1 }];
+    }
+    return fulfill(route, {
+      active_pipeline: { value: summary, weighted_value: summary },
+      revenue_requiring_attention: { opportunity_count: 0, value: summary }, classifications: {}, top_actions: []
+    });
+  });
+  for (const [value, weighted_value, display] of fixtures) {
+    current = { id: "astra-weighted", business_name: "Exact weighted trade", stage: "QUALIFIED", probability: 1, value, weighted_value, currency: "AUD" };
+    expected = display;
+    await page.goto("/#opportunities");
+    await expect(page.getByTestId("opportunity-row-astra-weighted").locator(":scope > span").nth(2)).toHaveText(expected);
+    await expect(page.getByTestId("revenue-weighted-pipeline-value")).toHaveText(expected);
+    await page.getByTestId("opportunity-row-astra-weighted").click();
+    const snapshot = page.locator(".oc-snapshot > div").filter({ has: page.getByText("Weighted value", { exact: true }) });
+    await expect(snapshot.locator("strong")).toHaveText(expected);
+  }
 });
 
 test("keeps initial core request failures distinct from empty and known-zero states", async ({ page }) => {

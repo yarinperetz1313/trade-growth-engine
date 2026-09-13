@@ -33,6 +33,7 @@ const {
   knownPositiveCommercialValue,
   weightedAmountWithKnownBase
 } = require("../opportunities/commercialValue");
+const { isCanonicalOpportunityCurrency } = require("../opportunities/opportunityCurrency");
 const {
   addMonetaryAmount,
   createMonetaryAccumulator,
@@ -310,7 +311,7 @@ function buildRevenueIntelligence({
         amount: isKnownCommercialValue(opportunity.value)
           ? opportunity.value
           : null,
-        currency: /^[A-Z]{3}$/.test(opportunity.currency || "")
+        currency: isCanonicalOpportunityCurrency(opportunity.currency)
           ? opportunity.currency
           : null
       },

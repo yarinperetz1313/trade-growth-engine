@@ -2,6 +2,16 @@
 
 _Last locally audited on 2026-09-12. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
+The 2026-09-13 native Astra remediation checkpoint corrects four additional
+Slice 3 P2 findings: malformed currency type coercion, browser rejection of
+equivalent redundant-zero decimal spellings, global stripping of unrelated
+collections' currency compatibility fields, and individual weighted displays
+that inferred lossy money or ignored unknown base evidence. The new four-test
+regression is RED **0/4** on `520da22` and GREEN **4/4** after correction.
+Affected/full verification and fresh independent approval are still pending;
+no GitHub delivery or later slice is implied. Detailed evidence is in the
+active Pilot Readiness plan.
+
 Assisted Pilot Safety Gate V1 Slice 3 now implements the optional
 [authoritative opportunity currency](architecture/AUTHORITATIVE_OPPORTUNITY_CURRENCY.md)
 contract locally. Exact uppercase three-letter codes flow through backward-safe
