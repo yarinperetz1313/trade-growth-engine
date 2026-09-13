@@ -2,8 +2,9 @@
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const test = require("node:test");
 const { pathToFileURL } = require("node:url");
 
@@ -250,6 +251,183 @@ test("cleanup never mutates pre-existing TGE roles when fresh-server preflight r
   });
 });
 
+test("competing role ownership after preflight is never revoked or dropped", async () => {
+  const module = await import(`${pathToFileURL(command).href}?competing-role-owner`);
+  assert.equal(typeof module.provisionAcceptanceResources, "function");
+
+  const statements = [];
+  let competingRolesPresent = false;
+  const operatorClient = {
+    async connect() {},
+    async end() {},
+    async query(statement) {
+      statements.push(statement);
+      if (/pg_try_advisory_lock/i.test(statement)) {
+        return { rows: [{ acquired: true }] };
+      }
+      if (/current_setting\('server_version_num'\)/i.test(statement)) {
+        return { rows: [{ version_number: "160015", operator: "acceptance_operator" }] };
+      }
+      if (/from pg_database/i.test(statement)) return { rows: [] };
+      if (/from pg_roles where rolname = any/i.test(statement)) {
+        return competingRolesPresent
+          ? { rows: [
+              { rolname: "tge_owner", ownership_marker: "another-run" },
+              { rolname: "tge_migrator", ownership_marker: "another-run" },
+              { rolname: "tge_runtime", ownership_marker: "another-run" },
+              { rolname: "tge_maintenance", ownership_marker: "another-run" }
+            ] }
+          : { rows: [] };
+      }
+      if (/^create role tge_owner /i.test(statement)) {
+        competingRolesPresent = true;
+        const error = new Error("duplicate role");
+        error.code = "42710";
+        throw error;
+      }
+      return { rows: [] };
+    }
+  };
+  class MockClient {
+    constructor() {
+      return operatorClient;
+    }
+  }
+
+  await assert.rejects(
+    module.runAssistedPilotAcceptance({
+      env: {
+        TGE_ACCEPTANCE_DATABASE_URL:
+          "postgresql://operator@127.0.0.1:55439/postgres"
+      },
+      provision: resources => module.provisionAcceptanceResources(resources, {
+        postgres: { Client: MockClient, Pool: class {} },
+        migrate: async () => {}
+      })
+    }),
+    error => error instanceof module.AcceptanceRunError
+  );
+
+  assert.equal(
+    statements.some(statement => /^(?:revoke|drop role)/i.test(statement.trim())),
+    false
+  );
+});
+
+test("competing acceptance invocation is rejected before clean-server preflight", async () => {
+  const module = await import(`${pathToFileURL(command).href}?competing-invocation`);
+  assert.equal(typeof module.provisionAcceptanceResources, "function");
+
+  const statements = [];
+  const operatorClient = {
+    async connect() {},
+    async end() {},
+    async query(statement) {
+      statements.push(statement);
+      if (/pg_try_advisory_lock/i.test(statement)) {
+        return { rows: [{ acquired: false }] };
+      }
+      throw new Error("preflight must not run without exclusive ownership");
+    }
+  };
+  class MockClient {
+    constructor() {
+      return operatorClient;
+    }
+  }
+
+  await assert.rejects(
+    module.runAssistedPilotAcceptance({
+      env: {
+        TGE_ACCEPTANCE_DATABASE_URL:
+          "postgresql://operator@127.0.0.1:55439/postgres"
+      },
+      provision: resources => module.provisionAcceptanceResources(resources, {
+        postgres: { Client: MockClient, Pool: class {} },
+        migrate: async () => {}
+      })
+    }),
+    error => error instanceof module.AcceptanceRunError
+  );
+
+  assert.equal(statements.length, 1);
+  assert.match(statements[0], /pg_try_advisory_lock/i);
+});
+
+test("cleanup refuses to mutate a migration role whose ownership marker changed", async () => {
+  const {
+    cleanupAcceptanceResources
+  } = await import(`${pathToFileURL(command).href}?changed-role-owner`);
+  const statements = [];
+  const result = await cleanupAcceptanceResources({
+    operatorUrl: "postgresql://operator@127.0.0.1:55439/postgres",
+    databaseName: null,
+    runtimeRole: null,
+    runtime: null,
+    runtimePool: null,
+    databaseClient: null,
+    operatorUser: "acceptance_operator",
+    acceptanceLockHeld: true,
+    migrationRoleOwnershipToken: "this-run",
+    operatorClient: {
+      async query(statement) {
+        statements.push(statement);
+        if (/shobj_description/i.test(statement)) {
+          return {
+            rows: [
+              { rolname: "tge_owner", ownership_marker: "this-run" },
+              { rolname: "tge_migrator", ownership_marker: "this-run" },
+              { rolname: "tge_runtime", ownership_marker: "another-run" },
+              { rolname: "tge_maintenance", ownership_marker: "this-run" }
+            ]
+          };
+        }
+        return { rows: [] };
+      },
+      async end() {}
+    }
+  });
+
+  assert.deepEqual(result, {
+    database: "REMOVED",
+    runtime_login: "REMOVED",
+    migration_roles: "FAILED"
+  });
+  assert.equal(
+    statements.some(statement => /^(?:revoke|drop role)/i.test(statement.trim())),
+    false
+  );
+  assert.equal(statements.some(statement => /pg_advisory_unlock/i.test(statement)), true);
+});
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  test(`${signal} cleans exactly once and then preserves signal termination`, async () => {
+    const result = await runSignalLifecycleDiagnostic({ signal });
+    try {
+      assert.equal(result.code, null);
+      assert.equal(result.signal, signal);
+      assert.equal(fs.readFileSync(result.marker, "utf8"), "cleanup\n");
+    } finally {
+      fs.rmSync(result.fixtureRoot, { recursive: true, force: true });
+    }
+  });
+}
+
+test("stalled signal cleanup has a bounded forced-termination fallback", async () => {
+  const result = await runSignalLifecycleDiagnostic({
+    signal: "SIGTERM",
+    stallCleanup: true,
+    cleanupTimeoutMs: 50
+  });
+  try {
+    assert.equal(result.code, null);
+    assert.equal(result.signal, "SIGTERM");
+    assert.equal(fs.readFileSync(result.marker, "utf8"), "cleanup\n");
+  } finally {
+    fs.rmSync(result.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 function completeJourneyEvidence(extra = {}) {
   return {
     ...extra,
@@ -281,4 +459,98 @@ function completeJourneyEvidence(extra = {}) {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function runSignalLifecycleDiagnostic({
+  signal,
+  stallCleanup = false,
+  cleanupTimeoutMs = 1000
+}) {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tge-acceptance-signal-"));
+  const marker = path.join(fixtureRoot, "cleanup.txt");
+  const moduleUrl = pathToFileURL(command).href;
+  const source = `
+    import fs from "node:fs";
+    const marker = process.argv[1];
+    const stallCleanup = process.argv[2] === "true";
+    const cleanupTimeoutMs = Number(process.argv[3]);
+    const { runAssistedPilotAcceptance } = await import(${JSON.stringify(moduleUrl)});
+    void runAssistedPilotAcceptance({
+      env: {
+        TGE_ACCEPTANCE_DATABASE_URL:
+          "postgresql://operator@127.0.0.1:55439/postgres"
+      },
+      signalTarget: process,
+      signalCleanupTimeoutMs: cleanupTimeoutMs,
+      provision: async resources => {
+        resources.databaseName = "tge_acceptance_signal_database";
+        process.stdout.write("READY\\n");
+        return { postgresVersion: "16.15" };
+      },
+      journey: async () => new Promise(() => setInterval(() => {}, 1000)),
+      cleanup: async () => {
+        fs.appendFileSync(marker, "cleanup\\n");
+        if (stallCleanup) await new Promise(() => {});
+        return {
+          database: "REMOVED",
+          runtime_login: "REMOVED",
+          migration_roles: "REMOVED"
+        };
+      }
+    });
+  `;
+  const child = spawn(
+    process.execPath,
+    ["--input-type=module", "--eval", source, marker, String(stallCleanup), String(cleanupTimeoutMs)],
+    { cwd: repositoryRoot, stdio: ["ignore", "pipe", "pipe"] }
+  );
+
+  try {
+    await waitForReady(child);
+    const exited = waitForExit(child, 5000);
+    child.kill(signal);
+    const outcome = await exited;
+    return { ...outcome, marker, fixtureRoot };
+  } catch (error) {
+    child.kill("SIGKILL");
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function waitForReady(child) {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    const timer = setTimeout(() => reject(new Error("signal fixture readiness timed out")), 3000);
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", chunk => {
+      stdout += chunk;
+      if (stdout.includes("READY\n")) {
+        clearTimeout(timer);
+        resolve();
+      }
+    });
+    child.once("error", error => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("exit", (code, signal) => {
+      clearTimeout(timer);
+      reject(new Error(`signal fixture exited before ready: ${code ?? signal}`));
+    });
+  });
+}
+
+function waitForExit(child, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("signal fixture exit timed out")), timeoutMs);
+    child.once("exit", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal });
+    });
+    child.once("error", error => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
 }

@@ -13,6 +13,21 @@ database and an explicit port. The command requires exact PostgreSQL 16.15,
 refuses a server with an existing non-system database or TGE role, creates a
 random database and least-privilege runtime login, applies the unchanged
 append-only migrations, and removes those resources on success or failure.
+Before inspecting the server, the command acquires one cluster-level advisory
+lock and retains it through cleanup, so competing acceptance invocations fail
+closed instead of sharing the fixed migration roles. The command atomically
+marks those roles with an invocation-specific ownership value before creating
+the database and verifies the complete marker set before any revoke or drop.
+It never removes roles whose ownership marker is absent or belongs to another
+run. PostgreSQL releases the advisory lock automatically if the owning session
+is lost, so no stale filesystem lock requires manual deletion.
+
+`SIGINT` and `SIGTERM` enter the same idempotent cleanup path as ordinary
+success or failure. Cleanup begins exactly once, has a bounded ten-second
+window, and the command then re-raises the original signal so shell/process
+termination semantics remain truthful. A stalled cleanup cannot leave an
+unbounded signal handler; the whole disposable cluster must still be torn down
+with the fixture commands below after any interrupted or failed run.
 
 The journey proves:
 

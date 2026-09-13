@@ -11,6 +11,25 @@ runtime login, applies the unchanged append-only migrations, executes the
 supported secure Pilot composition, and removes the database, runtime login,
 and migration roles on success or failure.
 
+The bounded first-review remediation closes two acceptance-runner lifecycle
+defects without changing product, schema, migrations, APIs, or browser behavior.
+One PostgreSQL session advisory lock is acquired before the clean-server
+preflight and held through cleanup. The runner atomically creates and marks the
+four fixed migration roles with a per-run ownership value; cleanup verifies the
+complete marker set before revoking or dropping anything, so a competing owner
+cannot be deleted. `SIGINT` and `SIGTERM` share one idempotent cleanup promise,
+then re-raise the original signal after cleanup or a bounded ten-second fallback.
+Deterministic mocked-transport and subprocess regressions were RED **0/5** at
+`694a4b4` and GREEN **5/5** after correction; the complete focused acceptance
+file is **13/13**, including an additional changed-marker fail-closed guard. The
+engineering harness passes, migration/static contracts
+pass **19/19**, and one fresh production-like acceptance command against
+PostgreSQL 16.15 passes the existing journey with cleanup `REMOVED` for the
+database, runtime login, and migration roles. Independent post-command SQL
+reports **0** user databases and **0** `tge_*` roles. The disposable cluster and
+dependency link were removed; broader verification evidence is recorded in the
+active plan.
+
 Focused contracts were RED **0/6** before the runner/runbook existed and are
 GREEN **7/7**, including the self-review guard that rejected pre-existing TGE
 roles are never touched. One final `npm --silent run acceptance:pilot` run against fresh

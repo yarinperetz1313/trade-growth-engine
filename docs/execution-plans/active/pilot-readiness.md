@@ -98,6 +98,42 @@ Full repository delivery gates, full PostgreSQL suite, managed browser,
 production build, independent review, push, PR, and CI remain deliberately
 pending after this implementation checkpoint.
 
+### Slice 4 bounded cleanup-ownership remediation
+
+The first independent review accepted the journey, tenant/external-action
+boundaries, and proof exclusions, but found two P2 runner lifecycle defects.
+The clean-server snapshot did not exclusively own the four fixed migration
+roles, and process signals could terminate before resource cleanup. At parent
+checkpoint `694a4b4`, the deterministic ownership/lock and subprocess signal
+regressions were expected RED **0/5**.
+
+The bounded correction acquires one PostgreSQL session advisory lock before
+clean-server preflight and retains it until cleanup finishes. It atomically
+creates the four fixed roles with a per-run shared-object comment and verifies
+the entire marker set before any revoke or drop. Competing invocations fail
+before preflight; an external owner that wins a role-creation race is never
+mutated. PostgreSQL connection loss releases the lock without stale local state.
+`SIGINT` and `SIGTERM` enter the ordinary idempotent cleanup promise exactly
+once, then the CLI re-raises the original signal after cleanup or a bounded
+ten-second fallback. GREEN evidence and the final production-like cleanup check
+are recorded at the remediation checkpoint below; no schema, migration,
+product/API/browser, provider, production, deletion, or later-slice behavior
+changes.
+
+The identical ownership and interruption regressions are GREEN **5/5**, and
+the complete acceptance file passes **13/13**, including a changed-marker
+fail-closed guard. The engineering harness passes,
+migration/static contracts pass **19/19**, Node syntax and diff hygiene pass,
+and database migrations are unchanged from `694a4b4`. One fresh
+`npm --silent run acceptance:pilot` execution against disposable Homebrew
+PostgreSQL 16.15 retained every original acceptance gate and returned cleanup
+`REMOVED` for the database, runtime login, and migration roles. Independent SQL
+then reported **0** user databases and **0** `tge_*` roles. The server was
+stopped, its fixture moved to Trash, and the temporary lockfile-identical
+dependency link removed. The journey/product suites were not repeated because
+the bounded change does not alter the accepted journey; managed browser, build,
+and full repository Verify remain delivery gates after final review.
+
 ## Native Astra four-finding remediation checkpoint — 2026-09-13
 
 Starting pin: `520da227f3dd1b24a96f2335d4484164b73da69b`, clean and six

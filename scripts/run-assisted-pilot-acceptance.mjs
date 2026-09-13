@@ -13,6 +13,16 @@ const ACCEPTANCE_ROLE_NAMES = Object.freeze([
   "tge_runtime",
   "tge_maintenance"
 ]);
+const ACCEPTANCE_ROLE_DEFINITIONS = Object.freeze([
+  "tge_owner nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls",
+  "tge_migrator nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls",
+  "tge_runtime nologin inherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls",
+  "tge_maintenance nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls"
+]);
+const ACCEPTANCE_ADVISORY_LOCK_KEY = "tge:assisted-pilot-acceptance:v1";
+const ACCEPTANCE_ROLE_OWNERSHIP_PREFIX = "tge:assisted-pilot-acceptance:";
+const ACCEPTANCE_SIGNALS = Object.freeze(["SIGINT", "SIGTERM"]);
+const DEFAULT_SIGNAL_CLEANUP_TIMEOUT_MS = 10_000;
 const EXTERNAL_PROOF_EXCLUSIONS = Object.freeze([
   "AUTH0_AU_NOT_VERIFIED",
   "JWKS_NOT_VERIFIED",
@@ -85,7 +95,10 @@ export async function runAssistedPilotAcceptance({
   env = process.env,
   provision = provisionAcceptanceResources,
   journey = executeAcceptanceJourney,
-  cleanup = cleanupAcceptanceResources
+  cleanup = cleanupAcceptanceResources,
+  signalTarget = null,
+  signalCleanupTimeoutMs = DEFAULT_SIGNAL_CLEANUP_TIMEOUT_MS,
+  onSignal = null
 } = {}) {
   const config = readAcceptanceConfig(env);
   const resources = {
@@ -95,6 +108,8 @@ export async function runAssistedPilotAcceptance({
     runtimePassword: null,
     runtimeUrl: null,
     cleanServerVerified: false,
+    acceptanceLockHeld: false,
+    migrationRoleOwnershipToken: null,
     operatorClient: null,
     databaseClient: null,
     runtimePool: null,
@@ -104,6 +119,19 @@ export async function runAssistedPilotAcceptance({
   let evidence;
   let failed = false;
   let failedPhase = "UNKNOWN";
+  let cleanupPromise = null;
+  const cleanupOnce = () => {
+    if (!cleanupPromise) cleanupPromise = Promise.resolve().then(() => cleanup(resources));
+    return cleanupPromise;
+  };
+  const signalLifecycle = signalTarget
+    ? installAcceptanceSignalLifecycle({
+        target: signalTarget,
+        cleanupOnce,
+        timeoutMs: signalCleanupTimeoutMs,
+        onSignal
+      })
+    : null;
 
   try {
     setup = await provision(resources);
@@ -115,7 +143,7 @@ export async function runAssistedPilotAcceptance({
 
   let cleanupState;
   try {
-    cleanupState = await cleanup(resources);
+    cleanupState = await cleanupOnce();
   } catch {
     cleanupState = {
       database: "FAILED",
@@ -125,18 +153,72 @@ export async function runAssistedPilotAcceptance({
     failed = true;
   }
 
-  if (
-    failed
-    || cleanupState?.database !== "REMOVED"
-    || cleanupState?.runtime_login !== "REMOVED"
-    || cleanupState?.migration_roles !== "REMOVED"
-  ) throw new AcceptanceRunError(cleanupState, failedPhase);
-
   try {
-    return buildAcceptanceProof(setup, evidence, cleanupState);
-  } catch {
-    throw new AcceptanceRunError(cleanupState, "PROOF_VALIDATION");
+    if (
+      failed
+      || cleanupState?.database !== "REMOVED"
+      || cleanupState?.runtime_login !== "REMOVED"
+      || cleanupState?.migration_roles !== "REMOVED"
+    ) throw new AcceptanceRunError(cleanupState, failedPhase);
+    try {
+      return buildAcceptanceProof(setup, evidence, cleanupState);
+    } catch {
+      throw new AcceptanceRunError(cleanupState, "PROOF_VALIDATION");
+    }
+  } finally {
+    signalLifecycle?.dispose();
   }
+}
+
+export function installAcceptanceSignalLifecycle({
+  target,
+  cleanupOnce,
+  timeoutMs = DEFAULT_SIGNAL_CLEANUP_TIMEOUT_MS,
+  onSignal = null
+}) {
+  if (
+    !target
+    || typeof target.once !== "function"
+    || typeof target.removeListener !== "function"
+    || typeof target.removeAllListeners !== "function"
+    || typeof target.kill !== "function"
+    || !Number.isInteger(target.pid)
+    || target.pid <= 0
+    || typeof cleanupOnce !== "function"
+    || !Number.isFinite(timeoutMs)
+    || timeoutMs <= 0
+  ) throw new AcceptanceConfigurationError();
+
+  let terminating = false;
+  let disposed = false;
+  const handlers = new Map();
+  const removeOwnedHandlers = () => {
+    if (disposed) return;
+    disposed = true;
+    for (const [signal, handler] of handlers) target.removeListener(signal, handler);
+  };
+  const reemitSignal = signal => {
+    removeOwnedHandlers();
+    target.removeAllListeners(signal);
+    target.kill(target.pid, signal);
+  };
+  const beginTermination = signal => {
+    if (terminating) return;
+    terminating = true;
+    if (typeof onSignal === "function") onSignal(signal);
+    const timeout = new Promise(resolve => setTimeout(resolve, timeoutMs));
+    void Promise.race([
+      Promise.resolve().then(cleanupOnce).catch(() => {}),
+      timeout
+    ]).then(() => reemitSignal(signal));
+  };
+
+  for (const signal of ACCEPTANCE_SIGNALS) {
+    const handler = () => beginTermination(signal);
+    handlers.set(signal, handler);
+    target.once(signal, handler);
+  }
+  return Object.freeze({ dispose: removeOwnedHandlers });
 }
 
 function buildAcceptanceProof(setup, evidence, cleanup) {
@@ -206,13 +288,23 @@ function buildAcceptanceProof(setup, evidence, cleanup) {
   });
 }
 
-async function provisionAcceptanceResources(resources) {
+export async function provisionAcceptanceResources(resources, {
+  postgres = null,
+  migrate = null
+} = {}) {
   resources.phase = "PROVISIONING";
-  const pg = await import("pg");
-  const { Client, Pool } = pg.default;
+  const pg = postgres || (await import("pg")).default;
+  const { Client, Pool } = pg;
   const operatorClient = new Client({ connectionString: resources.operatorUrl });
   resources.operatorClient = operatorClient;
   await operatorClient.connect();
+
+  const ownershipLock = await operatorClient.query(
+    "select pg_try_advisory_lock(hashtext($1)) as acquired",
+    [ACCEPTANCE_ADVISORY_LOCK_KEY]
+  );
+  expect(ownershipLock.rows?.[0]?.acquired, true);
+  resources.acceptanceLockHeld = true;
 
   const identity = await operatorClient.query(
     `select
@@ -235,6 +327,26 @@ async function provisionAcceptanceResources(resources) {
   expect(existingRoles.rows.length, 0);
   resources.cleanServerVerified = true;
 
+  const ownershipToken = `${ACCEPTANCE_ROLE_OWNERSHIP_PREFIX}${randomUUID()}`;
+  await operatorClient.query("begin");
+  try {
+    for (const definition of ACCEPTANCE_ROLE_DEFINITIONS) {
+      await operatorClient.query(`create role ${definition}`);
+    }
+    for (const role of ACCEPTANCE_ROLE_NAMES) {
+      const comment = await operatorClient.query(
+        "select format('comment on role %I is %L', $1::text, $2::text) as sql",
+        [role, ownershipToken]
+      );
+      await operatorClient.query(comment.rows[0].sql);
+    }
+    await operatorClient.query("commit");
+    resources.migrationRoleOwnershipToken = ownershipToken;
+  } catch (error) {
+    await operatorClient.query("rollback").catch(() => {});
+    throw error;
+  }
+
   const suffix = randomBytes(12).toString("hex");
   resources.databaseName = `tge_acceptance_${suffix}`;
   resources.runtimeRole = `tge_acceptance_runtime_${suffix}`;
@@ -244,7 +356,7 @@ async function provisionAcceptanceResources(resources) {
   );
 
   const databaseUrl = replaceDatabase(resources.operatorUrl, resources.databaseName);
-  const { runMigrations } = await import("./migrate-db.mjs");
+  const runMigrations = migrate || (await import("./migrate-db.mjs")).runMigrations;
   await runMigrations({ connectionString: databaseUrl, logger: { log() {} } });
 
   const databaseClient = new Client({ connectionString: databaseUrl });
@@ -575,7 +687,7 @@ async function executeAcceptanceJourney(resources) {
 export async function cleanupAcceptanceResources(resources) {
   let database = resources.databaseName ? "FAILED" : "REMOVED";
   let runtimeLogin = resources.runtimeRole ? "FAILED" : "REMOVED";
-  let migrationRoles = resources.cleanServerVerified ? "FAILED" : "REMOVED";
+  let migrationRoles = resources.migrationRoleOwnershipToken ? "FAILED" : "REMOVED";
 
   let runtimeClosed = false;
   if (resources.runtime) {
@@ -648,17 +760,30 @@ export async function cleanupAcceptanceResources(resources) {
       }
     }
 
-    if (resources.cleanServerVerified) {
-      if (resources.operatorUser) {
-        await operatorClient.query(
-          `revoke tge_migrator from ${quoteIdentifier(resources.operatorUser)}`
-        ).catch(() => {});
-      }
-      await operatorClient.query("revoke tge_owner from tge_migrator").catch(() => {});
-      for (const role of ["tge_maintenance", "tge_runtime", "tge_migrator", "tge_owner"]) {
-        await operatorClient.query(`drop role if exists ${quoteIdentifier(role)}`).catch(() => {});
-      }
+    if (resources.migrationRoleOwnershipToken) {
       try {
+        const ownedRoles = await operatorClient.query(
+          `select rolname,
+                  shobj_description(oid, 'pg_authid') as ownership_marker
+           from pg_roles
+           where rolname = any($1::text[])`,
+          [ACCEPTANCE_ROLE_NAMES]
+        );
+        const ownsCompleteRoleSet = ownedRoles.rows.length === ACCEPTANCE_ROLE_NAMES.length
+          && ownedRoles.rows.every(
+            row => ACCEPTANCE_ROLE_NAMES.includes(row.rolname)
+              && row.ownership_marker === resources.migrationRoleOwnershipToken
+          );
+        if (!ownsCompleteRoleSet) throw new Error("Acceptance role ownership changed.");
+        if (resources.operatorUser) {
+          await operatorClient.query(
+            `revoke tge_migrator from ${quoteIdentifier(resources.operatorUser)}`
+          );
+        }
+        await operatorClient.query("revoke tge_owner from tge_migrator");
+        for (const role of ["tge_maintenance", "tge_runtime", "tge_migrator", "tge_owner"]) {
+          await operatorClient.query(`drop role ${quoteIdentifier(role)}`);
+        }
         const remainingMigrationRoles = await operatorClient.query(
           "select rolname from pg_roles where rolname = any($1::text[])",
           [ACCEPTANCE_ROLE_NAMES]
@@ -669,6 +794,13 @@ export async function cleanupAcceptanceResources(resources) {
       }
     }
   } finally {
+    if (resources.acceptanceLockHeld) {
+      await operatorClient.query(
+        "select pg_advisory_unlock(hashtext($1))",
+        [ACCEPTANCE_ADVISORY_LOCK_KEY]
+      ).catch(() => {});
+      resources.acceptanceLockHeld = false;
+    }
     await operatorClient.end().catch(() => {});
     resources.operatorClient = null;
   }
@@ -726,9 +858,16 @@ const invokedAsScript = process.argv[1]
   && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (invokedAsScript) {
-  runAssistedPilotAcceptance().then(
+  let interrupted = false;
+  runAssistedPilotAcceptance({
+    signalTarget: process,
+    onSignal() {
+      interrupted = true;
+    }
+  }).then(
     proof => process.stdout.write(`${JSON.stringify(proof)}\n`),
     error => {
+      if (interrupted) return;
       const code = error instanceof AcceptanceConfigurationError
         ? error.code
         : "ASSISTED_PILOT_ACCEPTANCE_FAILED";
