@@ -1,6 +1,35 @@
 # Project State
 
-_Last locally audited on 2026-09-12. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+_Last locally audited on 2026-09-14. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+
+Assisted Pilot Safety Gate V1 Slice 4 now adds one repository-native,
+production-like local acceptance command and the assisted-pilot operator
+runbook. The command accepts only an explicit loopback test-server URL, requires
+exact PostgreSQL `server_version_num = 160015`, refuses an existing application
+database/server role footprint, creates a random database and least-privilege
+runtime login, applies the unchanged append-only migrations, executes the
+supported secure Pilot composition, and removes the database, runtime login,
+and migration roles on success or failure.
+
+Focused contracts were RED **0/6** before the runner/runbook existed and are
+GREEN **7/7**, including the self-review guard that rejected pre-existing TGE
+roles are never touched. One final `npm --silent run acceptance:pilot` run against fresh
+Homebrew PostgreSQL 16.15 passed not-ready gating, local secure readiness, the
+explicit `LOCAL_DETERMINISTIC_NOT_AUTH0_OR_SMTP` verifier, membership-derived
+tenant authority, forged client-tenant rejection, negative second-tenant
+isolation, one-row CSV preview / mapping / Data Health / canonical commit with
+exact `AUD`, stalled scan, server-ranked queue, case-to-RevenueAction handoff,
+prepare, approve, and internal task execution. Durable case/action/task/activity
+identities reloaded and no external send occurred. The closed proof contains no
+DSN, credentials, tokens, tenant/customer IDs, raw cells, filename, draft, or
+contact data and explicitly excludes Auth0 AU/JWKS/SMTP/OTP, AU infrastructure,
+backup/restore, production maintenance, privacy/vendor approval, and canonical
+tenant-data deletion. Cleanup reported all temporary database resources removed;
+direct SQL confirmed **0** user databases and **0** `tge_*` roles remained.
+Affected auth/import/detector/queue/case/action tests pass **226/226** and the
+engineering harness passes. No product/domain behavior, schema, migration,
+browser feature, provider, deployment, external action, backup/restore claim,
+canonical deletion policy, GitHub result, or release evidence is added.
 
 The 2026-09-13 native Astra remediation checkpoint corrects four additional
 Slice 3 P2 findings: malformed currency type coercion, browser rejection of

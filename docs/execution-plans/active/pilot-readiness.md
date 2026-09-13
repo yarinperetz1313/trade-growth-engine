@@ -1,5 +1,103 @@
 # Pilot Readiness
 
+## Assisted Pilot Safety Gate V1 Slice 4 bounded plan — 2026-09-14
+
+Starting pin: `41429525c4dee7da8c417a07396d62e58e3a6db2`, the merge
+commit for PR #34 and exact `origin/main`. The isolated worktree
+`assisted-pilot-runbook-acceptance` is on
+`feat/assisted-pilot-runbook-acceptance`, `0` behind / `0` ahead, with empty
+tracked, untracked, and ignored status and no dependency, build, or test
+artifacts before implementation.
+
+Slice 4 is limited to an executable assisted-pilot operator runbook and one
+fresh production-like local acceptance journey. It adds no product/domain
+semantics, schema, migration, browser behavior, provider provisioning,
+external message send, backup/restore claim, deployment claim, or canonical
+tenant-data deletion policy.
+
+### Acceptance contract
+
+1. Add RED-first contracts for a repository-native acceptance command, stable
+   fail-closed configuration output, and a truthful operator runbook.
+2. The command must accept only an explicit test-server URL, require exact
+   PostgreSQL `16.15`, create a randomly named database and least-privilege
+   runtime login, apply the unchanged append-only migrations, and remove both
+   resources on success or failure. It must never target or mutate an existing
+   application database.
+3. Start the supported secure Pilot composition and prove not-ready business
+   gating, local secure readiness, deterministic verifier-backed bearer
+   authentication, membership-derived tenant authority, forged client-tenant
+   input rejection, and a negative second-tenant boundary. The injected token
+   verifier is explicitly `LOCAL_DETERMINISTIC_NOT_AUTH0_OR_SMTP`; it is not
+   external Auth0, JWKS, Universal Login, SMTP, or OTP evidence.
+4. Execute one coherent customer path through bounded CSV preview, deterministic
+   mapping/Data Health, explicit canonical commit, stalled-opportunity scan,
+   server-ranked operating queue, case-to-RevenueAction handoff, preparation,
+   explicit approval, and internal task execution. Assert exact authoritative
+   currency, durable case/action/effect identities, no external send, and no
+   cross-tenant visibility.
+5. Emit only a closed privacy-minimized JSON proof: PostgreSQL version,
+   stable gate states/counts, action/effect mode, explicit external-proof
+   exclusions, and cleanup state. Do not emit DSNs, credentials, tokens,
+   tenant/customer identifiers, raw CSV cells, filenames, drafts, or contact
+   data.
+6. Turn the focused contracts GREEN, execute the command against a fresh
+   disposable Homebrew PostgreSQL 16.15 server when available, run the affected
+   authenticated/import/detector/queue/case/action suites and engineering
+   harness, then record exact evidence here and in `docs/PROJECT_STATE.md`.
+   Remove dependencies, database/server state, and generated artifacts before a
+   clean checkpoint.
+
+The operator runbook must distinguish repository acceptance proof from every
+remaining production gate. A local PASS does not authorize external invitations
+or establish Auth0 AU/SMTP/OTP, provider location, backup/recovery, production
+maintenance, privacy/vendor approval, or legal tenant-deletion evidence.
+
+### Slice 4 implementation and local acceptance evidence
+
+Hard recovery preflight matched the assigned state: exact worktree and branch,
+HEAD / `origin/main` / merge-base all
+`41429525c4dee7da8c417a07396d62e58e3a6db2`, and only this plan draft plus the
+untracked focused acceptance contract were present. No other worktree owned the
+branch. The draft was preserved and completed without ACP or delegation.
+
+The dependency-free focused command
+`node --test test/assisted-pilot-acceptance.test.js` was expected RED **0/6**:
+the package command, runner, and runbook did not exist; invalid configuration
+returned generic module-loader detail; and the closed proof plus success/failure
+cleanup lifecycle were absent. After the minimal implementation, that command
+is GREEN **7/7** with the added self-review guard that a rejected pre-existing
+TGE role footprint is never touched. The lifecycle regressions prove that arbitrary input
+details cannot enter the closed proof and that already-provisioned resources are
+cleaned after both successful and failed journeys.
+
+`npm --silent run acceptance:pilot` then passed against a fresh disposable
+Homebrew PostgreSQL 16.15 server. The first real preflight failed closed because
+Homebrew's display setting is `16.15 (Homebrew)`; the corrected authority checks
+exact `server_version_num = 160015` and still publishes only `16.15`. The final
+fresh run proved not-ready gating, ready local secure composition, the explicitly
+labelled `LOCAL_DETERMINISTIC_NOT_AUTH0_OR_SMTP` verifier, membership-derived
+tenant authority, forged client-tenant rejection, second-tenant isolation,
+one-row CSV preview / mapping / Data Health / canonical commit, exact `AUD`
+currency, one detected and server-ranked case, case-to-RevenueAction handoff,
+prepare, approve, and one internal task execution. Durable case, action, task,
+and activity IDs reloaded successfully; `external_send_performed` was `false`.
+The proof excluded Auth0 AU, JWKS, SMTP/OTP, AU infrastructure, backup/restore,
+production maintenance, privacy/vendor approval, and canonical tenant-data
+deletion. Cleanup reported the random database, runtime login, and migration
+roles `REMOVED`; direct post-command SQL independently counted **0** remaining
+user databases and **0** remaining `tge_*` roles. The server was stopped and its
+fixture removed.
+
+The directly affected auth/import/detector/queue/case/action command passed
+**226/226** across 17 files, including the seven acceptance contracts.
+`npm run test:harness` passed. No product/domain source, schema, migration,
+browser feature, provider, external send, deployment, backup/restore, production
+maintenance, canonical deletion, GitHub, or later-slice behavior was added.
+Full repository delivery gates, full PostgreSQL suite, managed browser,
+production build, independent review, push, PR, and CI remain deliberately
+pending after this implementation checkpoint.
+
 ## Native Astra four-finding remediation checkpoint — 2026-09-13
 
 Starting pin: `520da227f3dd1b24a96f2335d4484164b73da69b`, clean and six
