@@ -79,9 +79,12 @@ function createJsonRepositories({ store = localStore } = {}) {
       localTenantId: LOCAL_REVENUE_LEAK_TENANT_ID
     })
   };
-  repositories.opportunities.listForStalledScan = async ({ limit } = {}) => {
+  repositories.opportunities.listForStalledScan = async ({ limit, lock = true } = {}) => {
     if (!Number.isSafeInteger(limit) || limit < 1) {
       throw new TypeError("A positive stalled-opportunity scan limit is required.");
+    }
+    if (typeof lock !== "boolean") {
+      throw new TypeError("The stalled-opportunity lock flag must be boolean.");
     }
     const records = store.readCollection("opportunities")
       .map((record, ordinal) => ({ record, ordinal }))

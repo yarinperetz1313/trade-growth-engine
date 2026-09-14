@@ -19,6 +19,10 @@ const {
   evaluateStalledOpportunity
 } = require("./stalledOpportunityDetector");
 const {
+  buildBlockedStalledOpportunityEligibility,
+  buildStalledOpportunityEligibility
+} = require("./stalledOpportunityEligibility");
+const {
   buildDealIntelligenceFromData
 } = require("../intelligence/dealIntelligence");
 const {
@@ -287,9 +291,10 @@ function createTenantService(
     });
   }
 
-  async function scanWithRepositories(scoped, evaluatedAt) {
+  async function loadStalledOpportunityPortfolio(scoped, { lock }) {
     const candidates = await scoped.opportunities.listForStalledScan({
-      limit: PORTFOLIO_SCAN_LIMIT
+      limit: PORTFOLIO_SCAN_LIMIT,
+      lock
     });
     const total = candidates?.totalCount;
     const records = candidates?.records;
@@ -298,27 +303,27 @@ function createTenantService(
       const reportedTotal = Number.isSafeInteger(total) && total >= 0
         ? total
         : observedCount;
-      return scanFailure(
+      return { failure: scanFailure(
         "REVENUE_LEAK_SCAN_SOURCE_INVALID",
         "Canonical opportunity enumeration is invalid.",
         reportedTotal,
         { invalid_record_count: Math.max(reportedTotal, observedCount) }
-      );
+      ) };
     }
     if (total > PORTFOLIO_SCAN_LIMIT) {
-      return scanFailure(
+      return { failure: scanFailure(
         "REVENUE_LEAK_SCAN_LIMIT_EXCEEDED",
         "The tenant opportunity portfolio exceeds the safe scan limit.",
         total
-      );
+      ) };
     }
     if (records.length !== total) {
-      return scanFailure(
+      return { failure: scanFailure(
         "REVENUE_LEAK_SCAN_SOURCE_INVALID",
         "Canonical opportunity enumeration is incomplete.",
         total,
         { invalid_record_count: total }
-      );
+      ) };
     }
 
     const ids = records.map(record =>
@@ -332,20 +337,23 @@ function createTenantService(
       id === null || frequencies.get(id) !== 1
     ).length;
     if (invalidCount > 0) {
-      return scanFailure(
+      return { failure: scanFailure(
         "REVENUE_LEAK_SCAN_SOURCE_INVALID",
         "Canonical opportunity identities are invalid or duplicated.",
         total,
         { invalid_record_count: invalidCount }
-      );
+      ) };
     }
 
     const ordered = [...records].sort((left, right) =>
-      left.id.localeCompare(right.id)
+      left.id < right.id ? -1 : left.id > right.id ? 1 : 0
     );
+    return { total, records: ordered };
+  }
+
+  async function evaluateStalledPortfolio(scoped, records, evaluatedAt) {
     const evaluations = [];
-    const detections = [];
-    for (const opportunity of ordered) {
+    for (const opportunity of records) {
       const activities = await scoped.activities.list({
         opportunityId: opportunity.id
       });
@@ -356,6 +364,50 @@ function createTenantService(
         tasks,
         evaluatedAt
       });
+      evaluations.push({ opportunity, evaluation });
+    }
+    return evaluations;
+  }
+
+  async function eligibilityWithRepositories(scoped, evaluatedAt) {
+    const portfolio = await loadStalledOpportunityPortfolio(scoped, {
+      lock: false
+    });
+    if (portfolio.failure) {
+      if (portfolio.failure.error !== "REVENUE_LEAK_SCAN_LIMIT_EXCEEDED") {
+        return portfolio.failure;
+      }
+      return buildBlockedStalledOpportunityEligibility({
+        evaluatedAt,
+        totalCount: portfolio.failure.details.total_opportunities,
+        reasonCode: "PORTFOLIO_LIMIT_EXCEEDED"
+      });
+    }
+    const evaluations = await evaluateStalledPortfolio(
+      scoped,
+      portfolio.records,
+      evaluatedAt
+    );
+    return buildStalledOpportunityEligibility({
+      evaluatedAt,
+      evaluations,
+      totalCount: portfolio.total
+    });
+  }
+
+  async function scanWithRepositories(scoped, evaluatedAt) {
+    const portfolio = await loadStalledOpportunityPortfolio(scoped, {
+      lock: true
+    });
+    if (portfolio.failure) return portfolio.failure;
+    const evaluated = await evaluateStalledPortfolio(
+      scoped,
+      portfolio.records,
+      evaluatedAt
+    );
+    const evaluations = [];
+    const detections = [];
+    for (const { opportunity, evaluation } of evaluated) {
       const item = {
         opportunity_id: opportunity.id,
         outcome: evaluation.outcome,
@@ -390,7 +442,7 @@ function createTenantService(
           : "CREATED";
     }
     const results = evaluations.map(result => result.item);
-    const summary = summarizeScan(results, total);
+    const summary = summarizeScan(results, portfolio.total);
     await scoped.pilotEvidence.append(buildPilotEvidenceEvent({
       eventType: "PORTFOLIO_SCAN_COMPLETED",
       facts: {
@@ -860,6 +912,27 @@ function createTenantService(
           )
         };
         return scanWithRepositories(scoped, evaluatedAt);
+      });
+    },
+
+    getStalledOpportunityEligibility() {
+      return run(async () => {
+        const evaluatedAt = now();
+        if (persistence.adapter === "postgres") {
+          return persistence.repositories.transaction(
+            context,
+            scoped => eligibilityWithRepositories(scoped, evaluatedAt)
+          );
+        }
+        if (context.tenantId !== LOCAL_REVENUE_LEAK_TENANT_ID) {
+          return sourceUnavailable();
+        }
+        const scoped = {
+          opportunities: persistence.repositories.opportunities,
+          activities: persistence.repositories.activities,
+          tasks: persistence.repositories.tasks
+        };
+        return eligibilityWithRepositories(scoped, evaluatedAt);
       });
     },
 

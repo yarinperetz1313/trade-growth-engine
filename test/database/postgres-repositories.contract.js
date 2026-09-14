@@ -4782,6 +4782,21 @@ function registerPostgresRepositoryContractTests({
       clock: () => new Date(evaluatedAt)
     });
     const tenantAService = service.forTenant(tenantA.context);
+    const readinessA = await tenantAService.getStalledOpportunityEligibility();
+    const readinessB = await service.forTenant(tenantB.context)
+      .getStalledOpportunityEligibility();
+    assert.equal(readinessA.ok, true);
+    assert.equal(readinessA.summary.readiness, "READY");
+    assert.equal(readinessA.summary.total_opportunities, 1);
+    assert.equal(readinessA.summary.detector_assessable_count, 1);
+    assert.equal(readinessA.records[0].opportunity_id, opportunityId);
+    assert.equal(readinessB.ok, true);
+    assert.equal(readinessB.summary.readiness, "EMPTY");
+    assert.equal(readinessB.summary.total_opportunities, 0);
+    assert.equal(
+      (await persistence.repositories.revenueLeakCases.list(tenantA.context)).length,
+      0
+    );
     const concurrent = await Promise.all([
       tenantAService.scanStalledOpportunities(),
       tenantAService.scanStalledOpportunities()
@@ -4898,6 +4913,15 @@ function registerPostgresRepositoryContractTests({
         tenantOverflow.context
       )).length,
       0
+    );
+    const overflowReadiness = await service.forTenant(tenantOverflow.context)
+      .getStalledOpportunityEligibility();
+    assert.equal(overflowReadiness.ok, true);
+    assert.equal(overflowReadiness.summary.readiness, "BLOCKED");
+    assert.equal(overflowReadiness.summary.total_opportunities, 101);
+    assert.equal(
+      overflowReadiness.summary.commercial_value_coverage.not_assessed_count,
+      101
     );
 
     await persistence.repositories.transaction(

@@ -14,15 +14,54 @@ scheduling, and broad CRM replacement are out of scope. The 15-minute, 2/3
 completion, and 4/5 trust targets are measurement hypotheses, not customer
 evidence or shipped claims.
 
-Slice 1 starts at exact merged `origin/main`
-`ea22ce9cb06498f6f6c59ee5642d6ede2e7cea35`. It may compose the existing
-authenticated tenant/session, import batch/source, and Pilot evidence truth to
-guide and resume setup, but it may not add persistence or a migration without a
-separate insufficiency finding and independent architecture review. The
-completed Pilot Readiness plan remains available as historical evidence and is
-no longer the active roadmap.
+Slice 1 merged through PR #36 as exact `origin/main`
+`0666e974ac0e007b8c0ead3ebef3b101f4688017`; its post-merge Verify run
+`34830965722` succeeded. Slice 2 now starts from that exact clean base on
+`feat/operational-data-health-eligibility`. It may derive a read-only,
+tenant-scoped `STALLED_OPPORTUNITY` readiness projection from the existing
+canonical opportunity/activity/task truth and detector version 1, but it may
+not add persistence or a migration without a separate insufficiency finding and
+independent architecture review. Explicit scan remains the only operation that
+may reconcile RevenueLeakCases. Slice 3 remains dependency-gated. The completed
+Pilot Readiness plan remains historical evidence and is not active authority.
 
-The local Slice 1 implementation candidate now guides the import workspace and
+The local Slice 2 implementation candidate now exposes a tenant-bound,
+read-only stalled-opportunity eligibility projection before scan. It uses the
+same portfolio admission and version-1 detector evaluator as the existing
+explicit scan, but it does not reconcile cases or append Pilot evidence. The
+closed response reports total tenant-visible canonical opportunities,
+assessable and unassessable counts, exact exclusion-reason counts, and known
+positive / known zero / unknown / not-assessed commercial-value coverage
+without monetary aggregation or FX. The browser strictly validates that
+server projection, fails closed on contradictory counts or promoted records,
+and presents business-first Operational Data Health with inspectable reason
+codes, supported next actions, a dataset-completeness disclaimer, and a scan
+button enabled only for server-validated ready or partial states. Empty,
+not-ready, partial, ready, over-limit, unauthorized, and unavailable states
+remain distinct. No schema, migration, additional detector, automatic scan,
+external action, or Slice 3 behavior is included.
+
+The first Slice 2 review remediation closes three projection and browser-
+validation defects without changing detector decisions. Dataset monetary
+coverage now invokes the detector's shared canonical exact-money normalizer
+directly from each opportunity, so known positive and known zero remain known
+when unrelated stage or freshness evidence prevents detection; malformed money
+is explicitly not assessed rather than relabeled unknown. Display-only
+opportunity names are projected only when already trimmed and within the
+browser's 255-byte UTF-8 contract; padded, empty, malformed, or oversized
+legacy names fall back to the opportunity ID without changing canonical facts
+or eligibility. The browser rejects complete portfolios above the declared
+100-record limit, blocked portfolios that do not exceed it, and every
+non-string currency value. Focused RED passed **6/10**, with exactly the four
+expected regression groups failing; GREEN passes **10/10**. The affected
+detector/service/API/browser/monetary set passes **51/51**, complete integration
+passes **468/468**, and focused managed Chromium passes **2/2**. The harness,
+syntax, migration byte identity, diff hygiene, and artifact cleanup pass. The
+existing exact-head PostgreSQL tenant/RLS evidence remains **1/1** because this
+remediation changes no repository, tenancy, schema, migration, or scan-mutation
+boundary.
+
+The merged Slice 1 implementation now guides the import workspace and
 source label, derives explicit commit-supported versus preview-
 only capability for all five displayed collections from the browser's canonical
 mapping contract, and offers header-only inert CSV templates plus field guidance
@@ -41,9 +80,9 @@ Managed Chromium passes **22/22** across the new desktop/390px guided and resume
 coverage plus the complete existing import workflow. The new smoke coverage
 exposed and closed one route-key remount race so a newly created preview or
 in-app resume performs one reconciliation path rather than duplicate server
-reads. This remains a local candidate pending independent review; no schema,
-migration, connector, detector, case/action, session-result, external-send,
-GitHub, or later-slice change is included.
+reads. That Slice 1 scope merged through PR #36 after independent approval; no
+schema, migration, connector, detector, case/action, session-result,
+external-send, or later-slice change was included.
 
 The bounded Slice 1 review remediation now distinguishes retained import-batch
 lifecycle truth from transport failure before validating unavailable raw rows.

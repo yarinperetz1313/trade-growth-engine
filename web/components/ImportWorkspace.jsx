@@ -1290,7 +1290,7 @@ function ResultStep({ facts, onContinue, onReset, result }) {
       <div className="import-footer-actions">
         <button className="text-button" onClick={onReset}>Start another import</button>
         <button className="primary" onClick={onContinue}>
-          Continue to Revenue Command Center
+          Continue to Revenue Command Center · review readiness
         </button>
       </div>
     </section>
@@ -1332,7 +1332,7 @@ function CommittedDataHealth({ facts, onContinue, resumed = false }) {
       </div>
       {onContinue && (
         <button className="primary" onClick={onContinue}>
-          Continue to Revenue Command Center
+          Continue to Revenue Command Center · review readiness
         </button>
       )}
     </section>

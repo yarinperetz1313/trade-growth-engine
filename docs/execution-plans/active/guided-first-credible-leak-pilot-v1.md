@@ -22,9 +22,11 @@
 
 - GitHub Issue #14 was approved by the repository owner on 2026-09-14 as this
   exact three-slice milestone. Slice 2 depends on merged Slice 1; Slice 3 depends on merged Slice 2.
-- Slice 1 starts from `ea22ce9cb06498f6f6c59ee5642d6ede2e7cea35`,
-  exact `origin/main`, on isolated branch `feat/guided-first-value-intake` and
-  worktree `guided-first-value-intake`. Preflight was clean, including ignored
+- Slice 1 merged through PR #36 as `0666e974ac0e007b8c0ead3ebef3b101f4688017`.
+  Post-merge Verify run `34830965722` succeeded. Slice 2 starts from that exact
+  clean `origin/main` on isolated branch
+  `feat/operational-data-health-eligibility` and worktree
+  `operational-data-health-eligibility`; preflight was clean, including ignored
   files, and the branch was 0 behind / 0 ahead.
 - The completed Pilot Readiness record moved to
   `../completed/pilot-readiness.md`; its evidence is preserved and is not active
@@ -49,7 +51,7 @@
 
 ## Dependency sequence
 
-- [ ] **Slice 1 — Guided intake and resumable setup.** Guided business/source
+- [x] **Slice 1 — Guided intake and resumable setup.** Guided business/source
   context; downloadable CSV templates and field guidance; explicit
   commit-supported versus preview-only collection capabilities; and server-
   truth-derived resumability. No detector, case/action, operational eligibility,
@@ -64,6 +66,42 @@
   actionable no-case explanation, cohere inspection/feedback/RevenueAction
   handoff, make the case queue the effective operating home, complete 390px
   journey usability, and expose a privacy-minimized pilot-session result.
+
+## Slice 2 bounded implementation plan
+
+1. Reuse detector version 1 as the single eligibility authority. Add a
+   tenant-scoped, read-only projection that evaluates the same canonical
+   opportunity/activity/task evidence without reconciling cases, and returns a
+   closed, versioned dataset and record contract.
+2. Add RED domain/API/browser contracts for all-eligible, partial, no-eligible,
+   empty, over-limit, malformed-source, unavailable, and cross-tenant states.
+   Require reason totals to reconcile exactly and preserve known-positive,
+   known-zero, and unknown monetary counts without aggregation or FX.
+3. Present operational Data Health before the explicit scan using business
+   language, inspectable reason codes and evidence, and supported next actions.
+   The browser consumes the strict server projection and never recomputes
+   eligibility. The scan remains an explicit mutation.
+4. Connect Slice 1's committed-import continuation to this readiness surface,
+   then verify focused domain/API contracts, affected integration, tenant/RLS
+   behavior where touched, and managed desktop/390px journeys.
+5. Checkpoint the coherent implementation and stop for independent review. Run
+   build/harness and broader delivery gates only near readiness. Do not add a
+   schema/migration, another detector, or Slice 3 behavior.
+
+## Acceptance evidence required for Slice 2
+
+- Total tenant-visible opportunities, assessable and non-assessable counts, and
+  closed reason counts reconcile to the exact server-returned record set.
+- The projection and later explicit scan use the same versioned evaluator and
+  cannot disagree for the same canonical evidence and evaluation timestamp.
+- Missing, invalid, stale, suppressed, empty, over-limit, and unavailable states
+  remain explicit and provide only supported next steps.
+- Commercial-value coverage keeps known positive, known zero, and unknown
+  distinct and performs no monetary aggregation or currency inference.
+- Tenant authority is server-derived; browser input cannot select a tenant or
+  promote an unvalidated response to eligibility.
+- Desktop and 390px journeys make the explicit scan the obvious next step only
+  when the validated readiness state supports it.
 
 ## Slice 1 bounded implementation plan
 
@@ -256,6 +294,65 @@
   syntax, migration `001`-`016` byte identity, aggregate diff hygiene, and
   artifact cleanup pass. No backend, server validator, persistence, schema,
   migration, connector, detector, Slice 2, or Slice 3 behavior changed.
+- Slice 2 TDD RED was **0/6** before the read-only eligibility service,
+  endpoint, strict browser contract, and Operational Data Health composition
+  existed. Focused GREEN is **6/6**. The projection shares the existing
+  bounded portfolio admission and exact detector evaluator with explicit scan,
+  closes every detector outcome into one eligibility classification and one
+  supported next-step code, reconciles counts to records, and never writes a
+  case or Pilot evidence event.
+- A final adversarial ordering check exposed that locale-aware server sorting
+  was not the same contract as the browser's exact string ordering for mixed
+  punctuation/case opportunity IDs. The shared portfolio loader now uses an
+  exact code-unit comparator for both readiness and scan. The added regression
+  passes **1/1** and the focused readiness file passes **7/7**.
+- The affected detector, case, queue, API, browser, mapping, and import Node
+  contracts pass **103/103**. The API accepts no caller query/tenant authority
+  and exposes no mutation route. Browser validation rejects promoted records,
+  contradictory outcome/reason/next-step pairs, unreconciled totals, malformed
+  exact money, future evaluation time, and unknown global blockers.
+- A focused PostgreSQL 16.15 contract passes **1/1** inside the existing
+  portfolio scan boundary. It proves tenant A readiness cannot reveal tenant B,
+  the GET path creates no RevenueLeakCase, the subsequent explicit scan retains
+  concurrency-safe reconciliation, and a 101-record portfolio is blocked with
+  every value recorded as not assessed rather than inferred unknown.
+- Managed Chromium passes **18/18** across the new Operational Data Health
+  journey, Slice 1 guided intake, first-value continuation, and the existing
+  Revenue Command Center. The new desktop/390px coverage proves partial,
+  empty, no-eligible, all-eligible, and unavailable states; reconciled reason
+  distribution and record details; known-zero/unknown distinctions; no page
+  overflow; and zero scan POSTs until the operator activates the explicit scan.
+- Complete integration passes **465/465**, the engineering harness and module
+  syntax pass, and the Vite 8.2.2 production build succeeds with **33 modules**
+  and only the existing chunk-size warning. Slice 2 changes no schema or
+  migration; migrations `001`-`016` remain the exact baseline above. Generated
+  dependency/build/browser/database artifacts were removed before checkpoint.
+- Fresh independent review returned three P2 findings: detector early-exit
+  fallbacks were being misreported as unknown canonical money, display-only
+  opportunity names had divergent server/browser whitespace and UTF-8 bounds,
+  and browser validation admitted complete over-limit portfolios plus array-
+  coerced currencies. Deterministic regressions were added before product
+  changes. RED passed **6/10**, with the existing money expectation plus the
+  three new contract groups failing.
+- The readiness projection now reuses the detector's canonical commercial-
+  value normalizer independently of detector outcome. Known positive, known
+  zero, unknown, and malformed/not-assessed evidence remain distinct without
+  changing any detector decision. Presentation names are nullable unless they
+  are already trimmed and at most 255 UTF-8 bytes, so padded or oversized
+  legacy text cannot invalidate the whole response or rewrite canonical facts.
+  The browser now enforces `complete => total <= limit`,
+  `blocked => total > limit`, and string-typed canonical currency. GREEN passes
+  **10/10**.
+- The affected detector, service, API, browser-contract, queue, and monetary
+  set passes **51/51**. Complete integration passes **468/468** after using a
+  real temporary lockfile-identical dependency link for ESM and child-process
+  resolution; the preceding `NODE_PATH` run passed the harness and 461 product
+  assertions but had seven dependency-resolution setup failures. Focused
+  managed Chromium passes **2/2**, including the visible not-assessed count at
+  390px and no automatic scan. The harness, syntax, migration byte identity,
+  diff hygiene, and artifact cleanup pass. PostgreSQL was not repeated because
+  the existing exact-head tenant/RLS contract is **1/1** and this remediation
+  changes no repository, tenant, schema, migration, or mutation boundary.
 
 ## Review and handoff
 
@@ -271,7 +368,18 @@
   results; it is remediated at the same browser-contract boundary. The third
   review returned one P2 guided source-system namespace mismatch; it is
   remediated without changing or normalizing the server identity contract. One
-  fresh final independent review remains pending.
-- Final-review evidence: coordinator-owned after any bounded remediation.
-- Debt/follow-up: Slice 2 and Slice 3 remain dependency-gated; all explicit
-  milestone non-goals remain out of scope.
+  final independent review approved the resulting head with no P0-P3 findings,
+  and Slice 1 later merged through PR #36.
+- Slice 2 fresh review findings above are remediated at the shared monetary
+  projection, nullable presentation, and strict browser-contract boundaries.
+  A new independent review of the resulting pinned checkpoint is the next
+  gate.
+- Slice 2 implementer self-check: the complete diff was reread defect-first for
+  detector-rule drift, count reconciliation, false readiness, unknown-to-zero
+  money, cross-currency aggregation, caller tenant authority, hidden scan
+  mutation, unsupported remediation promises, stale request races, 390px
+  overflow, and schema drift. Focused, affected, PostgreSQL, browser, harness,
+  build, migration, and artifact evidence is recorded above. Fresh independent
+  review remains the next gate.
+- Debt/follow-up: Slice 3 remains dependency-gated; all explicit milestone
+  non-goals remain out of scope.
