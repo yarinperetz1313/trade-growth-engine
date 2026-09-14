@@ -134,6 +134,43 @@ dependency link removed. The journey/product suites were not repeated because
 the bounded change does not alter the accepted journey; managed browser, build,
 and full repository Verify remain delivery gates after final review.
 
+### Slice 4 bounded signal-lifecycle remediation
+
+The second independent review accepted the ownership markers, advisory lock,
+journey, and proof exclusions, but found two remaining P2 signal races at
+checkpoint `7dc77fe`. Signal cleanup could race the role transaction COMMIT
+before committed ownership was published, and the one-shot signal handlers
+allowed a repeated same or mixed signal to restore default termination before
+cleanup completed.
+
+The bounded correction uses one runner lifecycle state for the first
+interruption and cleanup start. Cleanup waits for in-flight provisioning to
+settle; provisioning publishes role ownership immediately after COMMIT and
+checks interruption at every subsequent resource boundary; the journey cannot
+enter a later phase after interruption. Both signal handlers stay installed
+until the idempotent cleanup promise or the explicit ten-second fallback
+resolves, absorb additional same or mixed signals, and only then remove
+handlers and re-raise the original signal.
+
+The synchronized signal-during-role-COMMIT contract was expected RED **0/1**
+at `7dc77fe`: cleanup returned before ownership publication, the journey still
+started, and later-created resources could survive a reported removal. The two
+synchronized subprocess contracts for repeated-same and mixed signals were
+expected RED **0/2**: default signal termination bypassed the held cleanup
+before its completion marker. The identical groups are GREEN **3/3**, and the
+complete acceptance file passes **16/16**. Migration/static contracts pass
+**19/19**, both changed Node files pass syntax checks, the engineering harness
+passes, and migrations `001`–`016` remain byte-for-byte unchanged.
+
+One fresh `npm --silent run acceptance:pilot` execution against a disposable
+Homebrew PostgreSQL 16.15 server retained every original gate and proof
+exclusion, performed no external send, and reported `REMOVED` for the database,
+runtime login, and migration roles. Independent post-command SQL returned **0**
+user databases and **0** `tge_*` roles. The PostgreSQL server was stopped, its
+fixture moved to Trash, and the temporary lockfile-identical dependency link
+was removed. Browser, build, full Verify, independent review, GitHub delivery,
+and later slices remain outside this bounded remediation.
+
 ## Native Astra four-finding remediation checkpoint — 2026-09-13
 
 Starting pin: `520da227f3dd1b24a96f2335d4484164b73da69b`, clean and six

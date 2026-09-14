@@ -30,6 +30,24 @@ reports **0** user databases and **0** `tge_*` roles. The disposable cluster and
 dependency link were removed; broader verification evidence is recorded in the
 active plan.
 
+The bounded second-review remediation closes the remaining two signal races at
+the acceptance-runner boundary. One shared lifecycle state records the first
+termination signal and cleanup start, prevents later provisioning and journey
+phases, and makes cleanup wait for in-flight provisioning to reach a known
+settled state. Role ownership is published immediately after the role
+transaction COMMIT, before interruption can stop provisioning, so cleanup
+cannot skip committed roles and then report a false removal. Both `SIGINT` and
+`SIGTERM` handlers remain installed throughout cleanup or the explicit bounded
+fallback; repeated same or mixed signals are absorbed before the original
+signal is re-raised. The synchronized role-COMMIT regression was RED **0/1** and
+the repeated/mixed subprocess group was RED **0/2** at `7dc77fe`; both groups
+are GREEN **3/3**, and the complete focused acceptance file is **16/16**.
+Migration/static contracts remain **19/19** and the engineering harness passes.
+A fresh PostgreSQL 16.15 acceptance retained the closed journey proof and
+reported cleanup `REMOVED`; independent SQL again found **0** user databases
+and **0** `tge_*` roles. This adds no provider, external-send, production,
+backup/restore, deletion, product, schema, API, or browser evidence.
+
 Focused contracts were RED **0/6** before the runner/runbook existed and are
 GREEN **7/7**, including the self-review guard that rejected pre-existing TGE
 roles are never touched. One final `npm --silent run acceptance:pilot` run against fresh

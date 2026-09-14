@@ -23,11 +23,18 @@ run. PostgreSQL releases the advisory lock automatically if the owning session
 is lost, so no stale filesystem lock requires manual deletion.
 
 `SIGINT` and `SIGTERM` enter the same idempotent cleanup path as ordinary
-success or failure. Cleanup begins exactly once, has a bounded ten-second
-window, and the command then re-raises the original signal so shell/process
-termination semantics remain truthful. A stalled cleanup cannot leave an
-unbounded signal handler; the whole disposable cluster must still be torn down
-with the fixture commands below after any interrupted or failed run.
+success or failure. The first signal records one authoritative interruption,
+prevents later provisioning and journey phases, and makes cleanup wait for any
+in-flight provisioning operation to reach a known settled boundary. Committed
+role ownership is published immediately after its transaction COMMIT so the
+same cleanup cannot pass that resource and later report a false removal.
+Cleanup begins exactly once and both signal handlers remain installed while it
+runs, absorbing repeated same or mixed `SIGINT`/`SIGTERM` signals. Cleanup has
+a bounded ten-second window; after cleanup or that explicit fallback resolves,
+the command removes its handlers and re-raises the original signal so
+shell/process termination semantics remain truthful. A stalled cleanup cannot
+leave an unbounded signal handler; the whole disposable cluster must still be
+torn down with the fixture commands below after any interrupted or failed run.
 
 The journey proves:
 

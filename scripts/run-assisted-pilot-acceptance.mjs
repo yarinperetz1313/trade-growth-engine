@@ -113,15 +113,29 @@ export async function runAssistedPilotAcceptance({
     operatorClient: null,
     databaseClient: null,
     runtimePool: null,
-    runtime: null
+    runtime: null,
+    lifecycle: {
+      interruptionSignal: null,
+      cleanupStarted: false
+    }
   };
   let setup;
   let evidence;
   let failed = false;
   let failedPhase = "UNKNOWN";
   let cleanupPromise = null;
+  let settleProvisioning;
+  const provisioningSettled = new Promise(resolve => {
+    settleProvisioning = resolve;
+  });
   const cleanupOnce = () => {
-    if (!cleanupPromise) cleanupPromise = Promise.resolve().then(() => cleanup(resources));
+    if (!cleanupPromise) {
+      resources.lifecycle.cleanupStarted = true;
+      cleanupPromise = Promise.resolve().then(async () => {
+        await provisioningSettled;
+        return cleanup(resources);
+      });
+    }
     return cleanupPromise;
   };
   const signalLifecycle = signalTarget
@@ -129,14 +143,25 @@ export async function runAssistedPilotAcceptance({
         target: signalTarget,
         cleanupOnce,
         timeoutMs: signalCleanupTimeoutMs,
-        onSignal
+        onSignal(signal) {
+          if (!resources.lifecycle.interruptionSignal) {
+            resources.lifecycle.interruptionSignal = signal;
+          }
+          if (typeof onSignal === "function") onSignal(signal);
+        }
       })
     : null;
 
   try {
-    setup = await provision(resources);
+    try {
+      setup = await provision(resources);
+    } finally {
+      settleProvisioning();
+    }
+    assertAcceptanceActive(resources);
     evidence = await journey(resources);
   } catch {
+    settleProvisioning();
     failed = true;
     failedPhase = resources.phase || "PROVISIONING";
   }
@@ -178,7 +203,7 @@ export function installAcceptanceSignalLifecycle({
 }) {
   if (
     !target
-    || typeof target.once !== "function"
+    || typeof target.on !== "function"
     || typeof target.removeListener !== "function"
     || typeof target.removeAllListeners !== "function"
     || typeof target.kill !== "function"
@@ -206,19 +231,29 @@ export function installAcceptanceSignalLifecycle({
     if (terminating) return;
     terminating = true;
     if (typeof onSignal === "function") onSignal(signal);
-    const timeout = new Promise(resolve => setTimeout(resolve, timeoutMs));
+    let timeoutId;
+    const timeout = new Promise(resolve => {
+      timeoutId = setTimeout(resolve, timeoutMs);
+    });
     void Promise.race([
       Promise.resolve().then(cleanupOnce).catch(() => {}),
       timeout
-    ]).then(() => reemitSignal(signal));
+    ]).then(() => {
+      clearTimeout(timeoutId);
+      reemitSignal(signal);
+    });
   };
 
   for (const signal of ACCEPTANCE_SIGNALS) {
     const handler = () => beginTermination(signal);
     handlers.set(signal, handler);
-    target.once(signal, handler);
+    target.on(signal, handler);
   }
-  return Object.freeze({ dispose: removeOwnedHandlers });
+  return Object.freeze({
+    dispose() {
+      if (!terminating) removeOwnedHandlers();
+    }
+  });
 }
 
 function buildAcceptanceProof(setup, evidence, cleanup) {
@@ -292,12 +327,13 @@ export async function provisionAcceptanceResources(resources, {
   postgres = null,
   migrate = null
 } = {}) {
-  resources.phase = "PROVISIONING";
+  enterAcceptancePhase(resources, "PROVISIONING");
   const pg = postgres || (await import("pg")).default;
   const { Client, Pool } = pg;
   const operatorClient = new Client({ connectionString: resources.operatorUrl });
   resources.operatorClient = operatorClient;
   await operatorClient.connect();
+  assertAcceptanceActive(resources);
 
   const ownershipLock = await operatorClient.query(
     "select pg_try_advisory_lock(hashtext($1)) as acquired",
@@ -305,6 +341,7 @@ export async function provisionAcceptanceResources(resources, {
   );
   expect(ownershipLock.rows?.[0]?.acquired, true);
   resources.acceptanceLockHeld = true;
+  assertAcceptanceActive(resources);
 
   const identity = await operatorClient.query(
     `select
@@ -314,11 +351,13 @@ export async function provisionAcceptanceResources(resources, {
   expect(identity.rows?.length, 1);
   expect(identity.rows[0].version_number, "160015");
   resources.operatorUser = identity.rows[0].operator;
+  assertAcceptanceActive(resources);
 
   const userDatabases = await operatorClient.query(
     `select datname from pg_database
      where datname not in ('postgres', 'template0', 'template1')`
   );
+  assertAcceptanceActive(resources);
   const existingRoles = await operatorClient.query(
     "select rolname from pg_roles where rolname = any($1::text[])",
     [ACCEPTANCE_ROLE_NAMES]
@@ -326,22 +365,28 @@ export async function provisionAcceptanceResources(resources, {
   expect(userDatabases.rows.length, 0);
   expect(existingRoles.rows.length, 0);
   resources.cleanServerVerified = true;
+  assertAcceptanceActive(resources);
 
   const ownershipToken = `${ACCEPTANCE_ROLE_OWNERSHIP_PREFIX}${randomUUID()}`;
   await operatorClient.query("begin");
+  assertAcceptanceActive(resources);
   try {
     for (const definition of ACCEPTANCE_ROLE_DEFINITIONS) {
       await operatorClient.query(`create role ${definition}`);
+      assertAcceptanceActive(resources);
     }
     for (const role of ACCEPTANCE_ROLE_NAMES) {
       const comment = await operatorClient.query(
         "select format('comment on role %I is %L', $1::text, $2::text) as sql",
         [role, ownershipToken]
       );
+      assertAcceptanceActive(resources);
       await operatorClient.query(comment.rows[0].sql);
+      assertAcceptanceActive(resources);
     }
     await operatorClient.query("commit");
     resources.migrationRoleOwnershipToken = ownershipToken;
+    assertAcceptanceActive(resources);
   } catch (error) {
     await operatorClient.query("rollback").catch(() => {});
     throw error;
@@ -354,22 +399,29 @@ export async function provisionAcceptanceResources(resources, {
   await operatorClient.query(
     `create database ${quoteIdentifier(resources.databaseName)}`
   );
+  assertAcceptanceActive(resources);
 
   const databaseUrl = replaceDatabase(resources.operatorUrl, resources.databaseName);
   const runMigrations = migrate || (await import("./migrate-db.mjs")).runMigrations;
+  assertAcceptanceActive(resources);
   await runMigrations({ connectionString: databaseUrl, logger: { log() {} } });
+  assertAcceptanceActive(resources);
 
   const databaseClient = new Client({ connectionString: databaseUrl });
   resources.databaseClient = databaseClient;
   await databaseClient.connect();
+  assertAcceptanceActive(resources);
   const createRole = await databaseClient.query(
     "select format('create role %I login password %L nosuperuser nocreatedb nocreaterole noreplication nobypassrls', $1::text, $2::text) as sql",
     [resources.runtimeRole, resources.runtimePassword]
   );
+  assertAcceptanceActive(resources);
   await databaseClient.query(createRole.rows[0].sql);
+  assertAcceptanceActive(resources);
   await databaseClient.query(
     `grant tge_runtime to ${quoteIdentifier(resources.runtimeRole)}`
   );
+  assertAcceptanceActive(resources);
   resources.runtimeUrl = replaceCredentials(
     databaseUrl,
     resources.runtimeRole,
@@ -380,7 +432,8 @@ export async function provisionAcceptanceResources(resources, {
 }
 
 async function executeAcceptanceJourney(resources) {
-  resources.phase = "TENANT_SETUP";
+  enterAcceptancePhase(resources, "TENANT_SETUP");
+  const acceptanceRequest = (...args) => requestWhileActive(resources, ...args);
   const {
     createPilotRuntime,
     readPilotConfig
@@ -399,12 +452,14 @@ async function executeAcceptanceJourney(resources) {
      values ($1, $2, 'Acceptance Tenant A'), ($3, $4, 'Acceptance Tenant B')`,
     [tenantA, `acceptance-a-${randomUUID()}`, tenantB, `acceptance-b-${randomUUID()}`]
   );
+  assertAcceptanceActive(resources);
   await resources.databaseClient.query(
     `insert into tge.tenant_memberships
        (tenant_id, identity_issuer, subject_id, role)
      values ($1, $2, $3, 'OWNER'), ($4, $2, $5, 'OWNER')`,
     [tenantA, issuer, subjectA, tenantB, subjectB]
   );
+  assertAcceptanceActive(resources);
 
   resources.runtimePool = new resources.Pool({
     connectionString: resources.runtimeUrl,
@@ -435,15 +490,16 @@ async function executeAcceptanceJourney(resources) {
     logger: { info() {}, warn() {}, error() {} }
   });
   const server = await resources.runtime.listen({ port: 0, autoProbe: false });
+  assertAcceptanceActive(resources);
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   const headersA = { authorization: `Bearer ${tokenA}` };
   const headersB = { authorization: `Bearer ${tokenB}` };
 
-  resources.phase = "NOT_READY_GATE";
-  const initialReady = await request(baseUrl, "GET", "/health/ready");
+  enterAcceptancePhase(resources, "NOT_READY_GATE");
+  const initialReady = await acceptanceRequest(baseUrl, "GET", "/health/ready");
   expect(initialReady.status, 503);
   expect(initialReady.data.status, "not_ready");
-  const gated = await request(
+  const gated = await acceptanceRequest(
     baseUrl,
     "GET",
     "/api/revenue-leak-cases/operating-queue",
@@ -453,15 +509,16 @@ async function executeAcceptanceJourney(resources) {
   expect(gated.status, 503);
   expect(gated.data.error, "SECURE_RUNTIME_NOT_READY");
 
-  resources.phase = "SECURE_READINESS";
+  enterAcceptancePhase(resources, "SECURE_READINESS");
   const readiness = await resources.runtime.probeReadiness();
+  assertAcceptanceActive(resources);
   expect(readiness.ready, true);
-  const ready = await request(baseUrl, "GET", "/health/ready");
+  const ready = await acceptanceRequest(baseUrl, "GET", "/health/ready");
   expect(ready.status, 200);
   expect(ready.data.status, "ready");
 
-  resources.phase = "MEMBERSHIP_AUTHORITY";
-  const context = await request(baseUrl, "GET", "/api/auth/context", undefined, headersA);
+  enterAcceptancePhase(resources, "MEMBERSHIP_AUTHORITY");
+  const context = await acceptanceRequest(baseUrl, "GET", "/api/auth/context", undefined, headersA);
   expect(context.status, 200);
   expect(context.data.tenantContext.tenantId, tenantA);
   expect(context.data.tenantContext.role, "OWNER");
@@ -478,8 +535,8 @@ async function executeAcceptanceJourney(resources) {
     mediaType: "text/csv",
     contentBase64: Buffer.from(csv, "utf8").toString("base64")
   };
-  resources.phase = "FORGED_TENANT_REJECTION";
-  const forged = await request(
+  enterAcceptancePhase(resources, "FORGED_TENANT_REJECTION");
+  const forged = await acceptanceRequest(
     baseUrl,
     "POST",
     "/api/import-batches/preview",
@@ -489,8 +546,8 @@ async function executeAcceptanceJourney(resources) {
   expect(forged.status, 400);
   expect(forged.data.error, "IMPORT_REQUEST_INVALID");
 
-  resources.phase = "CSV_PREVIEW";
-  const preview = await request(
+  enterAcceptancePhase(resources, "CSV_PREVIEW");
+  const preview = await acceptanceRequest(
     baseUrl,
     "POST",
     `/api/import-batches/preview?tenantId=${tenantB}`,
@@ -515,8 +572,8 @@ async function executeAcceptanceJourney(resources) {
     { targetField: "updated_at", sourceColumn: "updated_at", selectedType: "TIMESTAMP" }
   ];
   const sourceIdentitySelection = { sourceColumn: "source_id" };
-  resources.phase = "DATA_HEALTH";
-  const analysis = await request(
+  enterAcceptancePhase(resources, "DATA_HEALTH");
+  const analysis = await acceptanceRequest(
     baseUrl,
     "POST",
     `/api/import-batches/${batchId}/analysis`,
@@ -528,8 +585,8 @@ async function executeAcceptanceJourney(resources) {
   expect(analysis.data.data.dataHealth.validRows, 1);
   expect(analysis.data.data.dataHealth.rowsWithBlockingErrors, 0);
 
-  resources.phase = "CANONICAL_COMMIT";
-  const committed = await request(
+  enterAcceptancePhase(resources, "CANONICAL_COMMIT");
+  const committed = await acceptanceRequest(
     baseUrl,
     "POST",
     `/api/import-batches/${batchId}/commit`,
@@ -545,15 +602,21 @@ async function executeAcceptanceJourney(resources) {
   expect(committed.data.data.outcome, "COMMITTED");
   expect(committed.data.data.summary.committed, 1);
 
-  const opportunities = await request(baseUrl, "GET", "/api/opportunities", undefined, headersA);
+  const opportunities = await acceptanceRequest(
+    baseUrl,
+    "GET",
+    "/api/opportunities",
+    undefined,
+    headersA
+  );
   expect(opportunities.status, 200);
   expect(opportunities.data.count, 1);
   expect(opportunities.data.data[0].id, opportunityId);
   expect(opportunities.data.data[0].currency, "AUD");
   expect(String(opportunities.data.data[0].value), "42000.5");
 
-  resources.phase = "STALLED_SCAN";
-  const scan = await request(
+  enterAcceptancePhase(resources, "STALLED_SCAN");
+  const scan = await acceptanceRequest(
     baseUrl,
     "POST",
     "/api/revenue-leak-cases/scan-stalled-opportunities",
@@ -563,8 +626,8 @@ async function executeAcceptanceJourney(resources) {
   expect(scan.status, 200);
   expect(scan.data.summary.total_opportunities, 1);
   expect(scan.data.summary.reconciliation.detected_count, 1);
-  resources.phase = "OPERATING_QUEUE";
-  const queue = await request(
+  enterAcceptancePhase(resources, "OPERATING_QUEUE");
+  const queue = await acceptanceRequest(
     baseUrl,
     "GET",
     "/api/revenue-leak-cases/operating-queue",
@@ -577,8 +640,8 @@ async function executeAcceptanceJourney(resources) {
   expect(queue.data.data.entries[0].potential_value.currency, "AUD");
   const caseId = queue.data.data.entries[0].case.id;
 
-  resources.phase = "CASE_HANDOFF";
-  const handoff = await request(
+  enterAcceptancePhase(resources, "CASE_HANDOFF");
+  const handoff = await acceptanceRequest(
     baseUrl,
     "POST",
     `/api/revenue-leak-cases/${caseId}/revenue-action`,
@@ -592,8 +655,8 @@ async function executeAcceptanceJourney(resources) {
   expect(handoff.data.data.case.revenue_action_id, actionId);
   expect(handoff.data.data.revenue_action.execution_type, "INTERNAL_TASK");
 
-  resources.phase = "ACTION_LIFECYCLE";
-  const prepared = await request(
+  enterAcceptancePhase(resources, "ACTION_LIFECYCLE");
+  const prepared = await acceptanceRequest(
     baseUrl,
     "POST",
     `/api/revenue-actions/${actionId}/prepare`,
@@ -602,7 +665,7 @@ async function executeAcceptanceJourney(resources) {
   );
   expect(prepared.status, 200);
   expect(prepared.data.data.status, "PREPARED");
-  const approved = await request(
+  const approved = await acceptanceRequest(
     baseUrl,
     "POST",
     `/api/revenue-actions/${actionId}/approve`,
@@ -611,7 +674,7 @@ async function executeAcceptanceJourney(resources) {
   );
   expect(approved.status, 200);
   expect(approved.data.data.status, "APPROVED");
-  const executed = await request(
+  const executed = await acceptanceRequest(
     baseUrl,
     "POST",
     `/api/revenue-actions/${actionId}/execute`,
@@ -627,12 +690,12 @@ async function executeAcceptanceJourney(resources) {
   expect(typeof taskId === "string" && taskId.length > 0, true);
   expect(typeof activityId === "string" && activityId.length > 0, true);
 
-  resources.phase = "DURABLE_EFFECTS";
+  enterAcceptancePhase(resources, "DURABLE_EFFECTS");
   const [durableCase, durableAction, tasks, activities] = await Promise.all([
-    request(baseUrl, "GET", `/api/revenue-leak-cases/${caseId}`, undefined, headersA),
-    request(baseUrl, "GET", `/api/revenue-actions/${actionId}`, undefined, headersA),
-    request(baseUrl, "GET", `/api/tasks/opportunity/${opportunityId}`, undefined, headersA),
-    request(baseUrl, "GET", `/api/opportunities/${opportunityId}/activities`, undefined, headersA)
+    acceptanceRequest(baseUrl, "GET", `/api/revenue-leak-cases/${caseId}`, undefined, headersA),
+    acceptanceRequest(baseUrl, "GET", `/api/revenue-actions/${actionId}`, undefined, headersA),
+    acceptanceRequest(baseUrl, "GET", `/api/tasks/opportunity/${opportunityId}`, undefined, headersA),
+    acceptanceRequest(baseUrl, "GET", `/api/opportunities/${opportunityId}/activities`, undefined, headersA)
   ]);
   expect(durableCase.status, 200);
   expect(durableCase.data.data.id, caseId);
@@ -641,12 +704,12 @@ async function executeAcceptanceJourney(resources) {
   expect(tasks.data.data.some(task => task.id === taskId), true);
   expect(activities.data.data.some(activity => activity.id === activityId), true);
 
-  resources.phase = "SECOND_TENANT_ISOLATION";
+  enterAcceptancePhase(resources, "SECOND_TENANT_ISOLATION");
   const [hiddenPreview, hiddenAction, tenantBQueue, tenantBOpportunities] = await Promise.all([
-    request(baseUrl, "GET", `/api/import-batches/${batchId}/preview`, undefined, headersB),
-    request(baseUrl, "GET", `/api/revenue-actions/${actionId}`, undefined, headersB),
-    request(baseUrl, "GET", "/api/revenue-leak-cases/operating-queue", undefined, headersB),
-    request(baseUrl, "GET", "/api/opportunities", undefined, headersB)
+    acceptanceRequest(baseUrl, "GET", `/api/import-batches/${batchId}/preview`, undefined, headersB),
+    acceptanceRequest(baseUrl, "GET", `/api/revenue-actions/${actionId}`, undefined, headersB),
+    acceptanceRequest(baseUrl, "GET", "/api/revenue-leak-cases/operating-queue", undefined, headersB),
+    acceptanceRequest(baseUrl, "GET", "/api/opportunities", undefined, headersB)
   ]);
   expect(hiddenPreview.status, 404);
   expect(hiddenPreview.data.error, "IMPORT_BATCH_UNAVAILABLE");
@@ -830,6 +893,13 @@ async function request(baseUrl, method, pathname, body, headers = {}) {
   return { status: response.status, data };
 }
 
+async function requestWhileActive(resources, ...args) {
+  assertAcceptanceActive(resources);
+  const response = await request(...args);
+  assertAcceptanceActive(resources);
+  return response;
+}
+
 function replaceDatabase(connectionString, databaseName) {
   const url = new URL(connectionString);
   url.pathname = `/${databaseName}`;
@@ -848,6 +918,20 @@ function quoteIdentifier(value) {
     throw new Error("Generated PostgreSQL identifier is invalid.");
   }
   return `"${value}"`;
+}
+
+function enterAcceptancePhase(resources, phase) {
+  assertAcceptanceActive(resources);
+  resources.phase = phase;
+}
+
+function assertAcceptanceActive(resources) {
+  if (
+    resources.lifecycle?.interruptionSignal
+    || resources.lifecycle?.cleanupStarted
+  ) {
+    throw new Error("Assisted Pilot acceptance interrupted.");
+  }
 }
 
 function expect(actual, expected) {

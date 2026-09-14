@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn, spawnSync } = require("node:child_process");
+const { EventEmitter } = require("node:events");
 const test = require("node:test");
 const { pathToFileURL } = require("node:url");
 
@@ -400,6 +401,146 @@ test("cleanup refuses to mutate a migration role whose ownership marker changed"
   assert.equal(statements.some(statement => /pg_advisory_unlock/i.test(statement)), true);
 });
 
+test("signal during role COMMIT drains provisioning before truthful cleanup", async () => {
+  const module = await import(`${pathToFileURL(command).href}?signal-during-role-commit`);
+  const signalTarget = new EventEmitter();
+  signalTarget.pid = 12345;
+  const killedSignals = [];
+  signalTarget.kill = (pid, signal) => {
+    assert.equal(pid, signalTarget.pid);
+    killedSignals.push(signal);
+  };
+
+  const state = {
+    databases: new Set(),
+    roles: new Map(),
+    runtimeRole: null
+  };
+  const statements = [];
+  let journeyStarted = false;
+  let committedSignalSent = false;
+  const operatorClient = {
+    async connect() {},
+    async end() {},
+    async query(statement, values = []) {
+      const sql = String(statement).trim();
+      statements.push(sql);
+      if (/pg_try_advisory_lock/i.test(sql)) return { rows: [{ acquired: true }] };
+      if (/current_setting\('server_version_num'\)/i.test(sql)) {
+        return { rows: [{ version_number: "160015", operator: "acceptance_operator" }] };
+      }
+      if (/select datname from pg_database/i.test(sql)) {
+        return { rows: [...state.databases].map(datname => ({ datname })) };
+      }
+      if (/from pg_roles\s+where rolname = any/i.test(sql)) {
+        return {
+          rows: [...state.roles].map(([rolname, ownership_marker]) => ({
+            rolname,
+            ownership_marker
+          }))
+        };
+      }
+      const fixedRole = sql.match(/^create role (tge_(?:owner|migrator|runtime|maintenance))\b/i);
+      if (fixedRole) {
+        state.roles.set(fixedRole[1], null);
+        return { rows: [] };
+      }
+      if (/select format\('comment on role/i.test(sql)) {
+        return { rows: [{ sql: `comment on role ${values[0]} is '${values[1]}'` }] };
+      }
+      const comment = sql.match(/^comment on role (tge_\w+) is '([^']+)'$/i);
+      if (comment) {
+        state.roles.set(comment[1], comment[2]);
+        return { rows: [] };
+      }
+      if (/^commit$/i.test(sql) && !committedSignalSent) {
+        committedSignalSent = true;
+        signalTarget.emit("SIGTERM");
+        await new Promise(resolve => setImmediate(resolve));
+        return { rows: [] };
+      }
+      const createDatabase = sql.match(/^create database "([a-z0-9_]+)"$/i);
+      if (createDatabase) {
+        state.databases.add(createDatabase[1]);
+        return { rows: [] };
+      }
+      const dropDatabase = sql.match(/^drop database if exists "([a-z0-9_]+)"$/i);
+      if (dropDatabase) {
+        state.databases.delete(dropDatabase[1]);
+        return { rows: [] };
+      }
+      if (/select 1 from pg_database where datname/i.test(sql)) {
+        return { rows: state.databases.has(values[0]) ? [{ "?column?": 1 }] : [] };
+      }
+      if (/select format\('create role %I login password/i.test(sql)) {
+        return { rows: [{ sql: `create role ${values[0]} login` }] };
+      }
+      const runtimeRole = sql.match(/^create role (tge_acceptance_runtime_[a-z0-9]+) login$/i);
+      if (runtimeRole) {
+        state.runtimeRole = runtimeRole[1];
+        return { rows: [] };
+      }
+      const dropRuntimeRole = sql.match(/^drop role if exists "(tge_acceptance_runtime_[a-z0-9]+)"$/i);
+      if (dropRuntimeRole) {
+        if (state.runtimeRole === dropRuntimeRole[1]) state.runtimeRole = null;
+        return { rows: [] };
+      }
+      if (/select 1 from pg_roles where rolname = \$1/i.test(sql)) {
+        return { rows: state.runtimeRole === values[0] ? [{ "?column?": 1 }] : [] };
+      }
+      const dropFixedRole = sql.match(/^drop role "(tge_\w+)"$/i);
+      if (dropFixedRole) {
+        state.roles.delete(dropFixedRole[1]);
+        return { rows: [] };
+      }
+      return { rows: [] };
+    }
+  };
+  class MockClient {
+    constructor() {
+      return operatorClient;
+    }
+  }
+
+  let capturedError;
+  try {
+    await module.runAssistedPilotAcceptance({
+      env: {
+        TGE_ACCEPTANCE_DATABASE_URL:
+          "postgresql://operator@127.0.0.1:55439/postgres"
+      },
+      signalTarget,
+      provision: resources => module.provisionAcceptanceResources(resources, {
+        postgres: { Client: MockClient, Pool: class {} },
+        migrate: async () => {}
+      }),
+      journey: async () => {
+        journeyStarted = true;
+        return completeJourneyEvidence();
+      }
+    });
+  } catch (error) {
+    capturedError = error;
+  }
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(capturedError instanceof module.AcceptanceRunError, true);
+  assert.deepEqual(capturedError.cleanup, {
+    database: "REMOVED",
+    runtime_login: "REMOVED",
+    migration_roles: "REMOVED"
+  }, JSON.stringify({ state: {
+    databases: [...state.databases],
+    roles: [...state.roles],
+    runtimeRole: state.runtimeRole
+  }, statements }));
+  assert.equal(journeyStarted, false);
+  assert.deepEqual([...state.databases], []);
+  assert.equal(state.runtimeRole, null);
+  assert.deepEqual([...state.roles], []);
+  assert.deepEqual(killedSignals, ["SIGTERM"]);
+});
+
 for (const signal of ["SIGINT", "SIGTERM"]) {
   test(`${signal} cleans exactly once and then preserves signal termination`, async () => {
     const result = await runSignalLifecycleDiagnostic({ signal });
@@ -427,6 +568,28 @@ test("stalled signal cleanup has a bounded forced-termination fallback", async (
     fs.rmSync(result.fixtureRoot, { recursive: true, force: true });
   }
 });
+
+for (const [name, firstSignal, repeatedSignal] of [
+  ["repeated same signal", "SIGTERM", "SIGTERM"],
+  ["mixed SIGINT/SIGTERM signals", "SIGINT", "SIGTERM"]
+]) {
+  test(`${name} cannot bypass cleanup before original signal termination`, async () => {
+    const result = await runRepeatedSignalLifecycleDiagnostic({
+      firstSignal,
+      repeatedSignal
+    });
+    try {
+      assert.equal(result.code, null);
+      assert.equal(result.signal, firstSignal);
+      assert.equal(
+        fs.readFileSync(result.marker, "utf8"),
+        "cleanup-started\ncleanup-complete\n"
+      );
+    } finally {
+      fs.rmSync(result.fixtureRoot, { recursive: true, force: true });
+    }
+  });
+}
 
 function completeJourneyEvidence(extra = {}) {
   return {
@@ -516,6 +679,96 @@ async function runSignalLifecycleDiagnostic({
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
     throw error;
   }
+}
+
+async function runRepeatedSignalLifecycleDiagnostic({ firstSignal, repeatedSignal }) {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tge-acceptance-repeat-signal-"));
+  const marker = path.join(fixtureRoot, "cleanup.txt");
+  const moduleUrl = pathToFileURL(command).href;
+  const source = `
+    import fs from "node:fs";
+    const marker = process.argv[1];
+    const repeatedSignal = process.argv[2];
+    const { runAssistedPilotAcceptance } = await import(${JSON.stringify(moduleUrl)});
+    void runAssistedPilotAcceptance({
+      env: {
+        TGE_ACCEPTANCE_DATABASE_URL:
+          "postgresql://operator@127.0.0.1:55439/postgres"
+      },
+      signalTarget: process,
+      provision: async resources => {
+        resources.databaseName = "tge_acceptance_repeated_signal_database";
+        process.stdout.write("READY\\n");
+        return { postgresVersion: "16.15" };
+      },
+      journey: async () => new Promise(() => setInterval(() => {}, 1000)),
+      cleanup: async () => {
+        fs.appendFileSync(marker, "cleanup-started\\n");
+        process.prependOnceListener(repeatedSignal, () => {
+          process.stdout.write("REPEATED_OBSERVED\\n");
+          setImmediate(() => process.kill(process.pid, repeatedSignal));
+        });
+        process.stdout.write("CLEANUP_STARTED\\n");
+        await new Promise(resolve => process.once("message", resolve));
+        fs.appendFileSync(marker, "cleanup-complete\\n");
+        return {
+          database: "REMOVED",
+          runtime_login: "REMOVED",
+          migration_roles: "REMOVED"
+        };
+      }
+    });
+  `;
+  const child = spawn(
+    process.execPath,
+    ["--input-type=module", "--eval", source, marker, repeatedSignal],
+    { cwd: repositoryRoot, stdio: ["ignore", "pipe", "pipe", "ipc"] }
+  );
+
+  try {
+    const output = collectOutput(child);
+    await output.waitFor("READY\n");
+    const exited = waitForExit(child, 5000);
+    child.kill(firstSignal);
+    await output.waitFor("CLEANUP_STARTED\n");
+    child.kill(repeatedSignal);
+    await output.waitFor("REPEATED_OBSERVED\n");
+    if (child.connected) child.send("RELEASE");
+    const outcome = await exited;
+    return { ...outcome, marker, fixtureRoot };
+  } catch (error) {
+    child.kill("SIGKILL");
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function collectOutput(child) {
+  let stdout = "";
+  const waiters = new Set();
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", chunk => {
+    stdout += chunk;
+    for (const waiter of waiters) {
+      if (!stdout.includes(waiter.expected)) continue;
+      clearTimeout(waiter.timer);
+      waiters.delete(waiter);
+      waiter.resolve();
+    }
+  });
+  return {
+    waitFor(expected) {
+      if (stdout.includes(expected)) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        const waiter = { expected, resolve, timer: null };
+        waiter.timer = setTimeout(() => {
+          waiters.delete(waiter);
+          reject(new Error(`signal fixture output timed out waiting for ${expected.trim()}`));
+        }, 3000);
+        waiters.add(waiter);
+      });
+    }
+  };
 }
 
 function waitForReady(child) {
