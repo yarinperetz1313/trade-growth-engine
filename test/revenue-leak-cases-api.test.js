@@ -485,6 +485,60 @@ test("API exposes only empty-body portfolio scans and rejects caller-controlled 
   });
 });
 
+test("API exposes tenant-bound read-only stalled-opportunity readiness without caller scope", async () => {
+  seedStore();
+  writeCollection("activities", []);
+  writeCollection("tasks", []);
+  const service = createRevenueLeakCaseService({
+    persistence: createPersistence({ adapter: "json" }),
+    clock: () => new Date("2026-09-01T00:00:00.000Z")
+  });
+  const localContext = createTenantContext({
+    tenantId: LOCAL_REVENUE_LEAK_TENANT_ID,
+    subjectId: "api-readiness"
+  });
+  const express = require("express");
+  const readinessApp = express();
+  readinessApp.use(express.json());
+  readinessApp.use(createRevenueLeakCasesRouter({
+    service,
+    resolveTenantContext: () => localContext
+  }));
+
+  await withServer(readinessApp, async baseUrl => {
+    const readiness = await request(
+      baseUrl,
+      "GET",
+      "/api/revenue-leak-cases/stalled-opportunity-eligibility"
+    );
+    assert.equal(readiness.status, 200);
+    assert.equal(readiness.data.ok, true);
+    assert.equal(readiness.data.mode, "READ_ONLY");
+    assert.equal(readiness.data.summary.total_opportunities, 1);
+    assert.equal(readiness.data.summary.detector_assessable_count, 0);
+    assert.equal(readiness.data.summary.detector_unassessable_count, 1);
+    assert.deepEqual(readCollection("revenue_leak_cases"), []);
+
+    const forged = await request(
+      baseUrl,
+      "GET",
+      "/api/revenue-leak-cases/stalled-opportunity-eligibility?tenant_id=forged"
+    );
+    assert.equal(forged.status, 400);
+    assert.equal(forged.data.error, "REVENUE_LEAK_ELIGIBILITY_REQUEST_INVALID");
+
+    const mutation = await fetch(
+      `${baseUrl}/api/revenue-leak-cases/stalled-opportunity-eligibility`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}"
+      }
+    );
+    assert.equal(mutation.status, 404);
+  });
+});
+
 test("operating-queue API is read-only and rejects unbounded caller query shapes", async () => {
   seedStore();
   await withServer(app, async baseUrl => {

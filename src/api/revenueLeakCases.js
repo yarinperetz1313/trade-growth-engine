@@ -93,6 +93,25 @@ function createRevenueLeakCasesRouter({ service, resolveTenantContext } = {}) {
 
   const router = express.Router();
 
+  router.get(
+    "/api/revenue-leak-cases/stalled-opportunity-eligibility",
+    route(async (req, res, resolveService) => {
+      if (Object.keys(req.query || {}).length > 0) {
+        return res.status(400).json({
+          ok: false,
+          error: "REVENUE_LEAK_ELIGIBILITY_REQUEST_INVALID",
+          message: "Stalled-opportunity eligibility does not accept query parameters.",
+          details: { field: "query" }
+        });
+      }
+      const requestBound = await resolveService(req);
+      return sendResult(
+        res,
+        await requestBound.getStalledOpportunityEligibility()
+      );
+    })
+  );
+
   router.post(
     "/api/revenue-leak-cases/scan-stalled-opportunities",
     route(async (req, res, resolveService) => {

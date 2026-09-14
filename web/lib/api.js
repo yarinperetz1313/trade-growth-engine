@@ -14,6 +14,7 @@ import {
   unwrapRevenueLeakCaseListResponse,
   unwrapRevenueLeakActionHandoffResponse,
   unwrapRevenueLeakCaseMutationResponse,
+  unwrapStalledOpportunityEligibilityResponse,
   unwrapRevenueLeakOperatingQueueResponse,
   unwrapStalledOpportunityScanResponse,
   unwrapStalledOpportunityDetectionResponse
@@ -325,6 +326,13 @@ export async function getRevenueLeakOperatingQueue() {
   );
   unwrapRevenueLeakOperatingQueueResponse(response);
   return response;
+}
+
+export async function getStalledOpportunityEligibility() {
+  const response = await request(
+    "/api/revenue-leak-cases/stalled-opportunity-eligibility"
+  );
+  return unwrapStalledOpportunityEligibilityResponse(response);
 }
 
 export async function scanStalledOpportunities() {

@@ -3,6 +3,7 @@ import {
   createRevenueActionForLeakCase,
   getPilotEvidenceStatus,
   getRevenueLeakOperatingQueue,
+  getStalledOpportunityEligibility,
   recordPilotCaseFeedback,
   recordPilotCaseInspected,
   recordPilotCaseSurfaced,
@@ -62,6 +63,25 @@ function queueErrorCopy(error) {
     kind,
     title: "Revenue operating queue unavailable",
     message: error?.message || "The revenue operating queue could not be loaded."
+  };
+}
+
+function eligibilityErrorCopy(error) {
+  const kind = classifyRevenueLeakOperatingQueueError(error);
+  if (kind === "UNAUTHORIZED") return {
+    kind,
+    title: "Operational Data Health unauthorized",
+    message: "You are not authorized to assess this tenant's opportunity dataset."
+  };
+  if (kind === "PERSISTENCE") return {
+    kind,
+    title: "Operational Data Health unavailable",
+    message: "Tenant-scoped canonical evidence is temporarily unavailable. No scan-readiness conclusion was inferred."
+  };
+  return {
+    kind,
+    title: "Operational Data Health could not be verified",
+    message: error?.message || "Server-authoritative detector readiness could not be loaded."
   };
 }
 
@@ -152,6 +172,144 @@ function ScanSummary({ summary }) {
       <small>
         Suppressed {summary.outcomes.DATA_HEALTH_SUPPRESSED.count}. Detector thresholds and queue order are unchanged.
       </small>
+    </section>
+  );
+}
+
+const NEXT_STEP_COPY = Object.freeze({
+  CORRECT_OPPORTUNITY_STAGE: "Use the pipeline stage control to record a recognized stage, then refresh readiness.",
+  IMPORT_ACTIVITY_OR_CREATED_AT: "Import a valid meaningful activity linked to this opportunity, then refresh readiness.",
+  CORRECT_TIMESTAMP_EVIDENCE: "Ask the assisted-pilot operator to correct this canonical timestamp. Re-import does not overwrite immutable source evidence.",
+  IMPORT_NEWER_SOURCE_DATA: "Import newer activity evidence linked to this opportunity, or ask the assisted-pilot operator to resolve the immutable source record.",
+  CORRECT_OPPORTUNITY_EVIDENCE: "Ask the assisted-pilot operator to correct this canonical opportunity record before scanning.",
+  CORRECT_NEXT_ACTION_EVIDENCE: "Ask the assisted-pilot operator to correct the malformed next-action evidence before scanning.",
+  CORRECT_TASK_STATUS: "Ask the assisted-pilot operator to correct the unsupported task status before scanning.",
+  CORRECT_TASK_EVIDENCE: "Ask the assisted-pilot operator to resolve duplicated or inconsistent task evidence before scanning.",
+  CORRECT_ACTIVITY_EVIDENCE: "Ask the assisted-pilot operator to resolve duplicated or malformed activity evidence before scanning.",
+  CORRECT_COMMERCIAL_EVIDENCE: "Ask the assisted-pilot operator to correct malformed value or currency evidence. Missing money may remain unknown without blocking an otherwise valid record."
+});
+
+function readinessHeading(summary) {
+  if (summary.readiness === "EMPTY") return "No opportunities are available to assess";
+  if (summary.readiness === "READY") {
+    return `${summary.detector_assessable_count} of ${summary.total_opportunities} opportunities are ready to assess`;
+  }
+  if (summary.readiness === "PARTIAL") {
+    return `${summary.detector_assessable_count} of ${summary.total_opportunities} opportunities are ready to assess`;
+  }
+  if (summary.readiness === "NOT_READY") {
+    return `0 of ${summary.total_opportunities} opportunities are ready to assess`;
+  }
+  return "The explicit stalled-opportunity scan is currently blocked";
+}
+
+function OperationalDataHealth({ readiness, state, error, onRetry }) {
+  if (state === "LOADING" && !readiness) {
+    return (
+      <section className="rcc2-readiness rcc2-state" role="status">
+        Loading server-authoritative Operational Data Health…
+      </section>
+    );
+  }
+  if (error || !readiness) {
+    return (
+      <section className="rcc2-readiness rcc2-alert" role="alert">
+        <strong>{error?.title || "Operational Data Health unavailable"}</strong>
+        <span>{error?.message || "No scan-readiness conclusion was inferred."}</span>
+        {error?.kind !== "UNAUTHORIZED" && (
+          <button type="button" className="oc-secondary-button" onClick={onRetry}>
+            Retry readiness
+          </button>
+        )}
+      </section>
+    );
+  }
+  const summary = readiness.summary;
+  const ineligible = readiness.records.filter(record =>
+    record.classification !== "ELIGIBLE"
+  );
+  return (
+    <section
+      className={`rcc2-readiness ${summary.readiness.toLowerCase()}`}
+      aria-labelledby="operational-data-health-title"
+      data-testid="stalled-opportunity-readiness"
+    >
+      <div className="rcc2-readiness-heading">
+        <div>
+          <span className="eyebrow">BEFORE YOU SCAN</span>
+          <h4 id="operational-data-health-title">Operational Data Health</h4>
+          <strong>{readinessHeading(summary)}</strong>
+        </div>
+        <span className="rcc2-readiness-status">{summary.readiness.replaceAll("_", " ")}</span>
+      </div>
+      {summary.readiness === "EMPTY" && (
+        <p>Import or create opportunity evidence before running the detector.</p>
+      )}
+      {summary.readiness === "READY" && (
+        <p>The server can decide leak or no-leak for every current tenant-visible opportunity. Run the explicit scan when you are ready.</p>
+      )}
+      {summary.readiness === "PARTIAL" && (
+        <p>The explicit scan will evaluate all {summary.scan_evaluated_count} records, but can decide leak or no-leak for only {summary.detector_assessable_count}. Review the limitations below before proceeding with that safe subset.</p>
+      )}
+      {summary.readiness === "NOT_READY" && (
+        <p>The explicit scan would return only evidence limitations. Resolve the supported issues below, then refresh readiness.</p>
+      )}
+      {summary.readiness === "BLOCKED" && (
+        <p>The current portfolio exceeds or violates the bounded scan contract. No record was assessed and the scan action remains unavailable.</p>
+      )}
+      <div className="rcc2-readiness-metrics" aria-label="Stalled-opportunity assessment coverage">
+        <div><span>Known to TGE</span><strong>{summary.total_opportunities}</strong></div>
+        <div><span>Ready to assess</span><strong>{summary.detector_assessable_count}</strong></div>
+        <div><span>Cannot assess now</span><strong>{summary.detector_unassessable_count}</strong></div>
+        <div><span>Known positive value</span><strong>{summary.commercial_value_coverage.known_positive_count}</strong></div>
+        <div><span>Known zero</span><strong>{summary.commercial_value_coverage.known_zero_count}</strong></div>
+        <div><span>Unknown value</span><strong>{summary.commercial_value_coverage.unknown_count}</strong></div>
+        {summary.commercial_value_coverage.not_assessed_count > 0 && (
+          <div><span>Value not assessed</span><strong>{summary.commercial_value_coverage.not_assessed_count}</strong></div>
+        )}
+      </div>
+      <small className="rcc2-readiness-scope">
+        Coverage is limited to the current tenant-visible canonical opportunity dataset. TGE does not claim this is the customer's complete business. No money is aggregated or converted here; unknown is not zero.
+      </small>
+      {Object.keys(summary.reason_counts).length > 0 && (
+        <div className="rcc2-readiness-reasons" aria-label="Reasons opportunities cannot be assessed">
+          <strong>Why records cannot be assessed now</strong>
+          <ul>
+            {Object.entries(summary.reason_counts).map(([reasonCode, count]) => (
+              <li key={reasonCode}>
+                <span>{detectorReasonExplanation(reasonCode)}</span>
+                <strong>{count}</strong>
+                <code>{reasonCode}</code>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {summary.global_reason_code && (
+        <div className="rcc2-readiness-blocker">
+          <code>{summary.global_reason_code}</code>
+          <span>{summary.total_opportunities} records cannot enter the bounded 100-opportunity scan.</span>
+        </div>
+      )}
+      {ineligible.length > 0 && (
+        <details className="rcc2-readiness-records">
+          <summary>Inspect {ineligible.length} records that cannot be assessed now</summary>
+          <div>
+            {ineligible.map(record => (
+              <article key={record.opportunity_id} data-readiness-record={record.opportunity_id}>
+                <div>
+                  <strong>{record.opportunity_name || "Unnamed opportunity"}</strong>
+                  <small>Opportunity {record.opportunity_id}</small>
+                </div>
+                <span>{detectorOutcomePresentation(record.detector_outcome, record.reason_code).title}</span>
+                <p>{detectorReasonExplanation(record.reason_code)}</p>
+                <code>{record.reason_code}</code>
+                <p><strong>Next useful action:</strong> {NEXT_STEP_COPY[record.next_step]}</p>
+              </article>
+            ))}
+          </div>
+        </details>
+      )}
     </section>
   );
 }
@@ -411,6 +569,9 @@ export default function RevenueCommandCenter({
   const [queue, setQueue] = useState(null);
   const [queueState, setQueueState] = useState("LOADING");
   const [queueError, setQueueError] = useState(null);
+  const [readiness, setReadiness] = useState(null);
+  const [readinessState, setReadinessState] = useState("LOADING");
+  const [readinessError, setReadinessError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCaseId, setSelectedCaseId] = useState(null);
   const [lifecycleFilter, setLifecycleFilter] = useState("ALL");
@@ -432,6 +593,7 @@ export default function RevenueCommandCenter({
   const [feedbackCode, setFeedbackCode] = useState("");
   const mounted = useRef(false);
   const queueRequest = useRef(0);
+  const readinessRequest = useRef(0);
   const queueRef = useRef(null);
   const pilotStatusRequest = useRef(0);
   const pilotGuard = useRef(null);
@@ -491,17 +653,38 @@ export default function RevenueCommandCenter({
     }
   }, []);
 
+  const loadReadiness = useCallback(async () => {
+    const requestId = ++readinessRequest.current;
+    setReadinessState("LOADING");
+    setReadinessError(null);
+    try {
+      const response = await getStalledOpportunityEligibility();
+      if (!mounted.current || requestId !== readinessRequest.current) return null;
+      setReadiness(response);
+      setReadinessState("READY");
+      return response;
+    } catch (requestError) {
+      if (!mounted.current || requestId !== readinessRequest.current) return null;
+      setReadiness(null);
+      setReadinessState("ERROR");
+      setReadinessError(eligibilityErrorCopy(requestError));
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     mounted.current = true;
     loadQueue();
     loadPilotStatus();
+    loadReadiness();
     return () => {
       mounted.current = false;
       queueRequest.current += 1;
+      readinessRequest.current += 1;
       pilotStatusRequest.current += 1;
       pilotGuard.current.invalidate();
     };
-  }, [loadPilotStatus, loadQueue]);
+  }, [loadPilotStatus, loadQueue, loadReadiness]);
 
   const firstImportedCase = queue?.entries.find(entry =>
     entry.data_origin === "IMPORTED_CUSTOMER"
@@ -537,7 +720,12 @@ export default function RevenueCommandCenter({
   async function refreshQueue() {
     setMutationMessage(null);
     setMutationError(null);
-    await Promise.all([loadQueue(), loadPilotStatus(), onRefresh?.()]);
+    await Promise.all([
+      loadQueue(),
+      loadPilotStatus(),
+      loadReadiness(),
+      onRefresh?.()
+    ]);
   }
 
   function pilotObservationConfirmed(status, attempt) {
@@ -675,7 +863,7 @@ export default function RevenueCommandCenter({
       if (!mounted.current) return;
       setScanSummary(response.summary);
       const durable = await loadQueue();
-      await loadPilotStatus();
+      await Promise.all([loadPilotStatus(), loadReadiness()]);
       if (durable) setMutationMessage(
         "Scan complete. The durable operating queue was refreshed."
       );
@@ -777,6 +965,8 @@ export default function RevenueCommandCenter({
     || reconciliationBlocked
     || queueState !== "READY"
   );
+  const scanCredible = readinessState === "READY"
+    && ["READY", "PARTIAL"].includes(readiness?.summary?.readiness);
 
   return (
     <section
@@ -797,7 +987,7 @@ export default function RevenueCommandCenter({
           <button
             type="button"
             className="oc-primary-button"
-            disabled={controlsDisabled || queueError?.kind === "UNAUTHORIZED"}
+            disabled={controlsDisabled || !scanCredible || queueError?.kind === "UNAUTHORIZED"}
             onClick={runScan}
           >
             {scanState === "RUNNING" ? "Scanning…" : "Scan stalled opportunities"}
@@ -868,6 +1058,12 @@ export default function RevenueCommandCenter({
         </div>
       )}
       <PilotJourney status={pilotStatus} />
+      <OperationalDataHealth
+        readiness={readiness}
+        state={readinessState}
+        error={readinessError}
+        onRetry={loadReadiness}
+      />
       {scanSummary && <ScanSummary summary={scanSummary} />}
 
       {queue && (

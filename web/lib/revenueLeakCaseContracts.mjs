@@ -42,6 +42,42 @@ const OUTCOME_REASON_CODES = Object.freeze({
   ]
 });
 
+const ELIGIBILITY_CLASSIFICATION_BY_OUTCOME = Object.freeze({
+  ELIGIBLE_LEAK_DETECTED: "ELIGIBLE",
+  ELIGIBLE_NO_LEAK: "ELIGIBLE",
+  INSUFFICIENT_EVIDENCE: "MISSING_REQUIRED_EVIDENCE",
+  STALE_OR_UNTRUSTWORTHY_SOURCE: "STALE_EVIDENCE",
+  DATA_HEALTH_SUPPRESSED: "SUPPRESSED_INVALID_EVIDENCE"
+});
+
+const ELIGIBILITY_NEXT_STEP_BY_REASON = Object.freeze({
+  STALE_WITHOUT_NEXT_ACTION: "RUN_EXPLICIT_SCAN",
+  OPPORTUNITY_CLOSED: "RUN_EXPLICIT_SCAN",
+  RECENT_MEANINGFUL_ACTIVITY: "RUN_EXPLICIT_SCAN",
+  NEXT_ACTION_PRESENT: "RUN_EXPLICIT_SCAN",
+  OPPORTUNITY_STAGE_MISSING: "CORRECT_OPPORTUNITY_STAGE",
+  MEANINGFUL_ACTIVITY_BASELINE_MISSING: "IMPORT_ACTIVITY_OR_CREATED_AT",
+  CANONICAL_TIMESTAMP_IN_FUTURE: "CORRECT_TIMESTAMP_EVIDENCE",
+  CANONICAL_SOURCE_TOO_OLD: "IMPORT_NEWER_SOURCE_DATA",
+  OPPORTUNITY_EVIDENCE_INVALID: "CORRECT_OPPORTUNITY_EVIDENCE",
+  OPPORTUNITY_STAGE_UNRECOGNIZED: "CORRECT_OPPORTUNITY_STAGE",
+  CANONICAL_TIMESTAMP_INVALID: "CORRECT_TIMESTAMP_EVIDENCE",
+  NEXT_ACTION_EVIDENCE_INVALID: "CORRECT_NEXT_ACTION_EVIDENCE",
+  TASK_STATUS_UNRECOGNIZED: "CORRECT_TASK_STATUS",
+  TASK_EVIDENCE_INVALID: "CORRECT_TASK_EVIDENCE",
+  ACTIVITY_EVIDENCE_INVALID: "CORRECT_ACTIVITY_EVIDENCE",
+  COMMERCIAL_VALUE_INVALID: "CORRECT_COMMERCIAL_EVIDENCE",
+  COMMERCIAL_CURRENCY_INVALID: "CORRECT_COMMERCIAL_EVIDENCE"
+});
+
+const ELIGIBILITY_CLASSIFICATIONS = [
+  "ELIGIBLE",
+  "MISSING_REQUIRED_EVIDENCE",
+  "STALE_EVIDENCE",
+  "SUPPRESSED_INVALID_EVIDENCE",
+  "SCAN_BLOCKED"
+];
+
 const CASE_STATES = new Set(["OPEN", "SNOOZED", "DISMISSED", "SUPERSEDED"]);
 const ACTIVE_OPPORTUNITY_STAGES = new Set([
   "NEW", "QUALIFIED", "CONTACTED", "REPLIED", "MEETING", "PROPOSAL"
@@ -250,6 +286,158 @@ export function filterRevenueLeakOperatingQueue(entries, filters = {}) {
     && (value === "ALL" || entry.potential_value.kind === value)
     && (source === "ALL" || entry.case.source.system === source)
   );
+}
+
+export function unwrapStalledOpportunityEligibilityResponse(
+  response,
+  receivedAt = new Date()
+) {
+  const receivedAtMs = referenceTime(receivedAt);
+  const summary = response?.summary;
+  if (
+    !isPlainObject(response)
+    || !hasExactKeys(response, [
+      "ok", "evaluated_at", "detector", "scope", "mode", "summary", "records"
+    ])
+    || response.ok !== true
+    || !isTimestampString(response.evaluated_at)
+    || Date.parse(response.evaluated_at) > receivedAtMs
+    || !hasExactKeys(response.detector, ["id", "version"])
+    || response.detector.id !== "stalled-opportunity"
+    || response.detector.version !== "1"
+    || response.scope !== "TENANT_VISIBLE_CANONICAL_OPPORTUNITIES"
+    || response.mode !== "READ_ONLY"
+    || !isPlainObject(summary)
+    || !hasExactKeys(summary, [
+      "complete", "limit", "readiness", "global_reason_code",
+      "total_opportunities", "detector_assessable_count",
+      "detector_unassessable_count", "scan_evaluated_count", "reason_counts",
+      "classifications", "commercial_value_coverage"
+    ])
+    || typeof summary.complete !== "boolean"
+    || summary.limit !== 100
+    || !["EMPTY", "READY", "PARTIAL", "NOT_READY", "BLOCKED"]
+      .includes(summary.readiness)
+    || !Array.isArray(response.records)
+  ) invalidResponse();
+
+  const counts = [
+    summary.total_opportunities,
+    summary.detector_assessable_count,
+    summary.detector_unassessable_count,
+    summary.scan_evaluated_count
+  ];
+  if (
+    counts.some(count => !Number.isSafeInteger(count) || count < 0)
+    || summary.detector_assessable_count + summary.detector_unassessable_count
+      !== summary.total_opportunities
+    || !hasExactKeys(summary.classifications, ELIGIBILITY_CLASSIFICATIONS)
+    || Object.values(summary.classifications).some(count =>
+      !Number.isSafeInteger(count) || count < 0)
+    || Object.values(summary.classifications).reduce((total, count) => total + count, 0)
+      !== summary.total_opportunities
+    || !hasExactKeys(summary.commercial_value_coverage, [
+      "known_positive_count", "known_zero_count", "unknown_count",
+      "not_assessed_count"
+    ])
+    || Object.values(summary.commercial_value_coverage).some(count =>
+      !Number.isSafeInteger(count) || count < 0)
+    || Object.values(summary.commercial_value_coverage)
+      .reduce((total, count) => total + count, 0) !== summary.total_opportunities
+    || !isPlainObject(summary.reason_counts)
+    || Object.values(summary.reason_counts).some(count =>
+      !Number.isSafeInteger(count) || count < 1)
+  ) invalidResponse();
+
+  if (summary.complete) {
+    const expectedReadiness = summary.total_opportunities === 0
+      ? "EMPTY"
+      : summary.detector_assessable_count === summary.total_opportunities
+        ? "READY"
+        : summary.detector_assessable_count === 0
+          ? "NOT_READY"
+          : "PARTIAL";
+    if (
+      summary.global_reason_code !== null
+      || summary.readiness === "BLOCKED"
+      || summary.readiness !== expectedReadiness
+      || summary.scan_evaluated_count !== summary.total_opportunities
+      || response.records.length !== summary.total_opportunities
+      || summary.classifications.SCAN_BLOCKED !== 0
+      || Object.values(summary.reason_counts).reduce((total, count) => total + count, 0)
+        !== summary.detector_unassessable_count
+    ) invalidResponse();
+  } else if (
+    summary.readiness !== "BLOCKED"
+    || summary.global_reason_code !== "PORTFOLIO_LIMIT_EXCEEDED"
+    || summary.scan_evaluated_count !== 0
+    || summary.detector_assessable_count !== 0
+    || summary.classifications.SCAN_BLOCKED !== summary.total_opportunities
+    || response.records.length !== 0
+    || !hasExactKeys(summary.reason_counts, [summary.global_reason_code])
+    || summary.reason_counts[summary.global_reason_code] !== summary.total_opportunities
+    || summary.commercial_value_coverage.known_positive_count !== 0
+    || summary.commercial_value_coverage.known_zero_count !== 0
+    || summary.commercial_value_coverage.unknown_count !== 0
+    || summary.commercial_value_coverage.not_assessed_count
+      !== summary.total_opportunities
+  ) invalidResponse();
+
+  let previousId = null;
+  const actualClassifications = Object.fromEntries(
+    ELIGIBILITY_CLASSIFICATIONS.map(name => [name, 0])
+  );
+  const actualReasons = {};
+  const actualMoney = {
+    known_positive_count: 0,
+    known_zero_count: 0,
+    unknown_count: 0,
+    not_assessed_count: 0
+  };
+  for (const record of response.records) {
+    if (
+      !hasExactKeys(record, [
+        "opportunity_id", "opportunity_name", "classification",
+        "detector_outcome", "reason_code", "commercial_value", "next_step"
+      ])
+      || !isNonEmptyString(record.opportunity_id)
+      || previousId !== null && previousId >= record.opportunity_id
+      || record.opportunity_name !== null
+        && (!isBoundedText(record.opportunity_name, 255))
+      || ELIGIBILITY_CLASSIFICATION_BY_OUTCOME[record.detector_outcome]
+        !== record.classification
+      || !OUTCOME_REASON_CODES[record.detector_outcome]?.includes(record.reason_code)
+      || ELIGIBILITY_NEXT_STEP_BY_REASON[record.reason_code] !== record.next_step
+      || !isPlainObject(record.commercial_value)
+      || !hasExactKeys(record.commercial_value, ["kind", "amount", "currency"])
+    ) invalidResponse();
+    previousId = record.opportunity_id;
+    actualClassifications[record.classification] += 1;
+    if (record.classification !== "ELIGIBLE") {
+      actualReasons[record.reason_code] = (actualReasons[record.reason_code] || 0) + 1;
+    }
+    const value = record.commercial_value;
+    if (value.kind === "UNKNOWN") {
+      if (value.amount !== null || value.currency !== null) invalidResponse();
+      actualMoney.unknown_count += 1;
+    } else if (
+      !["KNOWN_POSITIVE", "KNOWN_ZERO"].includes(value.kind)
+      || !isCanonicalCommercialAmount(value.amount)
+      || !/^[A-Z]{3}$/.test(value.currency || "")
+      || (value.kind === "KNOWN_ZERO") !== /^0+(?:\.0+)?$/.test(value.amount)
+    ) invalidResponse();
+    else if (value.kind === "KNOWN_ZERO") actualMoney.known_zero_count += 1;
+    else actualMoney.known_positive_count += 1;
+  }
+  if (summary.complete && (
+    !sameJson(actualClassifications, summary.classifications)
+    || !sameJson(actualReasons, summary.reason_counts)
+    || !sameJson(actualMoney, summary.commercial_value_coverage)
+    || summary.detector_assessable_count !== actualClassifications.ELIGIBLE
+    || summary.detector_unassessable_count
+      !== response.records.length - actualClassifications.ELIGIBLE
+  )) invalidResponse();
+  return response;
 }
 
 export function unwrapRevenueLeakOperatingQueueResponse(

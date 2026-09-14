@@ -25,7 +25,23 @@ independent architecture review. Explicit scan remains the only operation that
 may reconcile RevenueLeakCases. Slice 3 remains dependency-gated. The completed
 Pilot Readiness plan remains historical evidence and is not active authority.
 
-The local Slice 1 implementation candidate now guides the import workspace and
+The local Slice 2 implementation candidate now exposes a tenant-bound,
+read-only stalled-opportunity eligibility projection before scan. It uses the
+same portfolio admission and version-1 detector evaluator as the existing
+explicit scan, but it does not reconcile cases or append Pilot evidence. The
+closed response reports total tenant-visible canonical opportunities,
+assessable and unassessable counts, exact exclusion-reason counts, and known
+positive / known zero / unknown / not-assessed commercial-value coverage
+without monetary aggregation or FX. The browser strictly validates that
+server projection, fails closed on contradictory counts or promoted records,
+and presents business-first Operational Data Health with inspectable reason
+codes, supported next actions, a dataset-completeness disclaimer, and a scan
+button enabled only for server-validated ready or partial states. Empty,
+not-ready, partial, ready, over-limit, unauthorized, and unavailable states
+remain distinct. No schema, migration, additional detector, automatic scan,
+external action, or Slice 3 behavior is included.
+
+The merged Slice 1 implementation now guides the import workspace and
 source label, derives explicit commit-supported versus preview-
 only capability for all five displayed collections from the browser's canonical
 mapping contract, and offers header-only inert CSV templates plus field guidance
@@ -44,9 +60,9 @@ Managed Chromium passes **22/22** across the new desktop/390px guided and resume
 coverage plus the complete existing import workflow. The new smoke coverage
 exposed and closed one route-key remount race so a newly created preview or
 in-app resume performs one reconciliation path rather than duplicate server
-reads. This remains a local candidate pending independent review; no schema,
-migration, connector, detector, case/action, session-result, external-send,
-GitHub, or later-slice change is included.
+reads. That Slice 1 scope merged through PR #36 after independent approval; no
+schema, migration, connector, detector, case/action, session-result,
+external-send, or later-slice change was included.
 
 The bounded Slice 1 review remediation now distinguishes retained import-batch
 lifecycle truth from transport failure before validating unavailable raw rows.
