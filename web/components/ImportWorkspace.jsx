@@ -486,10 +486,12 @@ export default function ImportWorkspace({
 
   function handlePreviewError(caught, postAttempted) {
     if (postAttempted && requiresImportPostReconciliation(caught)) {
+      const batchId = caught.details?.attemptedId || null;
       setUnknownOutcome({
         kind: "preview",
-        batchId: caught.details?.attemptedId || null
+        batchId
       });
+      if (batchId) setResumeRoute(batchId);
       setError(apiError(caught));
     } else {
       attemptedPreviewRequest.current = null;

@@ -130,6 +130,50 @@ test("restores a staged import from server truth across 390px reload and navigat
   expect(analysisReads).toBe(3);
 });
 
+test("keeps an acknowledged batch pointer through interrupted preview recovery", async ({ page }) => {
+  let previewPosts = 0;
+  await mockEmptyPilotStatus(page);
+  await page.route(`${apiBaseUrl}/api/import-batches/preview`, route => {
+    previewPosts += 1;
+    return json(route, 500, {
+      ok: false,
+      error: "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN",
+      message: "PostgreSQL did not confirm the transaction outcome; reconcile the attempted result before retrying.",
+      details: { attemptedId: "browser-batch-1" }
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/commit`, route => (
+    json(route, 404, {
+      ok: false,
+      error: "IMPORT_BATCH_UNAVAILABLE",
+      message: "The requested import batch is unavailable."
+    })
+  ));
+  await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/preview`, route => (
+    json(route, 200, { ok: true, data: previewFixture() })
+  ));
+  await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/analysis`, route => (
+    json(route, 200, { ok: true, data: analysisFixture() })
+  ));
+
+  await page.goto("/#imports");
+  await page.getByLabel("Source collection").selectOption("opportunities");
+  await page.getByLabel("CSV file").setInputFiles({
+    name: "pipeline-export.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(adversarialCsv, "utf8")
+  });
+  await page.getByRole("button", { name: "Create preview" }).click();
+  await expect(page.getByRole("button", { name: "Reconcile preview" })).toBeVisible();
+  await expect(page).toHaveURL(/#imports\?batch=browser-batch-1$/);
+  expect(previewPosts).toBe(1);
+
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Deterministic mapping review" })).toBeVisible();
+  await expect(page.getByText(/Durable preview restored/)).toBeVisible();
+  expect(previewPosts).toBe(1);
+});
+
 test("fails an unknown or malformed resume pointer visibly before a new upload", async ({ page }) => {
   let batchReads = 0;
   await mockEmptyPilotStatus(page);

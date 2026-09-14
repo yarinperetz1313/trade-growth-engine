@@ -37,7 +37,7 @@ claimed as persisted.
 Focused TDD was RED **0/5** before the guidance/resume modules and UI existed and
 GREEN **5/5** after implementation. The affected dependency-free browser,
 mapping, pilot-evidence, monetary, and engineering-harness set passes **49/49**.
-Managed Chromium passes **21/21** across the new desktop/390px guided and resume
+Managed Chromium passes **22/22** across the new desktop/390px guided and resume
 coverage plus the complete existing import workflow. The new smoke coverage
 exposed and closed one route-key remount race so a newly created preview or
 in-app resume performs one reconciliation path rather than duplicate server

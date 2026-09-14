@@ -164,16 +164,18 @@
   import response/mapping, Pilot status, monetary-plan compatibility, and the
   engineering harness. The existing Node module-type warning is unchanged and
   non-fatal.
-- Managed Chromium passes **21/21** for the new focused guided/resume spec plus
+- Managed Chromium passes **22/22** for the new focused guided/resume spec plus
   the complete existing import workflow. The new scenarios cover desktop
   guidance, every capability class, inert template contents, the supported
   upload-to-mapping path, staged and committed reload/navigation recovery,
-  malformed/unknown/expired state, one reconciliation path, 390px no-overflow,
-  and no automatic preview mutation during resume.
+  malformed/unknown/expired state, interrupted-preview batch-pointer recovery,
+  one reconciliation path, 390px no-overflow, and no automatic preview mutation
+  during resume.
 - The first expanded resume smoke run exposed a duplicate GET caused by changing
   the component key both before and during hash navigation. The route lifecycle
   now separates remembered import links from external hash-change versions; the
-  focused rerun passed **3/3**, and final affected Chromium remained **21/21**.
+  focused rerun passed **3/3**. A fourth interrupted-preview recovery scenario
+  was then added; final affected Chromium passes **22/22**.
 - Production changes are limited to browser guidance, route/resume composition,
   styles, and one read-only projection of the existing browser target contract.
   No backend/domain/persistence/schema/migration, connector, detector,

@@ -114,6 +114,7 @@ test("the browser composes guidance and server reads without local authority", (
   assert.match(workspace, /Download blank CSV template/);
   assert.match(workspace, /getImportCommit/);
   assert.match(workspace, /getImportPreview/);
+  assert.match(workspace, /if \(batchId\) setResumeRoute\(batchId\)/);
   assert.match(workspace, /Setup could not be resumed/);
   assert.match(app, /imports\?batch=/);
   assert.doesNotMatch(combined, /localStorage|sessionStorage/);
