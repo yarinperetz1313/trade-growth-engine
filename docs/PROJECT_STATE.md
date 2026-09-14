@@ -1,6 +1,72 @@
 # Project State
 
-_Last locally audited on 2026-09-12. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+_Last locally audited on 2026-09-14. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+
+Assisted Pilot Safety Gate V1 Slice 4 now adds one repository-native,
+production-like local acceptance command and the assisted-pilot operator
+runbook. The command accepts only an explicit loopback test-server URL, requires
+exact PostgreSQL `server_version_num = 160015`, refuses an existing application
+database/server role footprint, creates a random database and least-privilege
+runtime login, applies the unchanged append-only migrations, executes the
+supported secure Pilot composition, and removes the database, runtime login,
+and migration roles on success or failure.
+
+The bounded first-review remediation closes two acceptance-runner lifecycle
+defects without changing product, schema, migrations, APIs, or browser behavior.
+One PostgreSQL session advisory lock is acquired before the clean-server
+preflight and held through cleanup. The runner atomically creates and marks the
+four fixed migration roles with a per-run ownership value; cleanup verifies the
+complete marker set before revoking or dropping anything, so a competing owner
+cannot be deleted. `SIGINT` and `SIGTERM` share one idempotent cleanup promise,
+then re-raise the original signal after cleanup or a bounded ten-second fallback.
+Deterministic mocked-transport and subprocess regressions were RED **0/5** at
+`694a4b4` and GREEN **5/5** after correction; the complete focused acceptance
+file is **13/13**, including an additional changed-marker fail-closed guard. The
+engineering harness passes, migration/static contracts
+pass **19/19**, and one fresh production-like acceptance command against
+PostgreSQL 16.15 passes the existing journey with cleanup `REMOVED` for the
+database, runtime login, and migration roles. Independent post-command SQL
+reports **0** user databases and **0** `tge_*` roles. The disposable cluster and
+dependency link were removed; broader verification evidence is recorded in the
+active plan.
+
+The bounded second-review remediation closes the remaining two signal races at
+the acceptance-runner boundary. One shared lifecycle state records the first
+termination signal and cleanup start, prevents later provisioning and journey
+phases, and makes cleanup wait for in-flight provisioning to reach a known
+settled state. Role ownership is published immediately after the role
+transaction COMMIT, before interruption can stop provisioning, so cleanup
+cannot skip committed roles and then report a false removal. Both `SIGINT` and
+`SIGTERM` handlers remain installed throughout cleanup or the explicit bounded
+fallback; repeated same or mixed signals are absorbed before the original
+signal is re-raised. The synchronized role-COMMIT regression was RED **0/1** and
+the repeated/mixed subprocess group was RED **0/2** at `7dc77fe`; both groups
+are GREEN **3/3**, and the complete focused acceptance file is **16/16**.
+Migration/static contracts remain **19/19** and the engineering harness passes.
+A fresh PostgreSQL 16.15 acceptance retained the closed journey proof and
+reported cleanup `REMOVED`; independent SQL again found **0** user databases
+and **0** `tge_*` roles. This adds no provider, external-send, production,
+backup/restore, deletion, product, schema, API, or browser evidence.
+
+Focused contracts were RED **0/6** before the runner/runbook existed and are
+GREEN **7/7**, including the self-review guard that rejected pre-existing TGE
+roles are never touched. One final `npm --silent run acceptance:pilot` run against fresh
+Homebrew PostgreSQL 16.15 passed not-ready gating, local secure readiness, the
+explicit `LOCAL_DETERMINISTIC_NOT_AUTH0_OR_SMTP` verifier, membership-derived
+tenant authority, forged client-tenant rejection, negative second-tenant
+isolation, one-row CSV preview / mapping / Data Health / canonical commit with
+exact `AUD`, stalled scan, server-ranked queue, case-to-RevenueAction handoff,
+prepare, approve, and internal task execution. Durable case/action/task/activity
+identities reloaded and no external send occurred. The closed proof contains no
+DSN, credentials, tokens, tenant/customer IDs, raw cells, filename, draft, or
+contact data and explicitly excludes Auth0 AU/JWKS/SMTP/OTP, AU infrastructure,
+backup/restore, production maintenance, privacy/vendor approval, and canonical
+tenant-data deletion. Cleanup reported all temporary database resources removed;
+direct SQL confirmed **0** user databases and **0** `tge_*` roles remained.
+Affected auth/import/detector/queue/case/action tests pass **226/226** and the
+engineering harness passes. No product/domain behavior, schema, migration,
+browser feature, provider, deployment, external action, backup/restore claim,
+canonical deletion policy, GitHub result, or release evidence is added.
 
 The 2026-09-13 native Astra remediation checkpoint corrects four additional
 Slice 3 P2 findings: malformed currency type coercion, browser rejection of
