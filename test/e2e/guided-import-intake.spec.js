@@ -34,7 +34,17 @@ test("guides a desktop CSV intake with truthful capabilities and inert templates
   await expect(context).toContainText("TGE import workspace");
   await expect(context).not.toContainText("Authenticated TGE workspace");
   await expect(context).toContainText("membership and tenant authority are resolved by the server");
-  await context.getByLabel("Source system label").fill("Quarterly CRM export");
+  const sourceSystem = context.getByLabel("Source system namespace");
+  await sourceSystem.fill("Quarterly CRM export");
+  await expect(sourceSystem).toHaveAttribute("aria-invalid", "true");
+  await expect(context).toContainText("Spaces are not accepted");
+  await expect(page.getByRole("button", { name: "Create preview" })).toBeDisabled();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(sourceSystem).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await sourceSystem.fill("quarterly-crm-export");
+  await expect(sourceSystem).toHaveAttribute("aria-invalid", "false");
 
   const capability = page.getByRole("region", { name: "Selected collection capability" });
   await expect(capability).toContainText("Prospects");

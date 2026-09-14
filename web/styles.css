@@ -1697,6 +1697,11 @@ p {
   line-height: 1.55;
 }
 
+.import-source-context small.field-validation-error,
+.confirmation-body small.field-validation-error {
+  color: #ff9d9d;
+}
+
 .import-capability {
   background: rgba(255, 255, 255, .018);
   border: 1px solid rgba(255, 255, 255, .07);

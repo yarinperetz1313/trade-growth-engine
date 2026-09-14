@@ -79,6 +79,25 @@ engineering harness, migration `001`-`016` byte identity, diff hygiene, and
 artifact cleanup pass. No backend, persistence, schema, migration, connector,
 detector, or later-slice behavior changed.
 
+The bounded Slice 1 third-review remediation aligns the guided source-system
+field with the existing canonical commit namespace contract. The browser now
+calls the value a source-system namespace, gives the accepted
+`quarterly-crm-export` example and exact character guidance, reports invalid
+human labels such as `Quarterly CRM export` inline, and blocks forward preview
+or commit actions while a non-empty invalid value is present. The value is
+submitted exactly as entered; the browser does not trim, slugify, or otherwise
+rewrite source identity. The focused regression exercises the real
+`validateCanonicalCommitInput()` boundary and was RED **8/9** before the
+browser validator existed, then GREEN **9/9**. Its blank, 128/129-character,
+leading-character, forbidden-character, and accepted namespace matrix agrees
+with the server contract. The directly affected import/commit/mapping/
+repository/staging/Pilot browser-contract set passes **100/100**. Managed
+Chromium guided intake passes **7/7**, including accessible inline validation
+without 390px overflow, and the existing import workflow remains **18/18**.
+The engineering harness, syntax, migration byte identity, aggregate diff
+hygiene, and artifact cleanup pass. No server validation, persistence, schema,
+migration, connector, detector, or later-slice behavior changed.
+
 Assisted Pilot Safety Gate V1 Slice 4 now adds one repository-native,
 production-like local acceptance command and the assisted-pilot operator
 runbook. The command accepts only an explicit loopback test-server URL, requires

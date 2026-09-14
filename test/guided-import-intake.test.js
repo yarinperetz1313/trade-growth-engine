@@ -10,6 +10,18 @@ const guidance = import("../web/lib/importGuidance.mjs");
 const resume = import("../web/lib/importResume.mjs");
 const contracts = import("../web/lib/importContracts.mjs");
 const fixtures = import("./e2e/fixtures/import-contracts.mjs");
+const {
+  validateCanonicalCommitInput
+} = require("../src/imports/importCommit");
+
+function canonicalCommitInput(sourceSystem) {
+  return {
+    sourceSystem,
+    idempotencyKey: "guided-source-contract-1",
+    sourceIdentitySelection: { sourceColumn: "source_id" },
+    selections: []
+  };
+}
 
 test("every displayed import collection has one truthful capability", async () => {
   const { listImportCollectionCapabilities } = await guidance;
@@ -68,6 +80,46 @@ test("template and field guidance preserves exact opportunity currency truth", a
   assert.match(currency.guidance, /missing remains unknown/i);
   assert.match(value.guidance, /missing remains unknown/i);
   assert.doesNotMatch(`${currency.guidance} ${value.guidance}`, /default|infer from locale/i);
+});
+
+test("guided source namespace rejects human labels before the canonical commit boundary", async () => {
+  const {
+    IMPORT_SOURCE_SYSTEM_EXAMPLE,
+    validateImportSourceSystem
+  } = await guidance;
+
+  assert.equal(IMPORT_SOURCE_SYSTEM_EXAMPLE, "quarterly-crm-export");
+  assert.throws(
+    () => validateCanonicalCommitInput(canonicalCommitInput("Quarterly CRM export")),
+    error => error?.code === "IMPORT_COMMIT_REQUEST_INVALID"
+  );
+  assert.doesNotThrow(() => (
+    validateCanonicalCommitInput(canonicalCommitInput(IMPORT_SOURCE_SYSTEM_EXAMPLE))
+  ));
+
+  for (const [value, expectedValid] of [
+    ["", false],
+    ["Quarterly CRM export", false],
+    ["-quarterly-crm", false],
+    ["quarterly/crm", false],
+    ["a".repeat(128), true],
+    ["a".repeat(129), false],
+    ["quarterly-crm-export", true],
+    ["CRM:au_q3.2026", true]
+  ]) {
+    const result = validateImportSourceSystem(value);
+    assert.equal(result.valid, expectedValid, value || "blank");
+    if (expectedValid) {
+      assert.equal(result.message, null);
+      assert.doesNotThrow(() => validateCanonicalCommitInput(canonicalCommitInput(value)));
+    } else {
+      assert.match(result.message, /1–128|letter or number|letters, numbers|source namespace/i);
+      assert.throws(
+        () => validateCanonicalCommitInput(canonicalCommitInput(value)),
+        error => error?.code === "IMPORT_COMMIT_REQUEST_INVALID"
+      );
+    }
+  }
 });
 
 test("resume deep links carry only a bounded batch pointer", async () => {

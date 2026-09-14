@@ -26,7 +26,8 @@ import {
 import {
   buildImportTemplateDownload,
   getImportCollectionCapability,
-  listImportCollectionCapabilities
+  listImportCollectionCapabilities,
+  validateImportSourceSystem
 } from "../lib/importGuidance.mjs";
 import {
   importResumeHash,
@@ -171,6 +172,7 @@ export default function ImportWorkspace({
   const selectedCapability = getImportCollectionCapability(sourceCollection);
   const dataHealth = analysis?.dataHealth;
   const sourceIdentityComplete = hasCompleteSourceIdentity(dataHealth);
+  const sourceSystemValidation = validateImportSourceSystem(sourceSystem);
   const canContinue = Boolean(
     analysis
     && !dataHealthStale
@@ -183,7 +185,7 @@ export default function ImportWorkspace({
       .every(item => item.sourceColumn)
   );
   const reviewedRequest = useMemo(() => ({
-    sourceSystem: sourceSystem.trim(),
+    sourceSystem,
     idempotencyKey,
     sourceIdentitySelection: {
       sourceColumn: sourceIdentityColumn
@@ -353,7 +355,7 @@ export default function ImportWorkspace({
   async function commitReviewed() {
     if (
       !confirmed
-      || !sourceSystem.trim()
+      || !sourceSystemValidation.valid
       || !idempotencyKey
       || operationGuard.current.isPending()
     ) return;
@@ -578,6 +580,7 @@ export default function ImportWorkspace({
               setSourceSystem={setSourceSystem}
               sourceCollection={sourceCollection}
               sourceSystem={sourceSystem}
+              sourceSystemValidation={sourceSystemValidation}
               unknownOutcome={unknownOutcome}
             />
           )}
@@ -628,6 +631,7 @@ export default function ImportWorkspace({
           setConfirmed={setConfirmed}
           setSourceSystem={setSourceSystem}
           sourceSystem={sourceSystem}
+          sourceSystemValidation={sourceSystemValidation}
         />
       )}
 
@@ -689,6 +693,7 @@ function UploadStep({
   setSourceSystem,
   sourceCollection,
   sourceSystem,
+  sourceSystemValidation,
   unknownOutcome
 }) {
   const unauthorized = error && [401, 403].includes(error.status);
@@ -713,15 +718,24 @@ function UploadStep({
             <p>When access is available, membership and tenant authority are resolved by the server. This screen never asks you to choose or invent a tenant.</p>
           </div>
           <label>
-            <span>Source system label</span>
+            <span>Source system namespace</span>
             <input
+              aria-describedby="import-source-system-help"
+              aria-invalid={sourceSystem.length > 0 && !sourceSystemValidation.valid}
               disabled={loading || Boolean(unknownOutcome)}
               maxLength={128}
               onChange={event => setSourceSystem(event.target.value)}
-              placeholder="CRM name or sales spreadsheet"
+              placeholder="quarterly-crm-export"
               value={sourceSystem}
             />
-            <small>Name the export source for audit evidence. You can confirm or change it before commit.</small>
+            <small
+              className={sourceSystem.length > 0 && !sourceSystemValidation.valid ? "field-validation-error" : ""}
+              id="import-source-system-help"
+            >
+              {sourceSystem.length > 0 && !sourceSystemValidation.valid
+                ? sourceSystemValidation.message
+                : "Use a stable source namespace for audit evidence, such as quarterly-crm-export. Spaces are not accepted. You can confirm or change it before commit."}
+            </small>
           </label>
         </section>
         {unknownOutcome?.kind === "preview" && (
@@ -773,7 +787,11 @@ function UploadStep({
         {loading ? (
           <div className="import-loading" role="status">Reading immutable CSV evidence…</div>
         ) : (
-          <button className="primary" disabled={!file || Boolean(unknownOutcome) || unauthorized} onClick={onPreview}>Create preview</button>
+          <button
+            className="primary"
+            disabled={!file || Boolean(unknownOutcome) || unauthorized || (sourceSystem.length > 0 && !sourceSystemValidation.valid)}
+            onClick={onPreview}
+          >Create preview</button>
         )}
       </div>
     </section>
@@ -1146,7 +1164,8 @@ function ConfirmationStep({
   onCommit,
   setConfirmed,
   setSourceSystem,
-  sourceSystem
+  sourceSystem,
+  sourceSystemValidation
 }) {
   const total = analysis.dataHealth.totalRows;
   const unauthorized = error && [401, 403].includes(error.status);
@@ -1168,8 +1187,24 @@ function ConfirmationStep({
         <DataHealth health={analysis.dataHealth} rows={analysis.rows} stale={false} />
         <MappingConfirmation mapping={analysis.mapping} />
         <label>
-          <span>Source system</span>
-          <input disabled={loading || unauthorized} value={sourceSystem} maxLength={128} onChange={event => setSourceSystem(event.target.value)} placeholder="pilot-crm" />
+          <span>Source system namespace</span>
+          <input
+            aria-describedby="confirmation-source-system-help"
+            aria-invalid={!sourceSystemValidation.valid}
+            disabled={loading || unauthorized}
+            value={sourceSystem}
+            maxLength={128}
+            onChange={event => setSourceSystem(event.target.value)}
+            placeholder="quarterly-crm-export"
+          />
+          <small
+            className={!sourceSystemValidation.valid ? "field-validation-error" : ""}
+            id="confirmation-source-system-help"
+          >
+            {sourceSystemValidation.valid
+              ? "Stable source namespace accepted. It will be stored exactly as entered."
+              : sourceSystemValidation.message}
+          </small>
         </label>
         <label className="confirmation-check">
           <input type="checkbox" checked={confirmed} disabled={loading || unauthorized} onChange={event => setConfirmed(event.target.checked)} />
@@ -1177,7 +1212,7 @@ function ConfirmationStep({
         </label>
         <div className="import-footer-actions">
           <button className="text-button" disabled={loading} onClick={onBack}>Back to mapping</button>
-          <button className="primary" disabled={loading || unauthorized || !confirmed || !sourceSystem.trim()} onClick={onCommit}>
+          <button className="primary" disabled={loading || unauthorized || !confirmed || !sourceSystemValidation.valid} onClick={onCommit}>
             {loading ? "Committing..." : `Commit ${total} rows`}
           </button>
         </div>

@@ -234,6 +234,28 @@
   hygiene, and artifact cleanup pass. No PostgreSQL suite, production build,
   full Verify, backend, persistence, schema, migration, connector, detector, or
   later-slice work was run or changed.
+- A third fresh review found one P2 contract mismatch: the guided source-system
+  field accepted a human-readable label with spaces through setup even though
+  the unchanged canonical commit contract accepts only the stable namespace
+  `^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`. The existing guided browser scenario
+  itself supplied `Quarterly CRM export`, which the real
+  `validateCanonicalCommitInput()` correctly rejected.
+- The source-namespace regression was added before product edits and exercises
+  the real canonical validator. Focused RED was **8/9**, with only the missing
+  browser namespace contract failing. GREEN is **9/9**. The browser now labels
+  the field as a namespace, shows `quarterly-crm-export` as an accepted example,
+  provides precise inline guidance, blocks preview when a supplied value is
+  invalid, blocks commit until the value is valid, and submits the exact value
+  without trimming or normalization. The boundary matrix covers blank,
+  128/129-character, invalid leading/forbidden characters, and accepted
+  punctuation against both browser and real server validators.
+- The directly affected guided/import/commit/mapping/repository/staging/Pilot
+  Node set passes **100/100**. Managed Chromium guided intake passes **7/7**,
+  including invalid-label handling and no overflow at 390px; the complete
+  existing import workflow passes **18/18**. The engineering harness, module
+  syntax, migration `001`-`016` byte identity, aggregate diff hygiene, and
+  artifact cleanup pass. No backend, server validator, persistence, schema,
+  migration, connector, detector, Slice 2, or Slice 3 behavior changed.
 
 ## Review and handoff
 
@@ -246,8 +268,10 @@
   authentication presentation defect. Both were remediated at the browser
   contract/UI boundary. The second review returned one P2 migration-015
   minimized-response classification defect covering preview and committed
-  results; it is remediated at the same browser-contract boundary. One fresh
-  final independent review remains pending.
+  results; it is remediated at the same browser-contract boundary. The third
+  review returned one P2 guided source-system namespace mismatch; it is
+  remediated without changing or normalizing the server identity contract. One
+  fresh final independent review remains pending.
 - Final-review evidence: coordinator-owned after any bounded remediation.
 - Debt/follow-up: Slice 2 and Slice 3 remain dependency-gated; all explicit
   milestone non-goals remain out of scope.

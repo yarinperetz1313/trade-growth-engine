@@ -1,5 +1,25 @@
 import { getImportAnalysisTargetDefinition } from "./importContracts.mjs";
 
+const IMPORT_SOURCE_SYSTEM_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
+export const IMPORT_SOURCE_SYSTEM_EXAMPLE = "quarterly-crm-export";
+
+export function validateImportSourceSystem(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    return Object.freeze({
+      valid: false,
+      message: "Enter a source namespace before canonical commit. Use 1–128 characters and start with a letter or number."
+    });
+  }
+  if (!IMPORT_SOURCE_SYSTEM_PATTERN.test(value)) {
+    return Object.freeze({
+      valid: false,
+      message: `Use a 1–128 character source namespace: start with a letter or number, then use only letters, numbers, periods, underscores, colons, or hyphens. Example: ${IMPORT_SOURCE_SYSTEM_EXAMPLE}. Spaces are not accepted.`
+    });
+  }
+  return Object.freeze({ valid: true, message: null });
+}
+
 const COLLECTIONS = Object.freeze([
   Object.freeze({
     collection: "prospects",
