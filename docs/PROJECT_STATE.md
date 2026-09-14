@@ -14,13 +14,16 @@ scheduling, and broad CRM replacement are out of scope. The 15-minute, 2/3
 completion, and 4/5 trust targets are measurement hypotheses, not customer
 evidence or shipped claims.
 
-Slice 1 starts at exact merged `origin/main`
-`ea22ce9cb06498f6f6c59ee5642d6ede2e7cea35`. It may compose the existing
-authenticated tenant/session, import batch/source, and Pilot evidence truth to
-guide and resume setup, but it may not add persistence or a migration without a
-separate insufficiency finding and independent architecture review. The
-completed Pilot Readiness plan remains available as historical evidence and is
-no longer the active roadmap.
+Slice 1 merged through PR #36 as exact `origin/main`
+`0666e974ac0e007b8c0ead3ebef3b101f4688017`; its post-merge Verify run
+`34830965722` succeeded. Slice 2 now starts from that exact clean base on
+`feat/operational-data-health-eligibility`. It may derive a read-only,
+tenant-scoped `STALLED_OPPORTUNITY` readiness projection from the existing
+canonical opportunity/activity/task truth and detector version 1, but it may
+not add persistence or a migration without a separate insufficiency finding and
+independent architecture review. Explicit scan remains the only operation that
+may reconcile RevenueLeakCases. Slice 3 remains dependency-gated. The completed
+Pilot Readiness plan remains historical evidence and is not active authority.
 
 The local Slice 1 implementation candidate now guides the import workspace and
 source label, derives explicit commit-supported versus preview-

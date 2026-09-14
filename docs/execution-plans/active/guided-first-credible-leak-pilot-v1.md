@@ -22,9 +22,11 @@
 
 - GitHub Issue #14 was approved by the repository owner on 2026-09-14 as this
   exact three-slice milestone. Slice 2 depends on merged Slice 1; Slice 3 depends on merged Slice 2.
-- Slice 1 starts from `ea22ce9cb06498f6f6c59ee5642d6ede2e7cea35`,
-  exact `origin/main`, on isolated branch `feat/guided-first-value-intake` and
-  worktree `guided-first-value-intake`. Preflight was clean, including ignored
+- Slice 1 merged through PR #36 as `0666e974ac0e007b8c0ead3ebef3b101f4688017`.
+  Post-merge Verify run `34830965722` succeeded. Slice 2 starts from that exact
+  clean `origin/main` on isolated branch
+  `feat/operational-data-health-eligibility` and worktree
+  `operational-data-health-eligibility`; preflight was clean, including ignored
   files, and the branch was 0 behind / 0 ahead.
 - The completed Pilot Readiness record moved to
   `../completed/pilot-readiness.md`; its evidence is preserved and is not active
@@ -49,7 +51,7 @@
 
 ## Dependency sequence
 
-- [ ] **Slice 1 — Guided intake and resumable setup.** Guided business/source
+- [x] **Slice 1 — Guided intake and resumable setup.** Guided business/source
   context; downloadable CSV templates and field guidance; explicit
   commit-supported versus preview-only collection capabilities; and server-
   truth-derived resumability. No detector, case/action, operational eligibility,
@@ -64,6 +66,42 @@
   actionable no-case explanation, cohere inspection/feedback/RevenueAction
   handoff, make the case queue the effective operating home, complete 390px
   journey usability, and expose a privacy-minimized pilot-session result.
+
+## Slice 2 bounded implementation plan
+
+1. Reuse detector version 1 as the single eligibility authority. Add a
+   tenant-scoped, read-only projection that evaluates the same canonical
+   opportunity/activity/task evidence without reconciling cases, and returns a
+   closed, versioned dataset and record contract.
+2. Add RED domain/API/browser contracts for all-eligible, partial, no-eligible,
+   empty, over-limit, malformed-source, unavailable, and cross-tenant states.
+   Require reason totals to reconcile exactly and preserve known-positive,
+   known-zero, and unknown monetary counts without aggregation or FX.
+3. Present operational Data Health before the explicit scan using business
+   language, inspectable reason codes and evidence, and supported next actions.
+   The browser consumes the strict server projection and never recomputes
+   eligibility. The scan remains an explicit mutation.
+4. Connect Slice 1's committed-import continuation to this readiness surface,
+   then verify focused domain/API contracts, affected integration, tenant/RLS
+   behavior where touched, and managed desktop/390px journeys.
+5. Checkpoint the coherent implementation and stop for independent review. Run
+   build/harness and broader delivery gates only near readiness. Do not add a
+   schema/migration, another detector, or Slice 3 behavior.
+
+## Acceptance evidence required for Slice 2
+
+- Total tenant-visible opportunities, assessable and non-assessable counts, and
+  closed reason counts reconcile to the exact server-returned record set.
+- The projection and later explicit scan use the same versioned evaluator and
+  cannot disagree for the same canonical evidence and evaluation timestamp.
+- Missing, invalid, stale, suppressed, empty, over-limit, and unavailable states
+  remain explicit and provide only supported next steps.
+- Commercial-value coverage keeps known positive, known zero, and unknown
+  distinct and performs no monetary aggregation or currency inference.
+- Tenant authority is server-derived; browser input cannot select a tenant or
+  promote an unvalidated response to eligibility.
+- Desktop and 390px journeys make the explicit scan the obvious next step only
+  when the validated readiness state supports it.
 
 ## Slice 1 bounded implementation plan
 
