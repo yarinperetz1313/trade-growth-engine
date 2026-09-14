@@ -5,7 +5,8 @@ const {
 } = require("../imports/numericEvidence");
 const {
   DETECTOR,
-  OUTCOMES
+  OUTCOMES,
+  canonicalCommercialValue
 } = require("./stalledOpportunityDetector");
 const {
   PORTFOLIO_SCAN_LIMIT
@@ -47,8 +48,16 @@ const NEXT_STEP_BY_REASON = Object.freeze({
   COMMERCIAL_CURRENCY_INVALID: "CORRECT_COMMERCIAL_EVIDENCE"
 });
 
-function commercialValueCoverage(value) {
-  if (value?.classification !== "KNOWN") {
+function commercialValueCoverage(opportunity) {
+  const commercial = canonicalCommercialValue(opportunity);
+  if (commercial.error) {
+    return {
+      kind: "NOT_ASSESSED",
+      amount: null,
+      currency: null
+    };
+  }
+  if (commercial.value.classification !== "KNOWN") {
     return {
       kind: "UNKNOWN",
       amount: null,
@@ -56,9 +65,11 @@ function commercialValueCoverage(value) {
     };
   }
   return {
-    kind: isExactZeroLiteral(value.amount) ? "KNOWN_ZERO" : "KNOWN_POSITIVE",
-    amount: value.amount,
-    currency: value.currency
+    kind: isExactZeroLiteral(commercial.value.amount)
+      ? "KNOWN_ZERO"
+      : "KNOWN_POSITIVE",
+    amount: commercial.value.amount,
+    currency: commercial.value.currency
   };
 }
 
@@ -66,7 +77,8 @@ function opportunityName(opportunity) {
   if (
     typeof opportunity?.business_name !== "string"
     || opportunity.business_name.trim() === ""
-    || opportunity.business_name.length > 255
+    || opportunity.business_name !== opportunity.business_name.trim()
+    || Buffer.byteLength(opportunity.business_name, "utf8") > 255
   ) return null;
   return opportunity.business_name;
 }
@@ -115,10 +127,11 @@ function buildStalledOpportunityEligibility({
       reasonCounts[evaluation.reason_code] =
         (reasonCounts[evaluation.reason_code] || 0) + 1;
     }
-    const commercialValue = commercialValueCoverage(evaluation.commercial_value);
+    const commercialValue = commercialValueCoverage(opportunity);
     if (commercialValue.kind === "KNOWN_POSITIVE") money.known_positive_count += 1;
     if (commercialValue.kind === "KNOWN_ZERO") money.known_zero_count += 1;
     if (commercialValue.kind === "UNKNOWN") money.unknown_count += 1;
+    if (commercialValue.kind === "NOT_ASSESSED") money.not_assessed_count += 1;
     return {
       opportunity_id: opportunity.id,
       opportunity_name: opportunityName(opportunity),

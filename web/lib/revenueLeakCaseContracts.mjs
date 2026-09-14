@@ -360,6 +360,7 @@ export function unwrapStalledOpportunityEligibilityResponse(
     if (
       summary.global_reason_code !== null
       || summary.readiness === "BLOCKED"
+      || summary.total_opportunities > summary.limit
       || summary.readiness !== expectedReadiness
       || summary.scan_evaluated_count !== summary.total_opportunities
       || response.records.length !== summary.total_opportunities
@@ -370,6 +371,7 @@ export function unwrapStalledOpportunityEligibilityResponse(
   } else if (
     summary.readiness !== "BLOCKED"
     || summary.global_reason_code !== "PORTFOLIO_LIMIT_EXCEEDED"
+    || summary.total_opportunities <= summary.limit
     || summary.scan_evaluated_count !== 0
     || summary.detector_assessable_count !== 0
     || summary.classifications.SCAN_BLOCKED !== summary.total_opportunities
@@ -417,13 +419,15 @@ export function unwrapStalledOpportunityEligibilityResponse(
       actualReasons[record.reason_code] = (actualReasons[record.reason_code] || 0) + 1;
     }
     const value = record.commercial_value;
-    if (value.kind === "UNKNOWN") {
+    if (["UNKNOWN", "NOT_ASSESSED"].includes(value.kind)) {
       if (value.amount !== null || value.currency !== null) invalidResponse();
-      actualMoney.unknown_count += 1;
+      if (value.kind === "UNKNOWN") actualMoney.unknown_count += 1;
+      else actualMoney.not_assessed_count += 1;
     } else if (
       !["KNOWN_POSITIVE", "KNOWN_ZERO"].includes(value.kind)
       || !isCanonicalCommercialAmount(value.amount)
-      || !/^[A-Z]{3}$/.test(value.currency || "")
+      || typeof value.currency !== "string"
+      || !/^[A-Z]{3}$/.test(value.currency)
       || (value.kind === "KNOWN_ZERO") !== /^0+(?:\.0+)?$/.test(value.amount)
     ) invalidResponse();
     else if (value.kind === "KNOWN_ZERO") actualMoney.known_zero_count += 1;

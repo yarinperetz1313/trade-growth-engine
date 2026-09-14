@@ -15,13 +15,13 @@ function record({
   reason,
   nextStep,
   amount = null,
-  currency = null
-}) {
-  const kind = amount === null
+  currency = null,
+  kind = amount === null
     ? "UNKNOWN"
     : /^0+(?:\.0+)?$/.test(amount)
       ? "KNOWN_ZERO"
-      : "KNOWN_POSITIVE";
+      : "KNOWN_POSITIVE"
+}) {
   return {
     opportunity_id: id,
     opportunity_name: `Opportunity ${id}`,
@@ -56,6 +56,7 @@ function response(records, readiness) {
     if (item.commercial_value.kind === "KNOWN_POSITIVE") commercial.known_positive_count += 1;
     if (item.commercial_value.kind === "KNOWN_ZERO") commercial.known_zero_count += 1;
     if (item.commercial_value.kind === "UNKNOWN") commercial.unknown_count += 1;
+    if (item.commercial_value.kind === "NOT_ASSESSED") commercial.not_assessed_count += 1;
   }
   const eligible = classifications.ELIGIBLE;
   return {
@@ -102,7 +103,8 @@ const invalidMoney = record({
   classification: "SUPPRESSED_INVALID_EVIDENCE",
   outcome: "DATA_HEALTH_SUPPRESSED",
   reason: "COMMERCIAL_VALUE_INVALID",
-  nextStep: "CORRECT_COMMERCIAL_EVIDENCE"
+  nextStep: "CORRECT_COMMERCIAL_EVIDENCE",
+  kind: "NOT_ASSESSED"
 });
 
 async function mockStableShell(page) {
@@ -164,6 +166,8 @@ test("shows partial authoritative readiness at 390px before an explicit scan", a
   await expect(readiness).toContainText("1 of 3 opportunities are ready to assess");
   await expect(readiness.getByLabel("Stalled-opportunity assessment coverage"))
     .toContainText("Known zero1");
+  await expect(readiness.getByLabel("Stalled-opportunity assessment coverage"))
+    .toContainText("Value not assessed1");
   await expect(readiness.getByLabel("Reasons opportunities cannot be assessed"))
     .toContainText("OPPORTUNITY_STAGE_MISSING");
   await expect(readiness.getByLabel("Reasons opportunities cannot be assessed"))

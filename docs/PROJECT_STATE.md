@@ -41,6 +41,26 @@ not-ready, partial, ready, over-limit, unauthorized, and unavailable states
 remain distinct. No schema, migration, additional detector, automatic scan,
 external action, or Slice 3 behavior is included.
 
+The first Slice 2 review remediation closes three projection and browser-
+validation defects without changing detector decisions. Dataset monetary
+coverage now invokes the detector's shared canonical exact-money normalizer
+directly from each opportunity, so known positive and known zero remain known
+when unrelated stage or freshness evidence prevents detection; malformed money
+is explicitly not assessed rather than relabeled unknown. Display-only
+opportunity names are projected only when already trimmed and within the
+browser's 255-byte UTF-8 contract; padded, empty, malformed, or oversized
+legacy names fall back to the opportunity ID without changing canonical facts
+or eligibility. The browser rejects complete portfolios above the declared
+100-record limit, blocked portfolios that do not exceed it, and every
+non-string currency value. Focused RED passed **6/10**, with exactly the four
+expected regression groups failing; GREEN passes **10/10**. The affected
+detector/service/API/browser/monetary set passes **51/51**, complete integration
+passes **468/468**, and focused managed Chromium passes **2/2**. The harness,
+syntax, migration byte identity, diff hygiene, and artifact cleanup pass. The
+existing exact-head PostgreSQL tenant/RLS evidence remains **1/1** because this
+remediation changes no repository, tenancy, schema, migration, or scan-mutation
+boundary.
+
 The merged Slice 1 implementation now guides the import workspace and
 source label, derives explicit commit-supported versus preview-
 only capability for all five displayed collections from the browser's canonical

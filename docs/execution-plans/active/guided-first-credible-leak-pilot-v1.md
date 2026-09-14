@@ -327,6 +327,32 @@
   and only the existing chunk-size warning. Slice 2 changes no schema or
   migration; migrations `001`-`016` remain the exact baseline above. Generated
   dependency/build/browser/database artifacts were removed before checkpoint.
+- Fresh independent review returned three P2 findings: detector early-exit
+  fallbacks were being misreported as unknown canonical money, display-only
+  opportunity names had divergent server/browser whitespace and UTF-8 bounds,
+  and browser validation admitted complete over-limit portfolios plus array-
+  coerced currencies. Deterministic regressions were added before product
+  changes. RED passed **6/10**, with the existing money expectation plus the
+  three new contract groups failing.
+- The readiness projection now reuses the detector's canonical commercial-
+  value normalizer independently of detector outcome. Known positive, known
+  zero, unknown, and malformed/not-assessed evidence remain distinct without
+  changing any detector decision. Presentation names are nullable unless they
+  are already trimmed and at most 255 UTF-8 bytes, so padded or oversized
+  legacy text cannot invalidate the whole response or rewrite canonical facts.
+  The browser now enforces `complete => total <= limit`,
+  `blocked => total > limit`, and string-typed canonical currency. GREEN passes
+  **10/10**.
+- The affected detector, service, API, browser-contract, queue, and monetary
+  set passes **51/51**. Complete integration passes **468/468** after using a
+  real temporary lockfile-identical dependency link for ESM and child-process
+  resolution; the preceding `NODE_PATH` run passed the harness and 461 product
+  assertions but had seven dependency-resolution setup failures. Focused
+  managed Chromium passes **2/2**, including the visible not-assessed count at
+  390px and no automatic scan. The harness, syntax, migration byte identity,
+  diff hygiene, and artifact cleanup pass. PostgreSQL was not repeated because
+  the existing exact-head tenant/RLS contract is **1/1** and this remediation
+  changes no repository, tenant, schema, migration, or mutation boundary.
 
 ## Review and handoff
 
@@ -344,7 +370,10 @@
   remediated without changing or normalizing the server identity contract. One
   final independent review approved the resulting head with no P0-P3 findings,
   and Slice 1 later merged through PR #36.
-- Final-review evidence: coordinator-owned after any bounded remediation.
+- Slice 2 fresh review findings above are remediated at the shared monetary
+  projection, nullable presentation, and strict browser-contract boundaries.
+  A new independent review of the resulting pinned checkpoint is the next
+  gate.
 - Slice 2 implementer self-check: the complete diff was reread defect-first for
   detector-rule drift, count reconciliation, false readiness, unknown-to-zero
   money, cross-currency aggregation, caller tenant authority, hidden scan

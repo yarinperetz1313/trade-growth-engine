@@ -127,8 +127,8 @@ test("server projection reuses detector outcomes and reconciles partial coverage
     commercial_value_coverage: {
       known_positive_count: 1,
       known_zero_count: 1,
-      unknown_count: 3,
-      not_assessed_count: 0
+      unknown_count: 2,
+      not_assessed_count: 1
     }
   });
   assert.deepEqual(readiness.records.map(record => [
@@ -141,12 +141,129 @@ test("server projection reuses detector outcomes and reconciles partial coverage
   ]), [
     ["eligible-positive", "ELIGIBLE", "ELIGIBLE_LEAK_DETECTED", "STALE_WITHOUT_NEXT_ACTION", "KNOWN_POSITIVE", "RUN_EXPLICIT_SCAN"],
     ["eligible-zero", "ELIGIBLE", "ELIGIBLE_NO_LEAK", "NEXT_ACTION_PRESENT", "KNOWN_ZERO", "RUN_EXPLICIT_SCAN"],
-    ["invalid", "SUPPRESSED_INVALID_EVIDENCE", "DATA_HEALTH_SUPPRESSED", "COMMERCIAL_VALUE_INVALID", "UNKNOWN", "CORRECT_COMMERCIAL_EVIDENCE"],
+    ["invalid", "SUPPRESSED_INVALID_EVIDENCE", "DATA_HEALTH_SUPPRESSED", "COMMERCIAL_VALUE_INVALID", "NOT_ASSESSED", "CORRECT_COMMERCIAL_EVIDENCE"],
     ["missing", "MISSING_REQUIRED_EVIDENCE", "INSUFFICIENT_EVIDENCE", "OPPORTUNITY_STAGE_MISSING", "UNKNOWN", "CORRECT_OPPORTUNITY_STAGE"],
     ["stale", "STALE_EVIDENCE", "STALE_OR_UNTRUSTWORTHY_SOURCE", "CANONICAL_SOURCE_TOO_OLD", "UNKNOWN", "IMPORT_NEWER_SOURCE_DATA"]
   ]);
   assert.deepEqual(store.state.revenue_leak_cases, []);
   assert.deepEqual(store.state.pilot_evidence_events || [], []);
+});
+
+test("commercial coverage uses canonical money independently of detector early exits", async () => {
+  const { service } = serviceFor({
+    opportunities: [
+      opportunity("missing-positive", {
+        stage: null,
+        value: "100.000001"
+      }),
+      opportunity("missing-zero", {
+        stage: null,
+        value: "0"
+      }),
+      opportunity("stale-positive", {
+        created_at: daysBefore(91),
+        updated_at: daysBefore(91),
+        value: "9007199254740.123456"
+      }),
+      opportunity("unknown", {
+        stage: null,
+        value: null,
+        currency: null
+      }),
+      opportunity("malformed-value", { value: "not-money" }),
+      opportunity("malformed-currency", { currency: ["AUD"] })
+    ]
+  });
+
+  const readiness = await service.getStalledOpportunityEligibility();
+
+  assert.deepEqual(readiness.summary.commercial_value_coverage, {
+    known_positive_count: 2,
+    known_zero_count: 1,
+    unknown_count: 1,
+    not_assessed_count: 2
+  });
+  assert.deepEqual(
+    readiness.records.map(record => [
+      record.opportunity_id,
+      record.detector_outcome,
+      record.reason_code,
+      record.commercial_value
+    ]),
+    [
+      [
+        "malformed-currency",
+        "DATA_HEALTH_SUPPRESSED",
+        "COMMERCIAL_CURRENCY_INVALID",
+        { kind: "NOT_ASSESSED", amount: null, currency: null }
+      ],
+      [
+        "malformed-value",
+        "DATA_HEALTH_SUPPRESSED",
+        "COMMERCIAL_VALUE_INVALID",
+        { kind: "NOT_ASSESSED", amount: null, currency: null }
+      ],
+      [
+        "missing-positive",
+        "INSUFFICIENT_EVIDENCE",
+        "OPPORTUNITY_STAGE_MISSING",
+        { kind: "KNOWN_POSITIVE", amount: "100.000001", currency: "AUD" }
+      ],
+      [
+        "missing-zero",
+        "INSUFFICIENT_EVIDENCE",
+        "OPPORTUNITY_STAGE_MISSING",
+        { kind: "KNOWN_ZERO", amount: "0", currency: "AUD" }
+      ],
+      [
+        "stale-positive",
+        "STALE_OR_UNTRUSTWORTHY_SOURCE",
+        "CANONICAL_SOURCE_TOO_OLD",
+        { kind: "KNOWN_POSITIVE", amount: "9007199254740.123456", currency: "AUD" }
+      ],
+      [
+        "unknown",
+        "INSUFFICIENT_EVIDENCE",
+        "OPPORTUNITY_STAGE_MISSING",
+        { kind: "UNKNOWN", amount: null, currency: null }
+      ]
+    ]
+  );
+  const {
+    unwrapStalledOpportunityEligibilityResponse
+  } = await import("../web/lib/revenueLeakCaseContracts.mjs");
+  assert.deepEqual(
+    unwrapStalledOpportunityEligibilityResponse(readiness, new Date(EVALUATED_AT)),
+    readiness
+  );
+});
+
+test("display-only opportunity names cannot invalidate authoritative readiness", async () => {
+  const withinUtf8Boundary = "商".repeat(85);
+  const beyondUtf8Boundary = "商".repeat(86);
+  const { service } = serviceFor({
+    opportunities: [
+      opportunity("a-padded", { business_name: " Example " }),
+      opportunity("b-byte-boundary", { business_name: withinUtf8Boundary }),
+      opportunity("c-too-many-bytes", { business_name: beyondUtf8Boundary }),
+      opportunity("d-empty", { business_name: "" }),
+      opportunity("e-null", { business_name: null }),
+      opportunity("f-malformed", { business_name: { value: "Example" } })
+    ]
+  });
+  const response = await service.getStalledOpportunityEligibility();
+  const {
+    unwrapStalledOpportunityEligibilityResponse
+  } = await import("../web/lib/revenueLeakCaseContracts.mjs");
+
+  assert.deepEqual(
+    response.records.map(record => record.opportunity_name),
+    [null, withinUtf8Boundary, null, null, null, null]
+  );
+  assert.deepEqual(
+    unwrapStalledOpportunityEligibilityResponse(response, new Date(EVALUATED_AT)),
+    response
+  );
 });
 
 test("empty, all-eligible, and no-eligible readiness remain distinct", async () => {
@@ -312,4 +429,75 @@ test("browser validates authoritative readiness and fails closed on promoted rec
   assert.match(source, /getStalledOpportunityEligibility/);
   assert.match(source, /summary\.detector_assessable_count/);
   assert.doesNotMatch(source, /evaluateStalledOpportunity/);
+});
+
+test("browser rejects impossible portfolio bounds and non-string currency evidence", async () => {
+  const {
+    unwrapStalledOpportunityEligibilityResponse
+  } = await import("../web/lib/revenueLeakCaseContracts.mjs");
+  const { service } = serviceFor({
+    opportunities: [opportunity("seed")]
+  });
+  const response = await service.getStalledOpportunityEligibility();
+
+  const overLimitReady = structuredClone(response);
+  overLimitReady.records = Array.from(
+    { length: PORTFOLIO_SCAN_LIMIT + 1 },
+    (_, index) => ({
+      ...structuredClone(response.records[0]),
+      opportunity_id: `opportunity-${String(index).padStart(3, "0")}`
+    })
+  );
+  overLimitReady.summary.total_opportunities = PORTFOLIO_SCAN_LIMIT + 1;
+  overLimitReady.summary.detector_assessable_count = PORTFOLIO_SCAN_LIMIT + 1;
+  overLimitReady.summary.detector_unassessable_count = 0;
+  overLimitReady.summary.scan_evaluated_count = PORTFOLIO_SCAN_LIMIT + 1;
+  overLimitReady.summary.classifications.ELIGIBLE = PORTFOLIO_SCAN_LIMIT + 1;
+  overLimitReady.summary.commercial_value_coverage.known_positive_count =
+    PORTFOLIO_SCAN_LIMIT + 1;
+  assert.throws(
+    () => unwrapStalledOpportunityEligibilityResponse(
+      overLimitReady,
+      new Date(EVALUATED_AT)
+    ),
+    error => error?.code === "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
+  );
+
+  const blocked = await serviceFor({
+    opportunities: Array.from(
+      { length: PORTFOLIO_SCAN_LIMIT + 1 },
+      (_, index) => opportunity(`blocked-${index}`)
+    )
+  }).service.getStalledOpportunityEligibility();
+  const notActuallyOverLimit = structuredClone(blocked);
+  notActuallyOverLimit.summary.total_opportunities = PORTFOLIO_SCAN_LIMIT;
+  notActuallyOverLimit.summary.detector_unassessable_count = PORTFOLIO_SCAN_LIMIT;
+  notActuallyOverLimit.summary.classifications.SCAN_BLOCKED = PORTFOLIO_SCAN_LIMIT;
+  notActuallyOverLimit.summary.reason_counts.PORTFOLIO_LIMIT_EXCEEDED =
+    PORTFOLIO_SCAN_LIMIT;
+  notActuallyOverLimit.summary.commercial_value_coverage.not_assessed_count =
+    PORTFOLIO_SCAN_LIMIT;
+  assert.throws(
+    () => unwrapStalledOpportunityEligibilityResponse(
+      notActuallyOverLimit,
+      new Date(EVALUATED_AT)
+    ),
+    error => error?.code === "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
+  );
+
+  for (const currency of [["AUD"], { code: "AUD" }, 123, true, null]) {
+    const malformed = structuredClone(response);
+    malformed.records[0].commercial_value.currency = currency;
+    assert.throws(
+      () => unwrapStalledOpportunityEligibilityResponse(
+        malformed,
+        new Date(EVALUATED_AT)
+      ),
+      error => error?.code === "REVENUE_LEAK_BROWSER_RESPONSE_INVALID"
+    );
+  }
+  assert.deepEqual(
+    unwrapStalledOpportunityEligibilityResponse(response, new Date(EVALUATED_AT)),
+    response
+  );
 });

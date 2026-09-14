@@ -585,5 +585,6 @@ module.exports = {
   OUTCOME_REASON_CODES,
   SOURCE_FRESHNESS_DAYS,
   STALE_AFTER_DAYS,
+  canonicalCommercialValue,
   evaluateStalledOpportunity
 };
