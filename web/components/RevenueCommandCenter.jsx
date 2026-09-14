@@ -135,15 +135,9 @@ function dataOriginCopy(origin) {
   return "Existing customer";
 }
 
-function ScanSummary({ summary, queue }) {
-  if (!queue) {
-    return (
-      <section className="rcc2-scan-summary" role="status">
-        <strong>Scan complete; refreshing durable case truth…</strong>
-      </section>
-    );
-  }
-  const result = buildFirstValueScanResult(summary, queue);
+function ScanSummary({ summary, queue, queueFreshness }) {
+  const queueCurrent = queueFreshness === "CURRENT";
+  const result = buildFirstValueScanResult(summary, queueCurrent ? queue : null);
   const detected = result.credible_case_count;
   return (
     <section className="rcc2-scan-summary" role="status" aria-label="Complete explicit scan outcomes">
@@ -155,7 +149,9 @@ function ScanSummary({ summary, queue }) {
             ? "No opportunity evidence was available to scan"
             : "No credible stalled-opportunity case found"}</h4>
         <p>{detected > 0
-          ? "The durable queue below contains the current active cases after this explicit scan. Open the highest-priority customer case to inspect why it matters and choose the next human-controlled step."
+          ? queueCurrent
+            ? "The durable queue below contains the current active cases after this explicit scan. Open the highest-priority customer case to inspect why it matters and choose the next human-controlled step."
+            : "The explicit scan confirmed credible cases. Current active-case counts and economic value remain withheld until durable queue truth refreshes."
           : summary.evaluated_count === 0
             ? "No canonical opportunities were available. Import or create opportunity evidence, review Operational Data Health, then explicitly scan again."
           : result.limitation_count > 0
@@ -166,15 +162,32 @@ function ScanSummary({ summary, queue }) {
         <div><span>Credible cases</span><strong>{result.credible_case_count}</strong></div>
         <div><span>Assessed · no leak</span><strong>{result.assessed_no_leak_count}</strong></div>
         <div><span>Evidence limitations</span><strong>{result.limitation_count}</strong></div>
-        <div><span>Active cases now</span><strong>{result.active_case_count}</strong></div>
+        {queueCurrent ? (
+          <div><span>Active cases now</span><strong>{result.active_case_count}</strong></div>
+        ) : (
+          <div>
+            <span>Current case truth</span>
+            <strong>{queueFreshness === "REFRESHING"
+              ? "Refreshing durable queue truth"
+              : "Unavailable"}</strong>
+          </div>
+        )}
       </div>
-      <QueueSummary summary={queue.value_summary} />
-      <small className="rcc2-result-truth">
-        Known amounts are exact current active-case values grouped by authoritative currency.
-        No cross-currency total is calculated. Unknown is not zero. Sample/demo cases stay labelled
-        and never satisfy first-value evidence. Created {result.created_case_count},
-        replayed {result.replayed_case_count}, and reconciled as superseded {result.superseded_case_count}.
-      </small>
+      {queueCurrent && <QueueSummary summary={queue.value_summary} />}
+      {queueCurrent ? (
+        <small className="rcc2-result-truth">
+          Known amounts are exact current active-case values grouped by authoritative currency.
+          No cross-currency total is calculated. Unknown is not zero. Sample/demo cases stay labelled
+          and never satisfy first-value evidence. Created {result.created_case_count},
+          replayed {result.replayed_case_count}, and reconciled as superseded {result.superseded_case_count}.
+        </small>
+      ) : (
+        <small className="rcc2-result-truth">
+          Confirmed scan outcomes remain available, but current active-case counts and money unavailable
+          until a durable queue refresh succeeds. Created {result.created_case_count}, replayed {result.replayed_case_count},
+          and reconciled as superseded {result.superseded_case_count} are scan outcomes, not current queue totals.
+        </small>
+      )}
       <details className="rcc2-scan-details">
         <summary>Inspect complete detector outcomes and reason codes</summary>
         <div className="rcc2-scan-heading">
@@ -710,6 +723,7 @@ export default function RevenueCommandCenter({
   const [sourceFilter, setSourceFilter] = useState("ALL");
   const [scanState, setScanState] = useState(null);
   const [scanSummary, setScanSummary] = useState(null);
+  const [scanQueueFreshness, setScanQueueFreshness] = useState(null);
   const [mutationCaseId, setMutationCaseId] = useState(null);
   const [mutationKind, setMutationKind] = useState(null);
   const [mutationMessage, setMutationMessage] = useState(null);
@@ -728,6 +742,8 @@ export default function RevenueCommandCenter({
   const queueRequest = useRef(0);
   const readinessRequest = useRef(0);
   const queueRef = useRef(null);
+  const scanSummaryRef = useRef(null);
+  const pendingCaseReconciliationRef = useRef(null);
   const pilotStatusRequest = useRef(0);
   const pilotGuard = useRef(null);
   const surfacedAttempt = useRef(null);
@@ -758,7 +774,7 @@ export default function RevenueCommandCenter({
     }
   }, []);
 
-  const loadQueue = useCallback(async () => {
+  const loadQueue = useCallback(async ({ confirmsScan = false } = {}) => {
     const requestId = ++queueRequest.current;
     if (!queueRef.current) setQueueState("LOADING");
     else setRefreshing(true);
@@ -769,7 +785,9 @@ export default function RevenueCommandCenter({
       queueRef.current = response.data;
       setQueue(response.data);
       setQueueState("READY");
-      setReconciliationBlocked(false);
+      if (confirmsScan && scanSummaryRef.current) {
+        setScanQueueFreshness("CURRENT");
+      }
       setSelectedCaseId(current =>
         response.data.entries.some(entry => entry.case.id === current)
           ? current
@@ -780,11 +798,29 @@ export default function RevenueCommandCenter({
       if (!mounted.current || requestId !== queueRequest.current) return null;
       setQueueError(queueErrorCopy(requestError));
       setQueueState(queueRef.current ? "STALE" : "ERROR");
+      if (confirmsScan && scanSummaryRef.current) {
+        setScanQueueFreshness("UNAVAILABLE");
+      }
       return null;
     } finally {
       if (mounted.current && requestId === queueRequest.current) setRefreshing(false);
     }
   }, []);
+
+  function setCaseReconciliation(attempt) {
+    pendingCaseReconciliationRef.current = attempt;
+    setPendingCaseReconciliation(attempt);
+  }
+
+  async function loadQueueForCurrentScan() {
+    const durable = await loadQueue({
+      confirmsScan: Boolean(scanSummaryRef.current)
+    });
+    if (durable && pendingCaseReconciliationRef.current === null) {
+      setReconciliationBlocked(false);
+    }
+    return durable;
+  }
 
   const loadReadiness = useCallback(async () => {
     const requestId = ++readinessRequest.current;
@@ -854,7 +890,7 @@ export default function RevenueCommandCenter({
     setMutationMessage(null);
     setMutationError(null);
     await Promise.all([
-      loadQueue(),
+      loadQueueForCurrentScan(),
       loadPilotStatus(),
       loadReadiness(),
       onRefresh?.()
@@ -994,8 +1030,10 @@ export default function RevenueCommandCenter({
     try {
       const response = await scanStalledOpportunities();
       if (!mounted.current) return;
+      scanSummaryRef.current = response.summary;
       setScanSummary(response.summary);
-      const durable = await loadQueue();
+      setScanQueueFreshness("REFRESHING");
+      const durable = await loadQueue({ confirmsScan: true });
       await Promise.all([loadPilotStatus(), loadReadiness()]);
       if (durable) {
         setMutationMessage(
@@ -1007,6 +1045,7 @@ export default function RevenueCommandCenter({
       if (isAmbiguousRevenueLeakCaseMutationError(scanError)) {
         setReconciliationBlocked(true);
         const [durable] = await Promise.all([loadQueue(), loadPilotStatus()]);
+        if (durable) setReconciliationBlocked(false);
         setMutationError(durable ? {
           title: "Scan outcome reconciled",
           message: "The scan response was not confirmed. Durable queue truth was reloaded; run another scan only by explicit choice."
@@ -1034,6 +1073,7 @@ export default function RevenueCommandCenter({
       if (!mounted.current) return;
       setReconciliationBlocked(true);
       const durable = await loadQueue();
+      if (durable) setReconciliationBlocked(false);
       const linked = durable?.entries.find(item => item.case.id === caseId)
         ?.linked_revenue_action;
       if (linked) {
@@ -1058,6 +1098,7 @@ export default function RevenueCommandCenter({
       if (isAmbiguousRevenueLeakCaseMutationError(handoffError)) {
         setReconciliationBlocked(true);
         const durable = await loadQueue();
+        if (durable) setReconciliationBlocked(false);
         const linked = durable?.entries.find(item => item.case.id === caseId)
           ?.linked_revenue_action;
         if (linked) {
@@ -1116,7 +1157,7 @@ export default function RevenueCommandCenter({
         });
       }
       await loadQueue();
-      setPendingCaseReconciliation(null);
+      setCaseReconciliation(null);
       setMutationMessage(expectedState === "SNOOZED"
         ? "Case snoozed with a durable human reason and future wake time."
         : "Case dismissed with a durable human reason. Its evidence and audit history remain inspectable in the opportunity.");
@@ -1128,13 +1169,14 @@ export default function RevenueCommandCenter({
           if (!mounted.current) return;
           const durableCase = history.data.find(item => item.id === caseId);
           await loadQueue();
+          setReconciliationBlocked(false);
           if (durableCase?.state === expectedState) {
-            setPendingCaseReconciliation(null);
+            setCaseReconciliation(null);
             setMutationMessage(
               `Durable case history confirms ${expectedState}. No duplicate mutation was attempted.`
             );
           } else {
-            setPendingCaseReconciliation(null);
+            setCaseReconciliation(null);
             setMutationError({
               title: "Case decision not confirmed",
               message: "Durable case history does not show the requested state. Review current truth before explicitly trying again."
@@ -1142,7 +1184,7 @@ export default function RevenueCommandCenter({
           }
         } catch (historyError) {
           setReconciliationBlocked(true);
-          setPendingCaseReconciliation({ caseId, opportunityId, expectedState });
+          setCaseReconciliation({ caseId, opportunityId, expectedState });
           setMutationError({
             title: "Case decision outcome unknown",
             message: "Durable case history must reload before another case or action mutation is allowed. Open the opportunity to reconcile its full history."
@@ -1169,7 +1211,7 @@ export default function RevenueCommandCenter({
       if (!mounted.current) return;
       const durableCase = history.data.find(item => item.id === attempt.caseId);
       await loadQueue();
-      setPendingCaseReconciliation(null);
+      setCaseReconciliation(null);
       setReconciliationBlocked(false);
       if (durableCase?.state === attempt.expectedState) {
         setMutationError(null);
@@ -1204,6 +1246,7 @@ export default function RevenueCommandCenter({
     || mutationCaseId
     || refreshing
     || reconciliationBlocked
+    || pendingCaseReconciliation
     || queueState !== "READY"
   );
   const scanCredible = readinessState === "READY"
@@ -1237,7 +1280,7 @@ export default function RevenueCommandCenter({
           <button
             type="button"
             className="text-button"
-            disabled={refreshing || reconciliationBlocked}
+            disabled={refreshing || reconciliationBlocked || Boolean(pendingCaseReconciliation)}
             onClick={refreshQueue}
           >
             {refreshing ? "Refreshing…" : "Refresh queue"}
@@ -1257,7 +1300,7 @@ export default function RevenueCommandCenter({
             <small>Showing the last validated queue while refresh is unavailable.</small>
           )}
           {queueError.kind !== "UNAUTHORIZED" && (
-            <button type="button" className="oc-secondary-button" onClick={loadQueue}>
+            <button type="button" className="oc-secondary-button" onClick={loadQueueForCurrentScan}>
               Retry queue
             </button>
           )}
@@ -1317,7 +1360,13 @@ export default function RevenueCommandCenter({
         error={readinessError}
         onRetry={loadReadiness}
       />
-      {scanSummary && <ScanSummary summary={scanSummary} queue={queue} />}
+      {scanSummary && (
+        <ScanSummary
+          summary={scanSummary}
+          queue={queue}
+          queueFreshness={scanQueueFreshness}
+        />
+      )}
 
       {queue && (
         <>

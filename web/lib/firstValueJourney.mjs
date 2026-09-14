@@ -11,6 +11,7 @@ export function selectCredibleHero(entries) {
 export function buildFirstValueScanResult(summary, queue) {
   const outcomes = summary.outcomes;
   const credibleCaseCount = outcomes.ELIGIBLE_LEAK_DETECTED.count;
+  const queueCurrent = queue !== null;
   return Object.freeze({
     state: credibleCaseCount > 0 ? "CREDIBLE_CASES" : "NO_CREDIBLE_CASE",
     credible_case_count: credibleCaseCount,
@@ -20,12 +21,20 @@ export function buildFirstValueScanResult(summary, queue) {
       + outcomes.STALE_OR_UNTRUSTWORTHY_SOURCE.count
       + outcomes.DATA_HEALTH_SUPPRESSED.count
       + summary.unevaluated_count,
-    active_case_count: queue.total_cases,
-    known_totals_by_currency:
-      queue.value_summary.known_positive.totals_by_currency,
-    known_zero_case_count: queue.value_summary.known_zero.case_count,
-    unknown_value_case_count: queue.value_summary.unknown.case_count,
-    not_applicable_case_count: queue.value_summary.not_applicable.case_count,
+    queue_current: queueCurrent,
+    active_case_count: queueCurrent ? queue.total_cases : null,
+    known_totals_by_currency: queueCurrent
+      ? queue.value_summary.known_positive.totals_by_currency
+      : null,
+    known_zero_case_count: queueCurrent
+      ? queue.value_summary.known_zero.case_count
+      : null,
+    unknown_value_case_count: queueCurrent
+      ? queue.value_summary.unknown.case_count
+      : null,
+    not_applicable_case_count: queueCurrent
+      ? queue.value_summary.not_applicable.case_count
+      : null,
     created_case_count: summary.reconciliation.created_count,
     replayed_case_count: summary.reconciliation.replayed_count,
     superseded_case_count: summary.reconciliation.superseded_count

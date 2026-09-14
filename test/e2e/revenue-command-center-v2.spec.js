@@ -660,6 +660,182 @@ test("keeps TAKE ACTION, SNOOZE, and DISMISS continuous in the operating queue",
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
+test("keeps lifecycle mutations blocked when an earlier queue refresh resolves after ambiguous history failure", async ({ page }) => {
+  const reference = Date.now();
+  const context = caseContext({
+    id: "case-refresh-race",
+    opportunityId: "e2e-opp-stalled",
+    businessName: "E2E Stalled Roofing",
+    amount: "42000.5",
+    currency: "AUD",
+    reference
+  });
+  let queueReads = 0;
+  let releaseRefresh;
+  const refreshGate = new Promise(resolve => { releaseRefresh = resolve; });
+  let releaseDecision;
+  const decisionGate = new Promise(resolve => { releaseDecision = resolve; });
+  let historyAvailable = false;
+  let dismissPosts = 0;
+
+  await page.route(`${apiBaseUrl}/api/revenue-leak-cases/operating-queue`, async route => {
+    queueReads += 1;
+    if (queueReads === 2) await refreshGate;
+    return json(route, 200, queueResponse([context], reference));
+  });
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/case-refresh-race/dismiss`,
+    async route => {
+      dismissPosts += 1;
+      await decisionGate;
+      return route.abort("failed");
+    }
+  );
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases?opportunity_id=e2e-opp-stalled`,
+    route => {
+      if (!historyAvailable) return route.abort("failed");
+      const dismissedAt = new Date(reference + 1).toISOString();
+      const dismissed = {
+        ...context.case,
+        state: "DISMISSED",
+        dismissed_at: dismissedAt,
+        dismissal_reason: "Confirmed duplicate opportunity.",
+        updated_at: dismissedAt,
+        audit: [...context.case.audit, {
+          transition: "DISMISSED",
+          at: dismissedAt,
+          subject_id: "auth0|e2e-operator",
+          reason: "Confirmed duplicate opportunity."
+        }]
+      };
+      return json(route, 200, { ok: true, data: [dismissed], count: 1 });
+    }
+  );
+
+  await page.goto("/#opportunities");
+  const item = page.locator('[data-case-id="case-refresh-race"]');
+  await item.getByRole("button", { name: /Why TGE surfaced this/i }).click();
+  await item.getByLabel("Reason to dismiss").fill("Confirmed duplicate opportunity.");
+  await item.getByRole("button", { name: "DISMISS" }).click();
+  await expect.poll(() => dismissPosts).toBe(1);
+
+  await page.getByRole("button", { name: "Refresh queue" }).click();
+  await expect.poll(() => queueReads).toBe(2);
+  releaseDecision();
+  await expect(page.getByRole("alert")).toContainText("Case decision outcome unknown");
+  releaseRefresh();
+  await expect.poll(() => queueReads).toBe(2);
+
+  await expect(item.getByRole("button", { name: "TAKE ACTION" })).toBeDisabled();
+  await expect(item.getByRole("button", { name: "DISMISS" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Refresh queue" })).toBeDisabled();
+  expect(dismissPosts).toBe(1);
+
+  historyAvailable = true;
+  await page.getByRole("button", { name: "Reconcile case history" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "Durable case history confirms DISMISSED"
+  );
+  await expect(item.getByRole("button", { name: "TAKE ACTION" })).toBeEnabled();
+});
+
+test("withholds cached active-case money until the post-scan queue refresh succeeds", async ({ page }) => {
+  const reference = Date.now();
+  const current = caseContext({
+    id: "case-after-scan",
+    opportunityId: "e2e-opp-stalled",
+    businessName: "E2E Stalled Roofing",
+    amount: "42000.5",
+    currency: "AUD",
+    reference
+  });
+  let queueReads = 0;
+  let queueMode = "INITIAL";
+  let releasePostScan;
+  const postScanGate = new Promise(resolve => { releasePostScan = resolve; });
+
+  await page.route(`${apiBaseUrl}/api/revenue-leak-cases/operating-queue`, async route => {
+    queueReads += 1;
+    if (queueMode === "POST_SCAN_PENDING") {
+      await postScanGate;
+      return json(route, 503, {
+        ok: false,
+        error: "REVENUE_LEAK_CASE_PERSISTENCE_UNAVAILABLE",
+        message: "Queue refresh unavailable."
+      });
+    }
+    return json(
+      route,
+      200,
+      queueResponse(queueMode === "RECOVERED" ? [current] : [], reference)
+    );
+  });
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/scan-stalled-opportunities`,
+    route => json(route, 200, {
+      ok: true,
+      evaluated_at: new Date(reference).toISOString(),
+      detector: { id: "stalled-opportunity", version: "1" },
+      scope: "TENANT_VISIBLE_CANONICAL_OPPORTUNITIES",
+      summary: {
+        complete: true,
+        limit: 100,
+        total_opportunities: 1,
+        evaluated_count: 1,
+        unevaluated_count: 0,
+        overflow_count: 0,
+        invalid_record_count: 0,
+        excluded_count: 0,
+        reconciliation: {
+          detected_count: 1,
+          created_count: 1,
+          replayed_count: 0,
+          superseded_count: 0
+        },
+        outcomes: {
+          ELIGIBLE_LEAK_DETECTED: {
+            count: 1,
+            reasons: { STALE_WITHOUT_NEXT_ACTION: 1 }
+          },
+          ELIGIBLE_NO_LEAK: { count: 0, reasons: {} },
+          INSUFFICIENT_EVIDENCE: { count: 0, reasons: {} },
+          STALE_OR_UNTRUSTWORTHY_SOURCE: { count: 0, reasons: {} },
+          DATA_HEALTH_SUPPRESSED: { count: 0, reasons: {} }
+        }
+      },
+      results: [{
+        opportunity_id: "e2e-opp-stalled",
+        outcome: "ELIGIBLE_LEAK_DETECTED",
+        reason_code: "STALE_WITHOUT_NEXT_ACTION",
+        disposition: "CREATED",
+        case_id: "case-after-scan",
+        superseded_case_id: null
+      }]
+    })
+  );
+
+  await page.goto("/#opportunities");
+  queueMode = "POST_SCAN_PENDING";
+  await page.getByRole("button", { name: "Scan stalled opportunities" }).click();
+  const result = page.getByLabel("Complete explicit scan outcomes");
+  await expect(result).toContainText("1 credible revenue case found");
+  await expect(result).toContainText("Refreshing durable queue truth");
+  await expect(result).not.toContainText("Active cases now0");
+  await expect(result).not.toContainText("No known positive totals");
+
+  releasePostScan();
+  await expect(result).toContainText("current active-case counts and money unavailable");
+  await expect(result).not.toContainText("Active cases now0");
+  await expect(result).not.toContainText("No known positive totals");
+
+  queueMode = "RECOVERED";
+  await page.getByRole("button", { name: "Retry queue" }).click();
+  await expect(result).toContainText("Active cases now1");
+  await expect(result).toContainText("AUD 42,000.5");
+  expect(queueReads).toBe(3);
+});
+
 test("keeps handoff controls blocked until an ambiguous mutation is reconciled", async ({ page }) => {
   const reference = Date.now();
   const context = caseContext({

@@ -437,6 +437,34 @@
   the recorded SHA-256 baseline. No database, repository, tenant, RLS, schema,
   migration, detector, or server authority changed, so the merged Slice 2
   PostgreSQL **1/1** evidence was not repeated.
+- The first independent Slice 3 review returned two P2 browser-state findings.
+  A delayed ordinary queue refresh could clear the shared reconciliation block
+  after an ambiguous Snooze/Dismiss response and failed durable case-history
+  read. Separately, a successful scan followed by a pending or failed queue
+  refresh could label cached pre-scan active-case counts and money as current.
+- Both synchronized regressions were added before product changes. The focused
+  scan-result contract was RED **4/5**, failing only because current queue truth
+  could not be withheld. Managed Chromium was RED **0/2**: the delayed refresh
+  re-enabled TAKE ACTION, and the pending refresh displayed cached zero current
+  cases and an empty monetary summary.
+- The lifecycle repair makes unresolved case-history reconciliation a separate
+  ref-backed mutation gate. Generic queue reads no longer release the shared
+  reconciliation block; an already-running refresh checks the authoritative
+  pending-case ref before clearing anything. TAKE ACTION, SNOOZE, DISMISS,
+  explicit scan, and queue refresh remain disabled until a successful exact
+  opportunity case-history reconciliation resolves the attempt.
+- Scan outcomes and queue freshness are now distinct. Confirmed detector counts
+  and reconciliation dispositions remain visible while the post-scan queue read
+  is pending or unavailable, but current active-case counts and every monetary
+  summary are `null`/withheld. A successful corresponding or explicit recovery
+  queue read marks them current and restores exact currency-grouped values.
+  GREEN is **5/5** focused and **2/2** synchronized Chromium. The affected
+  detector/readiness/queue/Pilot/monetary browser contracts pass **49/49** and
+  affected managed Chromium passes **23/23** across the complete first-value,
+  Operational Data Health, product-truth, and Revenue Command Center journeys.
+  The engineering harness and production build pass. Migrations `001`-`016`
+  remain unchanged; no PostgreSQL gate was repeated because no server,
+  persistence, tenant/RLS, schema, migration, or mutation authority changed.
 
 ## Review and handoff
 
@@ -475,6 +503,11 @@
   when current action/navigation context is absent. No remaining in-scope
   defect was found. Fresh independent review of the pinned checkpoint is the
   next gate.
+- Slice 3 first-review findings are remediated at the browser lifecycle and
+  queue-freshness boundaries. The exact delayed-refresh lifecycle interleaving
+  remains blocked until successful history reconciliation, and delayed/failed/
+  recovered post-scan reads prove cached money is never promoted to current.
+  Fresh independent review of the new pinned checkpoint is the next gate.
 - Debt/follow-up: no new product debt was introduced. The existing production
   bundle-size warning remains visible; broad information architecture,
   connectors, additional detectors, attribution/ROI, recovered-revenue claims,

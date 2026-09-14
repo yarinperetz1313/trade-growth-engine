@@ -48,6 +48,22 @@ byte-identical; no PostgreSQL/RLS boundary changed, so the merged Slice 2
 PostgreSQL **1/1** evidence was not repeated. Independent review and GitHub
 delivery remain coordinator-owned next gates.
 
+The first Slice 3 review identified two browser freshness races, now corrected
+without changing server, detector, persistence, tenancy, or RevenueAction
+authority. An unresolved Snooze/Dismiss outcome owns an independent,
+ref-backed mutation gate; an ordinary queue read that began earlier cannot
+release it, and only tenant-authorized opportunity case-history reconciliation
+can do so. Confirmed scan outcomes are separated from current active-case
+truth: while the corresponding durable queue read is pending or unavailable,
+the browser withholds active-case counts and all monetary summaries rather than
+presenting cached pre-scan values as current. A later successful queue read
+restores exact currency-grouped money and current counts. Focused RED was
+**4/5** for the missing withheld-result contract and synchronized Chromium was
+RED **0/2** for both races; GREEN is **5/5** and **2/2**. The affected Node
+contracts pass **49/49**, affected managed Chromium passes **23/23**, and the
+engineering harness and production build pass. Migrations `001`-`016` remain
+unchanged. Fresh independent review remains the next gate.
+
 The merged Slice 2 implementation exposes a tenant-bound,
 read-only stalled-opportunity eligibility projection before scan. It uses the
 same portfolio admission and version-1 detector evaluator as the existing
@@ -936,7 +952,8 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 ## Milestone status
 - Active plan: [**Guided First Credible Leak Pilot V1**](execution-plans/active/guided-first-credible-leak-pilot-v1.md).
   Slices 1 and 2 are merged; Slice 3 has reached a clean local implementation
-  candidate and awaits independent review. The completed
+  candidate, completed one bounded review remediation, and awaits fresh
+  independent review. The completed
   [**Pilot Readiness**](execution-plans/completed/pilot-readiness.md) record is
   historical evidence, not an active backlog.
   The [**RevenueLeakCase foundation**](execution-plans/completed/revenue-leak-case-foundation.md)

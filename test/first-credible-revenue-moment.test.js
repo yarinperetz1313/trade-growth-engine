@@ -78,6 +78,7 @@ test("first-value result keeps credible, limited, unknown, and currency-grouped 
     credible_case_count: 2,
     assessed_no_leak_count: 1,
     limitation_count: 3,
+    queue_current: true,
     active_case_count: 2,
     known_totals_by_currency: [
       { currency: "AUD", amount: "1200.50", case_count: 1 },
@@ -104,6 +105,23 @@ test("first-value result gives a truthful no-case state without erasing limitati
   assert.equal(result.assessed_no_leak_count, 2);
   assert.equal(result.limitation_count, 2);
   assert.deepEqual(result.known_totals_by_currency, []);
+});
+
+test("confirmed scan outcomes withhold current queue and money until durable refresh", async () => {
+  const { buildFirstValueScanResult } = await journeyContracts;
+  const result = buildFirstValueScanResult(
+    scan({ detected: 1, noLeak: 0 }),
+    null
+  );
+
+  assert.equal(result.state, "CREDIBLE_CASES");
+  assert.equal(result.credible_case_count, 1);
+  assert.equal(result.created_case_count, 1);
+  assert.equal(result.queue_current, false);
+  assert.equal(result.active_case_count, null);
+  assert.equal(result.known_totals_by_currency, null);
+  assert.equal(result.known_zero_case_count, null);
+  assert.equal(result.unknown_value_case_count, null);
 });
 
 test("credible hero follows authoritative queue order while excluding sample proof", async () => {
