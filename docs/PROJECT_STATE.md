@@ -14,16 +14,20 @@ scheduling, and broad CRM replacement are out of scope. The 15-minute, 2/3
 completion, and 4/5 trust targets are measurement hypotheses, not customer
 evidence or shipped claims.
 
-Slice 1 merged through PR #36 as exact `origin/main`
-`0666e974ac0e007b8c0ead3ebef3b101f4688017`; its post-merge Verify run
-`34830965722` succeeded. Slice 2 now starts from that exact clean base on
-`feat/operational-data-health-eligibility`. It may derive a read-only,
-tenant-scoped `STALLED_OPPORTUNITY` readiness projection from the existing
-canonical opportunity/activity/task truth and detector version 1, but it may
-not add persistence or a migration without a separate insufficiency finding and
-independent architecture review. Explicit scan remains the only operation that
-may reconcile RevenueLeakCases. Slice 3 remains dependency-gated. The completed
-Pilot Readiness plan remains historical evidence and is not active authority.
+Slice 1 merged through PR #36 as
+`0666e974ac0e007b8c0ead3ebef3b101f4688017`; post-merge Verify run
+`34830965722` succeeded. Slice 2 merged through PR #37 as exact `origin/main`
+`3c1a3423c7ac03def96047783ca0f3f4b1f68f74`; post-merge Verify run
+`34836937086` succeeded. Slice 3 is now active from that exact clean base on
+`feat/first-credible-revenue-moment-v1`. It may compose the existing guided
+import/resume, server-authoritative readiness, explicit detector scan,
+RevenueLeakCase queue/lifecycle/evidence, Pilot evidence, and RevenueAction
+handoff into one first-value operating journey. Explicit operator action remains
+the only operation that may run the detector and reconcile RevenueLeakCases.
+Existing authoritative truth is sufficient; no schema, migration, new detector,
+autonomous outbound, or unsupported commercial-result persistence is authorized.
+The completed Pilot Readiness plan remains historical evidence and is not active
+authority.
 
 The local Slice 2 implementation candidate now exposes a tenant-bound,
 read-only stalled-opportunity eligibility projection before scan. It uses the

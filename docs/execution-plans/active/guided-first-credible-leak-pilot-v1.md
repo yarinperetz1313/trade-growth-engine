@@ -22,16 +22,19 @@
 
 - GitHub Issue #14 was approved by the repository owner on 2026-09-14 as this
   exact three-slice milestone. Slice 2 depends on merged Slice 1; Slice 3 depends on merged Slice 2.
+  Both prerequisite merges are now complete, satisfying Slice 3's dependency
+  gate.
 - Slice 1 merged through PR #36 as `0666e974ac0e007b8c0ead3ebef3b101f4688017`.
-  Post-merge Verify run `34830965722` succeeded. Slice 2 starts from that exact
-  clean `origin/main` on isolated branch
-  `feat/operational-data-health-eligibility` and worktree
-  `operational-data-health-eligibility`; preflight was clean, including ignored
+  Post-merge Verify run `34830965722` succeeded. Slice 2 merged through PR #37
+  as `3c1a3423c7ac03def96047783ca0f3f4b1f68f74`; post-merge Verify run
+  `34836937086` succeeded. Slice 3 starts from that exact clean `origin/main` on
+  isolated branch `feat/first-credible-revenue-moment-v1` and worktree
+  `first-credible-revenue-moment-v1`; preflight was clean, including ignored
   files, and the branch was 0 behind / 0 ahead.
 - The completed Pilot Readiness record moved to
   `../completed/pilot-readiness.md`; its evidence is preserved and is not active
   authorization for additional infrastructure, retention, or provider work.
-- Migrations `001`-`016` are the immutable Slice 1 baseline. Their SHA-256
+- Migrations `001`-`016` are the immutable Slice 3 baseline. Their SHA-256
   values are recorded below; no schema or migration is authorized unless
   existing durable server truth is first shown insufficient and an independent
   architecture review establishes the need.
@@ -44,7 +47,7 @@
 | Ingestion | CSV is the only supported pilot ingestion mechanism; templates are inert downloads and never auto-upload or import. | Issue #14 owner approval |
 | Tenant/business context | Use authenticated membership/tenant context and persisted import/source facts. The browser never invents a business name or supplies tenant authority. | Secure Pilot and import contracts |
 | Resume authority | Derive the current step from existing server-returned batch/import/Pilot evidence truth. Browser-only progress cannot authorize or imply a completed step. | Import and Pilot evidence APIs |
-| Detection | Stalled-opportunity execution remains an explicit user action. Slice 1 does not invoke, change, or schedule it. | Issue #14 owner approval |
+| Detection | Stalled-opportunity execution remains an explicit user action. Slice 3 composes but does not invoke, change, or schedule it automatically. | Issue #14 owner approval |
 | Product truth | Preserve known/zero/unknown and authoritative currency distinctions, immutable import/case evidence, sample exclusion, and explicit insufficient-evidence states. | Repository architecture and Issue #14 |
 | Recovery | Existing request generations and ambiguous-outcome reconciliation remain authoritative. Stale, malformed, or unknown durable state fails visibly with a useful retry/restart action. | Browser import contracts |
 | Compatibility | Preserve existing upload, preview, mapping, Data Health, confirmation, and commit APIs. No connector abstraction or new persistence. | Slice 1 scope |
@@ -56,16 +59,59 @@
   commit-supported versus preview-only collection capabilities; and server-
   truth-derived resumability. No detector, case/action, operational eligibility,
   session-result, persistence, schema, or migration changes.
-- [ ] **Slice 2 — Operational Data Health and eligibility.** After Slice 1 is
+- [x] **Slice 2 — Operational Data Health and eligibility.** After Slice 1 is
   merged, add post-commit operational Data Health, inspectable stalled-
   opportunity eligibility, exact missing/stale/invalid/suppressed reasons,
   actionable remediation, and truthful dataset coverage. No additional
   detectors.
-- [ ] **Slice 3 — First-value operating journey.** After Slice 2 is merged, make
+- [ ] **Slice 3 — First-value operating journey.** With Slice 2 merged, make
   explicit scan the clear post-commit continuation, provide a credible case or
   actionable no-case explanation, cohere inspection/feedback/RevenueAction
   handoff, make the case queue the effective operating home, complete 390px
   journey usability, and expose a privacy-minimized pilot-session result.
+
+## Slice 3 bounded implementation plan
+
+1. Characterize the committed-import continuation, strict readiness and scan
+   envelopes, deterministic operating queue, case evidence/lifecycle, Pilot
+   status, and RevenueAction command-center contracts. Reuse them without new
+   persistence, tenant authority, detector decisions, or monetary inference.
+2. Add focused RED browser-contract and composition tests for the absent
+   DATA → TRUTH → MONEY → PROBLEM → WHY → ACTION journey, including credible,
+   no-case, partial, unknown-money, multiple-currency, stale/reconciled, and
+   action-existing/cannot-proceed states.
+3. Implement the smallest business-first browser composition: post-commit
+   readiness continuation; explicit scan; truthful result summary and
+   deterministic hero; inspectable evidence/limitations; Take Action, Snooze,
+   and Dismiss continuity; and bounded queue navigation clarity.
+4. Derive any displayed pilot-session result only from the existing strict,
+   privacy-minimized Pilot status. Treat missing or unavailable evidence as
+   unknown, never as adoption or customer proof.
+5. Verify focused contracts, the affected integration set, managed desktop and
+   390px journeys, then harness/build/migration/diff/artifact hygiene near the
+   clean implementation checkpoint. Stop before independent review or GitHub
+   delivery.
+
+## Acceptance evidence required for Slice 3
+
+- A committed supported import continues directly to Operational Data Health;
+  no scan occurs until the operator explicitly invokes it.
+- Scan results reconcile credible, no-case, partial, stale/suppressed,
+  unavailable, and reconciled states without promoting unassessable records.
+- Exact known monetary significance is grouped by authoritative currency;
+  unknown and known-zero remain distinct and currencies are never converted or
+  summed together.
+- The strongest server-ranked active case is visually primary, while immutable
+  evidence, provenance, reason codes, timestamps, source lineage, lifecycle,
+  and limitations remain inspectable.
+- Take Action enters the existing RevenueAction materialization and command-
+  center lifecycle; Snooze and Dismiss use existing audited case transitions.
+  Ambiguous writes reconcile through existing read authorities, and no outbound
+  or bulk autonomous execution occurs.
+- A first-time authorized operator can complete the supported journey at desktop
+  and 390px, including action preparation, required approval, and safe internal
+  or manual execution, or receives an exact useful next step when progression is
+  unsupported.
 
 ## Slice 2 bounded implementation plan
 
