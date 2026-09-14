@@ -29,8 +29,9 @@ test("guides a desktop CSV intake with truthful capabilities and inert templates
   await page.goto("/#imports");
 
   const context = page.getByRole("region", { name: "Business and source context" });
-  await expect(context).toContainText("Authenticated TGE workspace");
-  await expect(context).toContainText("Membership and tenant authority are resolved by the server");
+  await expect(context).toContainText("TGE import workspace");
+  await expect(context).not.toContainText("Authenticated TGE workspace");
+  await expect(context).toContainText("membership and tenant authority are resolved by the server");
   await context.getByLabel("Source system label").fill("Quarterly CRM export");
 
   const capability = page.getByRole("region", { name: "Selected collection capability" });
@@ -206,6 +207,74 @@ test("fails an unknown or malformed resume pointer visibly before a new upload",
   await expect(page.getByText(/unknown, expired, or already cleaned/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Start a new import" })).toBeVisible();
   expect(batchReads).toBe(2);
+});
+
+test("uses retained lifecycle truth for expired and cleaned resume links", async ({ page }) => {
+  await mockEmptyPilotStatus(page);
+  for (const [batchId, cleanup, message] of [
+    ["expired-batch", {
+      state: "PENDING",
+      due: true,
+      attempts: 0,
+      retryable: false
+    }, /raw import evidence has expired/i],
+    ["cleaned-batch", {
+      state: "SUCCEEDED",
+      due: true,
+      attempts: 1,
+      retryable: false,
+      startedAt: "2026-09-14T00:00:00.000Z",
+      completedAt: "2026-09-14T00:00:01.000Z"
+    }, /raw import evidence was cleaned/i]
+  ]) {
+    await page.route(`${apiBaseUrl}/api/import-batches/${batchId}/commit`, route => (
+      json(route, 404, {
+        ok: false,
+        error: "IMPORT_BATCH_UNAVAILABLE",
+        message: "The requested import batch is unavailable."
+      })
+    ));
+    await page.route(`${apiBaseUrl}/api/import-batches/${batchId}/preview`, route => {
+      const preview = previewFixture();
+      preview.batch.id = batchId;
+      preview.batch.rawExpiresAt = "2026-09-14T00:00:00.000Z";
+      preview.batch.rawCleanup = cleanup;
+      preview.records = [];
+      return json(route, 200, { ok: true, data: preview });
+    });
+
+    await page.goto(`/#imports?batch=${batchId}`);
+    await expect(page.getByRole("heading", { name: "Setup could not be resumed" })).toBeVisible();
+    await expect(page.getByText(message)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Start a new import" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Retry this batch" })).toHaveCount(0);
+  }
+});
+
+test("does not claim workspace authentication when import access is unavailable", async ({ page }) => {
+  await page.route(`${apiBaseUrl}/api/pilot-evidence/status`, route => json(route, 403, {
+    ok: false,
+    error: "FORBIDDEN",
+    message: "Access denied."
+  }));
+  await page.route(`${apiBaseUrl}/api/import-batches/preview`, route => json(route, 403, {
+    ok: false,
+    error: "FORBIDDEN",
+    message: "Access denied."
+  }));
+
+  await page.goto("/#imports");
+  const context = page.getByRole("region", { name: "Business and source context" });
+  await expect(context).toContainText("TGE import workspace");
+  await expect(context).not.toContainText("Authenticated TGE workspace");
+  await page.getByLabel("CSV file").setInputFiles({
+    name: "pipeline-export.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(adversarialCsv, "utf8")
+  });
+  await page.getByRole("button", { name: "Create preview" }).click();
+  await expect(page.getByRole("heading", { name: "Import access unavailable" })).toBeVisible();
+  await expect(context).not.toContainText("Authenticated TGE workspace");
 });
 
 async function mockEmptyPilotStatus(page) {

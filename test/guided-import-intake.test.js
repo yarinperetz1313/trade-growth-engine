@@ -8,6 +8,8 @@ const test = require("node:test");
 const repositoryRoot = path.resolve(__dirname, "..");
 const guidance = import("../web/lib/importGuidance.mjs");
 const resume = import("../web/lib/importResume.mjs");
+const contracts = import("../web/lib/importContracts.mjs");
+const fixtures = import("./e2e/fixtures/import-contracts.mjs");
 
 test("every displayed import collection has one truthful capability", async () => {
   const { listImportCollectionCapabilities } = await guidance;
@@ -100,7 +102,76 @@ test("resume deep links carry only a bounded batch pointer", async () => {
   }
 });
 
-test("the browser composes guidance and server reads without local authority", () => {
+test("expired and cleaned preview responses retain authoritative restart truth", async () => {
+  const { unwrapImportPreviewResponse } = await contracts;
+  const { previewFixture } = await fixtures;
+
+  for (const [cleanup, expectedCode] of [
+    [{
+      state: "PENDING",
+      due: true,
+      attempts: 0,
+      retryable: false
+    }, "IMPORT_RAW_EVIDENCE_EXPIRED"],
+    [{
+      state: "SUCCEEDED",
+      due: true,
+      attempts: 1,
+      retryable: false,
+      startedAt: "2026-09-14T00:00:00.000Z",
+      completedAt: "2026-09-14T00:00:01.000Z"
+    }, "IMPORT_RAW_EVIDENCE_CLEANED"]
+  ]) {
+    const preview = previewFixture();
+    preview.batch.rawExpiresAt = "2026-09-14T00:00:00.000Z";
+    preview.batch.rawCleanup = cleanup;
+    preview.records = [];
+
+    assert.throws(
+      () => unwrapImportPreviewResponse(
+        { ok: true, data: preview },
+        "browser-batch-1"
+      ),
+      error => error?.code === expectedCode
+        && error?.status === 200
+        && error?.details?.attemptedId === "browser-batch-1"
+    );
+  }
+});
+
+test("terminal lifecycle classification stays strict and tenant-neutral", async () => {
+  const { unwrapImportPreviewResponse } = await contracts;
+  const { previewFixture } = await fixtures;
+  const malformed = previewFixture();
+  malformed.batch.rawExpiresAt = "not-a-timestamp";
+  malformed.batch.rawCleanup = {
+    state: "SUCCEEDED",
+    due: true,
+    attempts: 1,
+    retryable: false
+  };
+  malformed.records = [];
+
+  assert.throws(
+    () => unwrapImportPreviewResponse(
+      { ok: true, data: malformed },
+      "browser-batch-1"
+    ),
+    error => error?.code === "IMPORT_RESPONSE_INVALID"
+  );
+  assert.throws(
+    () => unwrapImportPreviewResponse(
+      { ok: true, data: {
+        ...malformed,
+        batch: { ...malformed.batch, rawExpiresAt: "2026-09-14T00:00:00.000Z" }
+      } },
+      "another-tenant-batch"
+    ),
+    error => error?.code === "IMPORT_RESPONSE_INVALID"
+  );
+});
+
+test("the browser composes guidance and server reads without local authority or unsupported auth claims", () => {
   const workspace = fs.readFileSync(
     path.join(repositoryRoot, "web/components/ImportWorkspace.jsx"),
     "utf8"
@@ -108,7 +179,8 @@ test("the browser composes guidance and server reads without local authority", (
   const app = fs.readFileSync(path.join(repositoryRoot, "web/main.jsx"), "utf8");
   const combined = `${workspace}\n${app}`;
 
-  assert.match(workspace, /Authenticated TGE workspace/);
+  assert.match(workspace, /TGE import workspace/);
+  assert.doesNotMatch(workspace, /Authenticated TGE workspace/);
   assert.match(workspace, /Canonical commit supported/);
   assert.match(workspace, /Preview only/);
   assert.match(workspace, /Download blank CSV template/);
@@ -116,6 +188,8 @@ test("the browser composes guidance and server reads without local authority", (
   assert.match(workspace, /getImportPreview/);
   assert.match(workspace, /if \(batchId\) setResumeRoute\(batchId\)/);
   assert.match(workspace, /Setup could not be resumed/);
+  assert.match(workspace, /IMPORT_RAW_EVIDENCE_EXPIRED/);
+  assert.match(workspace, /IMPORT_RAW_EVIDENCE_CLEANED/);
   assert.match(app, /imports\?batch=/);
   assert.doesNotMatch(combined, /localStorage|sessionStorage/);
   assert.doesNotMatch(combined, /tenantId\s*[:=].*window|tenant_id=.*batch/);

@@ -151,12 +151,19 @@ export default function ImportWorkspace({
 
   function failResume(caught) {
     const missing = isConfirmedMissingReconciliation(caught);
-    setResumeState(missing ? "UNAVAILABLE" : "ERROR");
+    const expired = caught?.code === "IMPORT_RAW_EVIDENCE_EXPIRED";
+    const cleaned = caught?.code === "IMPORT_RAW_EVIDENCE_CLEANED";
+    const unavailable = missing || expired || cleaned;
+    setResumeState(unavailable ? "UNAVAILABLE" : "ERROR");
     setResumeIssue({
       title: "Setup could not be resumed",
-      message: missing
-        ? "No tenant-authorized staged or committed import exists for this batch link. It may be unknown, expired, or already cleaned."
-        : "Durable import truth is temporarily unavailable. Retry this batch before uploading or committing anything else."
+      message: expired
+        ? "The retained batch metadata confirms its raw import evidence has expired. Start a new import to continue with fresh source evidence."
+        : cleaned
+          ? "The retained batch metadata confirms its raw import evidence was cleaned. Start a new import to continue; retrying cannot restore deleted evidence."
+          : missing
+            ? "No tenant-authorized staged or committed import exists for this batch link. It may be unknown, expired, or already cleaned."
+            : "Durable import truth is temporarily unavailable. Retry this batch before uploading or committing anything else."
     });
   }
 
@@ -702,8 +709,8 @@ function UploadStep({
         <section className="import-source-context" aria-label="Business and source context">
           <div>
             <span className="eyebrow">BUSINESS WORKSPACE</span>
-            <strong>Authenticated TGE workspace</strong>
-            <p>Membership and tenant authority are resolved by the server. This screen never asks you to choose or invent a tenant.</p>
+            <strong>TGE import workspace</strong>
+            <p>When access is available, membership and tenant authority are resolved by the server. This screen never asks you to choose or invent a tenant.</p>
           </div>
           <label>
             <span>Source system label</span>

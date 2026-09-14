@@ -22,8 +22,8 @@ separate insufficiency finding and independent architecture review. The
 completed Pilot Readiness plan remains available as historical evidence and is
 no longer the active roadmap.
 
-The local Slice 1 implementation candidate now guides the authenticated
-workspace and source label, derives explicit commit-supported versus preview-
+The local Slice 1 implementation candidate now guides the import workspace and
+source label, derives explicit commit-supported versus preview-
 only capability for all five displayed collections from the browser's canonical
 mapping contract, and offers header-only inert CSV templates plus field guidance
 for prospects, opportunities, tasks, and activities. A bounded batch reference
@@ -44,6 +44,23 @@ in-app resume performs one reconciliation path rather than duplicate server
 reads. This remains a local candidate pending independent review; no schema,
 migration, connector, detector, case/action, session-result, external-send,
 GitHub, or later-slice change is included.
+
+The bounded Slice 1 review remediation now distinguishes retained import-batch
+lifecycle truth from transport failure before validating unavailable raw rows.
+A coherent tenant-authorized preview envelope with database-computed cleanup
+due state produces an explicit expired or cleaned terminal result and directs
+the operator to start a new import; malformed envelopes, mismatched batch IDs,
+and 401/403 non-oracle responses remain fail-closed. The intake panel also uses
+neutral workspace wording rather than asserting authentication without
+membership evidence. Focused lifecycle/presentation contracts were RED with
+**5/7** passing before the fix and are GREEN **7/7**. The affected browser,
+authentication, import, mapping, repository, staging, and Pilot evidence set
+passes **82/82**; managed Chromium guided intake passes **6/6**, including real
+expired/cleaned response shapes, access denial, and the 390px resume path, and
+the complete existing import workflow passes **18/18**. The engineering
+harness, syntax, migration byte identity, and diff hygiene pass. No backend,
+persistence, schema, migration, connector, detector, or later-slice behavior
+changed.
 
 Assisted Pilot Safety Gate V1 Slice 4 now adds one repository-native,
 production-like local acceptance command and the assisted-pilot operator

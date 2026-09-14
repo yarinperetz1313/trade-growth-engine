@@ -181,6 +181,36 @@
   No backend/domain/persistence/schema/migration, connector, detector,
   case/action journey, session-result, external-send, or later-slice behavior
   changed.
+- Fresh independent review found that real expired or cleaned PostgreSQL
+  preview reads retain tenant-authorized batch lifecycle metadata in an HTTP
+  200 response while raw staging rows are unavailable. The browser previously
+  rejected that entire response as `IMPORT_RESPONSE_INVALID`, called the state
+  temporary, and offered an ineffective retry. It also unconditionally called
+  the import surface an authenticated workspace without membership evidence.
+- Bounded remediation added the two regression groups before product edits.
+  RED was **5/7** in the focused file: the lifecycle result remained generic and
+  the unsupported authentication assertion remained present. GREEN is **7/7**.
+  Lifecycle classification now requires an exact batch match, bounded coherent
+  preview metadata, a valid server timestamp, database-computed `due: true`, a
+  coherent cleanup state, and no visible raw rows. `SUCCEEDED` is reported as
+  cleaned; other due lifecycle states are reported as expired. Both are
+  terminal restart-new-import paths with no retry button. Other malformed
+  response shapes remain `IMPORT_RESPONSE_INVALID`; 401/403 and cross-tenant
+  absence retain the existing non-oracle behavior.
+- The affected authenticated browser/import/mapping/repository/staging/Pilot
+  suite passes **82/82**. A first dependency-free run passed **67** assertions
+  and could not start six dependency-backed cases; the complete rerun used a
+  lockfile-identical cache and passed. Managed Chromium initially passed
+  **5/6**, with the sole failure being the prior positive-path assertion for the
+  deliberately removed authentication wording; after updating that assertion,
+  the focused guided/resume file passes **6/6**. It covers desktop guidance,
+  390px resume/navigation, interrupted preview, unknown/malformed links,
+  retained expired/cleaned lifecycle envelopes, and denied import access.
+  The complete existing managed Chromium import workflow also passes **18/18**.
+- Engineering harness, Node syntax, migration `001`-`016` byte identity,
+  aggregate diff hygiene, and artifact cleanup pass. No PostgreSQL suite, full
+  Verify, or build was run because the authoritative server lifecycle contract,
+  persistence, schema, and migrations are unchanged.
 
 ## Review and handoff
 
@@ -188,8 +218,10 @@
   capability drift, template/sample mixing, route authority, tenant isolation,
   stale response handling, duplicate resume reads, explicit mutation control,
   accessibility, and mobile overflow. No additional in-scope defect was found.
-- Fresh reviewer findings/resolution: pending after the local implementation
-  checkpoint.
+- Fresh reviewer findings/resolution: the first review returned one P2 retained
+  expired/cleaned lifecycle classification defect and one P3 unsupported
+  authentication presentation defect. Both are remediated at the browser
+  contract/UI boundary; one fresh final independent review remains pending.
 - Final-review evidence: coordinator-owned after any bounded remediation.
 - Debt/follow-up: Slice 2 and Slice 3 remain dependency-gated; all explicit
   milestone non-goals remain out of scope.
