@@ -107,6 +107,56 @@ const invalidMoney = record({
   kind: "NOT_ASSESSED"
 });
 
+function noCredibleScanResponse() {
+  return {
+    ok: true,
+    evaluated_at: new Date(Date.now() - 500).toISOString(),
+    detector: { id: "stalled-opportunity", version: "1" },
+    scope: "TENANT_VISIBLE_CANONICAL_OPPORTUNITIES",
+    summary: {
+      complete: true,
+      limit: 100,
+      total_opportunities: 2,
+      evaluated_count: 2,
+      unevaluated_count: 0,
+      overflow_count: 0,
+      invalid_record_count: 0,
+      excluded_count: 0,
+      reconciliation: {
+        detected_count: 0,
+        created_count: 0,
+        replayed_count: 0,
+        superseded_count: 0
+      },
+      outcomes: {
+        ELIGIBLE_LEAK_DETECTED: { count: 0, reasons: {} },
+        ELIGIBLE_NO_LEAK: { count: 1, reasons: { NEXT_ACTION_PRESENT: 1 } },
+        INSUFFICIENT_EVIDENCE: { count: 1, reasons: { OPPORTUNITY_STAGE_MISSING: 1 } },
+        STALE_OR_UNTRUSTWORTHY_SOURCE: { count: 0, reasons: {} },
+        DATA_HEALTH_SUPPRESSED: { count: 0, reasons: {} }
+      }
+    },
+    results: [
+      {
+        opportunity_id: "a-eligible-zero",
+        outcome: "ELIGIBLE_NO_LEAK",
+        reason_code: "NEXT_ACTION_PRESENT",
+        disposition: "READ_ONLY",
+        case_id: null,
+        superseded_case_id: null
+      },
+      {
+        opportunity_id: "b-missing-stage",
+        outcome: "INSUFFICIENT_EVIDENCE",
+        reason_code: "OPPORTUNITY_STAGE_MISSING",
+        disposition: "READ_ONLY",
+        case_id: null,
+        superseded_case_id: null
+      }
+    ]
+  };
+}
+
 async function mockStableShell(page) {
   await page.route(`${apiBaseUrl}/api/revenue-leak-cases/operating-queue`, route =>
     json(route, 200, {
@@ -228,6 +278,37 @@ test("keeps empty, no-eligible, all-eligible, and unavailable states truthful", 
   await page.reload();
   await expect(page.getByRole("alert")).toContainText("No scan-readiness conclusion was inferred");
   await expect(scan).toBeDisabled();
+});
+
+test("turns an explicit partial scan into a useful no-credible-case result", async ({ page }) => {
+  await mockStableShell(page);
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/stalled-opportunity-eligibility`,
+    route => json(route, 200, response([eligibleZero, missingStage], "PARTIAL"))
+  );
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/scan-stalled-opportunities`,
+    route => json(route, 200, noCredibleScanResponse())
+  );
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/#opportunities");
+  await expect(page.getByText("WHAT TGE FOUND", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Scan stalled opportunities" }).click();
+
+  const result = page.getByLabel("Complete explicit scan outcomes");
+  await expect(result.getByRole("heading", {
+    name: "No credible stalled-opportunity case found"
+  })).toBeVisible();
+  await expect(result).toContainText("1 assessable records; 1 could not support a decision");
+  await expect(result.getByLabel("Credible scan result counts"))
+    .toContainText("Assessed · no leak1");
+  await expect(result.getByLabel("Credible scan result counts"))
+    .toContainText("Evidence limitations1");
+  await result.getByText("Inspect complete detector outcomes and reason codes").click();
+  await expect(result).toContainText("OPPORTUNITY_STAGE_MISSING");
+  await expect(page.getByTestId("revenue-leak-queue-empty")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 async function json(route, status, body) {

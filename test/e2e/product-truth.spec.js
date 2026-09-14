@@ -9,7 +9,7 @@ test("exposes only shipped navigation and wires Dashboard CTAs", async ({ page }
   await expect(navigation.getByRole("button")).toHaveText([
     "Dashboard",
     "Prospects",
-    "Opportunities",
+    "Revenue leaks",
     "Pipeline",
     "Imports"
   ]);
@@ -72,7 +72,7 @@ test("fits the product shell inside a mobile viewport", async ({ page }) => {
 
   const destinations = [
     ["Prospects", "Prospect Intelligence"],
-    ["Opportunities", "Opportunity Intelligence"],
+    ["Revenue leaks", "Opportunity Intelligence"],
     ["Pipeline", "Pipeline"]
   ];
 
@@ -86,7 +86,7 @@ test("fits the product shell inside a mobile viewport", async ({ page }) => {
 
     if (destination === "Prospects") {
       await expect(page.getByText("E2E Command Plumbing", { exact: true })).toBeVisible();
-    } else if (destination === "Opportunities") {
+    } else if (destination === "Revenue leaks") {
       await expect(page.getByTestId("opportunity-row-e2e-opp-command")).toBeVisible();
     } else {
       await expect(page.getByText("E2E Command Plumbing", { exact: true })).toBeVisible();
@@ -95,7 +95,7 @@ test("fits the product shell inside a mobile viewport", async ({ page }) => {
     await expectShellToFit();
   }
 
-  await expect(page.getByRole("button", { name: "Opportunities" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Revenue leaks" })).toBeVisible();
 });
 
 test("renders unknown commercial values honestly and withholds an unsafe biggest-value comparison", async ({ page }) => {
@@ -280,7 +280,7 @@ test("renders unknown commercial values honestly and withholds an unsafe biggest
     page.locator(".opportunity").filter({ hasText: "E2E Known Value Roofing" })
   ).toContainText("NZD 25,000");
 
-  await page.getByRole("button", { name: "Opportunities" }).click();
+  await page.getByRole("button", { name: "Revenue leaks" }).click();
   for (const opportunity of unknownOpportunities) {
     const unknownRow = page.getByTestId(`opportunity-row-${opportunity.id}`);
     await expect(unknownRow).toContainText("Unknown");
@@ -303,7 +303,7 @@ test("renders unknown commercial values honestly and withholds an unsafe biggest
   await expect(
     page.locator(".deal-card").filter({ hasText: "E2E Known Value Roofing" })
   ).toContainText("NZD 25,000");
-  await page.getByRole("button", { name: "Opportunities" }).click();
+  await page.getByRole("button", { name: "Revenue leaks" }).click();
 
   await page.getByTestId("opportunity-row-e2e-boolean-value").click();
   await expect(page.getByRole("button", { name: "Set Value", exact: true })).toBeVisible();
@@ -412,7 +412,7 @@ test("keeps initial core request failures distinct from empty and known-zero sta
   await expect(page.getByText("Open Pipeline").locator("..").getByText("Unknown")).toBeVisible();
   await expect(page.getByText("Active Opportunities").locator("..").getByText("Unknown")).toBeVisible();
 
-  await page.getByRole("button", { name: "Opportunities" }).click();
+  await page.getByRole("button", { name: "Revenue leaks" }).click();
   await expect(page.getByText("Opportunity data unavailable.")).toBeVisible();
   await expect(page.getByText("No opportunities found.")).toHaveCount(0);
   await expect(page.getByText("Opportunity actions are unavailable until opportunity data can be loaded.")).toBeVisible();

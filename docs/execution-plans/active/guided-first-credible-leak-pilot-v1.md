@@ -64,7 +64,8 @@
   opportunity eligibility, exact missing/stale/invalid/suppressed reasons,
   actionable remediation, and truthful dataset coverage. No additional
   detectors.
-- [ ] **Slice 3 — First-value operating journey.** With Slice 2 merged, make
+- [x] **Slice 3 — First-value operating journey (local implementation candidate;
+  independent review pending).** With Slice 2 merged, make
   explicit scan the clear post-commit continuation, provide a credible case or
   actionable no-case explanation, cohere inspection/feedback/RevenueAction
   handoff, make the case queue the effective operating home, complete 390px
@@ -191,11 +192,12 @@
 
 | Level | Command or inspection | Expected evidence |
 | --- | --- | --- |
-| Preflight | branch/HEAD/origin/merge-base/status/worktrees; instructions; Issue #14; current plans/code/tests | Exact `ea22ce9`; clean; authoritative scope available |
-| RED | Focused browser/import contract tests added before product edits | Deterministic failures for the absent guidance/capability/resume behavior |
-| GREEN | Same focused tests, then affected import/API/browser-contract tests | New behavior and preserved contracts pass |
-| Visible smoke | `npm run test:e2e -- <focused managed spec>` when needed | Desktop and 390px guided/resume flow passes without developer data |
-| Proportional gate | `npm run test:harness`; migration byte comparison; `git diff --check`; artifact scan | Harness and hygiene pass; migrations `001`-`016` unchanged |
+| Preflight | branch/HEAD/origin/merge-base/status/worktrees; instructions; Issue #14; current plans/code/tests | Exact `3c1a342`; clean; Slice 1/2 merged; authoritative scope available |
+| RED | `node --test test/first-credible-revenue-moment.test.js` before product edits | **0/4**: absent journey composition and result authority |
+| GREEN | Same focused file, then affected import/readiness/queue/Pilot browser contracts | **4/4**, then **43/43** |
+| Integration | `npm run test:integration` | **472/472** without backend or persistence changes |
+| Visible journey | `npm run test:e2e` through the managed wrapper | **65/65**, including desktop and 390px first-value paths without developer data |
+| Proportional gate | `npm run build`; `npm run test:harness`; migration byte comparison; `git diff --check`; artifact scan | Build/harness/hygiene pass; migrations `001`-`016` unchanged |
 
 ## Migration baseline
 
@@ -399,6 +401,42 @@
   diff hygiene, and artifact cleanup pass. PostgreSQL was not repeated because
   the existing exact-head tenant/RLS contract is **1/1** and this remediation
   changes no repository, tenant, schema, migration, or mutation boundary.
+- Slice 3 planning preflight confirmed `HEAD`, `origin/main`, and merge-base at
+  exact `3c1a3423c7ac03def96047783ca0f3f4b1f68f74`, with the isolated branch and
+  worktree clean and 0 ahead / 0 behind. Live Issue #14, merged PR #37, its
+  successful post-merge Verify run `34836937086`, repository/scoped
+  instructions, architecture, existing worktrees, and active task ownership
+  were inspected. Clean planning checkpoint `118c315` activated this contract.
+- Slice 3 TDD RED was **0/4** before the result-composition helper and journey
+  controls existed; the identical focused command is GREEN **4/4**. The
+  affected guided import, readiness, queue, case, Pilot evidence, and browser
+  contracts pass **43/43**. Complete integration passes **472/472**.
+- The browser now makes committed import continue to server-assessed
+  Operational Data Health with no automatic scan; presents the explicit scan
+  as the operator-owned next step; separates credible/no-leak/evidence-
+  limitation/reconciled outcomes; and shows exact active-case money grouped by
+  authoritative currency while preserving known zero, unknown, and not-
+  applicable states. The first server-ordered non-sample customer case is the
+  visual hero; technical provenance, immutable evidence, reason codes,
+  timestamps, source lineage, and limitations remain inspectable.
+- TAKE ACTION composes the existing idempotent case-to-RevenueAction handoff
+  and continues only in Opportunity Command Center. SNOOZE and DISMISS use the
+  existing audited RevenueLeakCase transitions; unconfirmed responses reconcile
+  exact durable opportunity case history before another mutation is allowed.
+  Missing live opportunity context blocks action creation/navigation but does
+  not hide the immutable historical case identity or supported case decisions.
+  No bulk/autonomous mutation or outbound execution was added.
+- Complete managed Chromium passes **65/65**. It covers resumed committed
+  import, readiness, explicit scan, credible and no-credible results, partial
+  eligibility, unknown money, multiple currencies, stale/suppressed reasons,
+  superseded scan reconciliation, existing/cannot-proceed action states,
+  ambiguous case lifecycle recovery, TAKE ACTION through prepare/required
+  approval/safe internal execution, and no horizontal overflow at 390px.
+  Production build succeeds with **34 modules** and only the existing >500 kB
+  chunk warning; the engineering harness passes. Migrations `001`-`016` match
+  the recorded SHA-256 baseline. No database, repository, tenant, RLS, schema,
+  migration, detector, or server authority changed, so the merged Slice 2
+  PostgreSQL **1/1** evidence was not repeated.
 
 ## Review and handoff
 
@@ -427,5 +465,17 @@
   overflow, and schema drift. Focused, affected, PostgreSQL, browser, harness,
   build, migration, and artifact evidence is recorded above. Fresh independent
   review remains the next gate.
-- Debt/follow-up: Slice 3 remains dependency-gated; all explicit milestone
-  non-goals remain out of scope.
+- Slice 3 implementer self-check: the complete diff was reread defect-first for
+  client re-ranking, sample proof, implicit scan, false no-leak completeness,
+  FX/cross-currency or unknown-to-zero inference, stale/malformed authority,
+  duplicate ambiguous writes, action-lifecycle ownership, unavailable current
+  opportunity context, autonomous outbound, mobile overflow, and schema drift.
+  One edge case was corrected before checkpoint: historical cases now reconcile
+  Snooze/Dismiss through their immutable historical opportunity identity even
+  when current action/navigation context is absent. No remaining in-scope
+  defect was found. Fresh independent review of the pinned checkpoint is the
+  next gate.
+- Debt/follow-up: no new product debt was introduced. The existing production
+  bundle-size warning remains visible; broad information architecture,
+  connectors, additional detectors, attribution/ROI, recovered-revenue claims,
+  autonomous execution, and the next milestone remain out of scope.

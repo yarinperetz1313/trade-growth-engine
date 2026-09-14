@@ -29,7 +29,26 @@ autonomous outbound, or unsupported commercial-result persistence is authorized.
 The completed Pilot Readiness plan remains historical evidence and is not active
 authority.
 
-The local Slice 2 implementation candidate now exposes a tenant-bound,
+The local Slice 3 implementation candidate now composes the supported committed-
+import continuation, server-authoritative Operational Data Health, explicit
+tenant-wide detector scan, deterministic RevenueLeakCase queue, immutable case
+evidence and human lifecycle decisions, privacy-minimized Pilot evidence, and
+the existing RevenueAction workflow into one DATA → TRUTH → MONEY → PROBLEM →
+WHY → ACTION journey. Revenue leaks is the bounded portfolio destination; the
+strongest server-ordered non-sample customer case is visually primary without
+client re-ranking. Exact known amounts remain grouped by authoritative currency,
+known zero and unknown remain distinct, and no FX, attribution, recovered-
+revenue, causality, autonomous scan, outbound, schema, or persistence claim was
+added. Focused TDD was RED **0/4** and GREEN **4/4**; the affected browser
+contracts pass **43/43**, complete integration passes **472/472**, and complete
+managed Chromium passes **65/65**, including the 390px first-value and
+RevenueAction lifecycle journey. The production build and engineering harness
+pass with only the existing chunk-size warning. Migrations `001`-`016` remain
+byte-identical; no PostgreSQL/RLS boundary changed, so the merged Slice 2
+PostgreSQL **1/1** evidence was not repeated. Independent review and GitHub
+delivery remain coordinator-owned next gates.
+
+The merged Slice 2 implementation exposes a tenant-bound,
 read-only stalled-opportunity eligibility projection before scan. It uses the
 same portfolio admission and version-1 detector evaluator as the existing
 explicit scan, but it does not reconcile cases or append Pilot evidence. The
@@ -916,7 +935,8 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 
 ## Milestone status
 - Active plan: [**Guided First Credible Leak Pilot V1**](execution-plans/active/guided-first-credible-leak-pilot-v1.md).
-  Only Slice 1 is authorized for current implementation. The completed
+  Slices 1 and 2 are merged; Slice 3 has reached a clean local implementation
+  candidate and awaits independent review. The completed
   [**Pilot Readiness**](execution-plans/completed/pilot-readiness.md) record is
   historical evidence, not an active backlog.
   The [**RevenueLeakCase foundation**](execution-plans/completed/revenue-leak-case-foundation.md)

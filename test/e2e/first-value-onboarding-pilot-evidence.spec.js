@@ -154,8 +154,8 @@ function statusResponse(state) {
         first_credible_case_surfaced: state.surfaced,
         case_inspected: state.inspected,
         revenue_action_materialized_linked: state.linked,
-        action_approved: false,
-        action_executed: false
+        action_approved: Boolean(state.approved),
+        action_executed: Boolean(state.executed)
       },
       latest_import: {
         import_batch_id: "browser-batch-1",
@@ -257,9 +257,24 @@ test("resumes committed Data Health and reconciles the exact first-value journey
     surfaced: false,
     inspected: false,
     feedback: false,
-    linked: false
+    linked: false,
+    approved: false,
+    executed: false
   };
   const writes = { surface: 0, inspect: 0, feedback: 0, handoff: 0 };
+  let action = {
+    id: "pilot-action-1",
+    opportunity_id: "e2e-opp-stalled",
+    action_type: "CREATE_TASK",
+    execution_type: "INTERNAL_TASK",
+    priority: "HIGH",
+    title: "Create a recovery follow-up task",
+    reason: "The current credible case has no meaningful next action.",
+    status: "RECOMMENDED",
+    proposed_execution: null,
+    created_at: "2026-09-09T07:00:00.000Z",
+    updated_at: "2026-09-09T07:00:00.000Z"
+  };
 
   await page.route(`${apiBaseUrl}/api/pilot-evidence/status`, route =>
     json(route, statusResponse(state))
@@ -291,6 +306,51 @@ test("resumes committed Data Health and reconciles the exact first-value journey
     writes.handoff += 1;
     state.linked = true;
     return route.abort("failed");
+  });
+  await page.route(`${apiBaseUrl}/api/revenue-actions?*`, route =>
+    json(route, { ok: true, data: state.linked ? [action] : [], count: state.linked ? 1 : 0 })
+  );
+  await page.route(`${apiBaseUrl}/api/revenue-actions/pilot-action-1/prepare`, route => {
+    action = {
+      ...action,
+      status: "PREPARED",
+      proposed_execution: {
+        type: "INTERNAL_TASK",
+        title: "Follow up on the stalled opportunity",
+        description: "Review the recorded case evidence and choose the next buyer follow-up.",
+        priority: "HIGH"
+      },
+      prepared_at: "2026-09-09T07:40:00.000Z",
+      updated_at: "2026-09-09T07:40:00.000Z"
+    };
+    return json(route, { ok: true, data: action });
+  });
+  await page.route(`${apiBaseUrl}/api/revenue-actions/pilot-action-1/approve`, route => {
+    state.approved = true;
+    action = {
+      ...action,
+      status: "APPROVED",
+      approved_at: "2026-09-09T07:45:00.000Z",
+      updated_at: "2026-09-09T07:45:00.000Z"
+    };
+    return json(route, { ok: true, data: action });
+  });
+  await page.route(`${apiBaseUrl}/api/revenue-actions/pilot-action-1/execute`, route => {
+    expect(route.request().postDataJSON()).toEqual({});
+    state.executed = true;
+    action = {
+      ...action,
+      status: "EXECUTED",
+      executed_at: "2026-09-09T07:50:00.000Z",
+      updated_at: "2026-09-09T07:50:00.000Z",
+      resulting_task_id: "pilot-task-1",
+      resulting_activity_id: "pilot-activity-1",
+      execution_result: {
+        mode: "INTERNAL_TASK",
+        outcome: "TASK_CREATED"
+      }
+    };
+    return json(route, { ok: true, data: action });
   });
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -353,15 +413,26 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   }).click();
   await expect(refreshedImported.getByLabel("First-value case feedback"))
     .toContainText("Feedback recorded: MISSING CONTEXT");
-  await refreshedImported.getByRole("button", { name: "Create recovery action" }).click();
+  await refreshedImported.getByRole("button", { name: "TAKE ACTION" }).click();
   await expect(refreshedImported).toContainText("RECOMMENDED · approval required");
   expect(writes.handoff).toBe(1);
 
   await refreshedImported.getByRole("button", {
-    name: "Continue in Opportunity Command Center"
+    name: "CONTINUE ACTION"
   }).click();
   await expect(page).toHaveURL(/#opportunities\/e2e-opp-stalled$/);
   await expect(page.getByTestId("opportunity-command-center")).toBeVisible();
+  const execution = page.getByTestId("revenue-action-execution");
+  await expect(execution.getByTestId("revenue-action-status")).toHaveText("RECOMMENDED");
+  await execution.getByRole("button", { name: "Prepare action" }).click();
+  await expect(execution.getByTestId("internal-task-proposal"))
+    .toContainText("No due date invented");
+  await execution.getByTestId("approve-revenue-action").click();
+  await expect(execution.getByTestId("revenue-action-status")).toHaveText("APPROVED");
+  await execution.getByTestId("execute-revenue-action").click();
+  await expect(execution.getByTestId("revenue-action-history")).toContainText("EXECUTED");
+  await expect(execution.getByTestId("revenue-action-history")).toContainText("CRM task linked");
+  await expect(execution.getByTestId("revenue-action-history")).toContainText("CRM activity linked");
   await expect.poll(() => page.evaluate(() => ({
     body: document.body.scrollWidth,
     viewport: document.documentElement.clientWidth

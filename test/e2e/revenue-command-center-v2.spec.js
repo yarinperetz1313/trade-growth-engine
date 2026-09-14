@@ -205,7 +205,7 @@ test("renders the server-ordered truthful operating queue with evidence and auth
 
   const commandCenter = page.getByTestId("revenue-command-center");
   await expect(commandCenter.getByRole("heading", {
-    name: "What revenue needs attention?"
+    name: "Find the first credible revenue problem"
   })).toBeVisible();
   await expect(commandCenter).toContainText("AUD 1,200.5");
   await expect(commandCenter).toContainText("USD 9,000");
@@ -233,7 +233,7 @@ test("renders the server-ordered truthful operating queue with evidence and auth
   await expect(commandCenter).toContainText("Meaningful activity baseline");
   await expect(commandCenter).toContainText("approval required");
   await expect(commandCenter.getByRole("button", {
-    name: "Create recovery action"
+    name: "TAKE ACTION"
   })).toBeEnabled();
   await expect(commandCenter.getByRole("button", {
     name: "Open opportunity"
@@ -254,13 +254,13 @@ test("renders the server-ordered truthful operating queue with evidence and auth
   );
   await expect(commandCenter).toContainText("Current opportunity context unavailable");
   await expect(commandCenter.getByRole("button", {
-    name: "Create recovery action"
+    name: "TAKE ACTION"
   })).toHaveCount(0);
   await expect(commandCenter.getByRole("button", {
     name: "Open opportunity"
   })).toHaveCount(0);
   await expect(commandCenter.getByRole("button", {
-    name: "Continue in Opportunity Command Center"
+    name: "CONTINUE ACTION"
   })).toHaveCount(0);
 
   await expect.poll(() => page.evaluate(() => ({
@@ -388,8 +388,8 @@ test("shows explicit scan suppression/exclusion truth and refreshes the queue", 
         reconciliation: {
           detected_count: 2,
           created_count: 0,
-          replayed_count: 2,
-          superseded_count: 0
+          replayed_count: 1,
+          superseded_count: 1
         },
         outcomes: {
           ELIGIBLE_LEAK_DETECTED: { count: 2, reasons: { STALE_WITHOUT_NEXT_ACTION: 2 } },
@@ -412,9 +412,9 @@ test("shows explicit scan suppression/exclusion truth and refreshes the queue", 
           opportunity_id: "scan-2",
           outcome: "ELIGIBLE_LEAK_DETECTED",
           reason_code: "STALE_WITHOUT_NEXT_ACTION",
-          disposition: "REPLAYED",
+          disposition: "SUPERSEDED",
           case_id: "scan-case-2",
-          superseded_case_id: null
+          superseded_case_id: "scan-case-2-prior"
         },
         {
           opportunity_id: "scan-3",
@@ -437,7 +437,7 @@ test("shows explicit scan suppression/exclusion truth and refreshes the queue", 
   );
   await page.goto("/#opportunities");
   await page.getByRole("button", { name: "Scan stalled opportunities" }).click();
-  await expect(page.locator(".rcc2-scan-summary")).toContainText("Suppressed 1");
+  await expect(page.locator(".rcc2-scan-summary")).toContainText("Evidence limitations1");
   await expect(page.locator(".rcc2-scan-summary")).toContainText("Excluded 0");
   await expect(page.locator(".rcc2-scan-summary")).toContainText("Potential revenue leak detected");
   await expect(page.locator(".rcc2-scan-summary")).toContainText("No eligible stalled-opportunity leak");
@@ -446,6 +446,7 @@ test("shows explicit scan suppression/exclusion truth and refreshes the queue", 
   await expect(page.locator(".rcc2-scan-summary")).toContainText("Evidence suppressed by Data Health");
   await expect(page.locator(".rcc2-scan-summary")).toContainText("NEXT_ACTION_PRESENT");
   await expect(page.locator(".rcc2-scan-summary")).toContainText("COMMERCIAL_VALUE_INVALID");
+  await expect(page.locator(".rcc2-scan-summary")).toContainText("reconciled as superseded 1");
   await expect.poll(() => queueReads).toBeGreaterThanOrEqual(2);
 });
 
@@ -466,7 +467,7 @@ test("explains no-opportunity and no-leak scan states without inferring success"
 
   mode = "NO_LEAK";
   await page.getByRole("button", { name: "Scan stalled opportunities" }).click();
-  await expect(page.getByText(/No eligible stalled-opportunity leak was detected/))
+  await expect(page.getByText(/TGE found no stalled leak in 1 assessable records/))
     .toBeVisible();
   await expect(page.getByLabel("Complete explicit scan outcomes"))
     .toContainText("NEXT_ACTION_PRESENT");
@@ -553,13 +554,110 @@ test("reconciles an ambiguous handoff from durable queue truth without a duplica
   );
   await page.goto("/#opportunities");
   await page.getByRole("button", { name: /Why TGE surfaced this/i }).click();
-  await page.getByRole("button", { name: "Create recovery action" }).click();
+  await page.getByRole("button", { name: "TAKE ACTION" }).click();
   await expect(page.getByRole("status")).toContainText(
     "Durable server truth confirms the RevenueAction link"
   );
   await expect(page.getByText("RECOMMENDED · approval required")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Create recovery action" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "TAKE ACTION" })).toHaveCount(0);
   expect(posts).toBe(1);
+});
+
+test("keeps TAKE ACTION, SNOOZE, and DISMISS continuous in the operating queue", async ({ page }) => {
+  const reference = Date.now();
+  let context = caseContext({
+    id: "case-human-decision",
+    opportunityId: "e2e-opp-stalled",
+    businessName: "E2E Stalled Roofing",
+    amount: "42000.5",
+    currency: "AUD",
+    reference
+  });
+  const posts = { snooze: 0, dismiss: 0 };
+
+  await page.route(`${apiBaseUrl}/api/revenue-leak-cases/operating-queue`, route =>
+    json(
+      route,
+      200,
+      queueResponse(context.case.state === "DISMISSED" ? [] : [context], reference)
+    )
+  );
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases?opportunity_id=e2e-opp-stalled`,
+    route => json(route, 200, { ok: true, data: [context.case], count: 1 })
+  );
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/case-human-decision/snooze`,
+    route => {
+      posts.snooze += 1;
+      const body = route.request().postDataJSON();
+      const at = new Date(reference).toISOString();
+      context = {
+        ...context,
+        case: {
+          ...context.case,
+          state: "SNOOZED",
+          snoozed_at: at,
+          snoozed_until: body.wake_at,
+          snooze_reason: body.reason,
+          updated_at: at,
+          audit: [...context.case.audit, {
+            transition: "SNOOZED",
+            at,
+            subject_id: "auth0|e2e-operator",
+            reason: body.reason,
+            wake_at: body.wake_at
+          }]
+        }
+      };
+      return route.abort("failed");
+    }
+  );
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/case-human-decision/dismiss`,
+    route => {
+      posts.dismiss += 1;
+      const body = route.request().postDataJSON();
+      const at = new Date(reference + 1).toISOString();
+      context = {
+        ...context,
+        case: {
+          ...context.case,
+          state: "DISMISSED",
+          dismissed_at: at,
+          dismissal_reason: body.reason,
+          updated_at: at,
+          audit: [...context.case.audit, {
+            transition: "DISMISSED",
+            at,
+            subject_id: "auth0|e2e-operator",
+            reason: body.reason
+          }]
+        }
+      };
+      return json(route, 200, { ok: true, data: context.case });
+    }
+  );
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/#opportunities");
+  const item = page.locator('[data-case-id="case-human-decision"]');
+  await expect(item).toContainText("Highest-priority credible customer case");
+  await item.getByRole("button", { name: /Why TGE surfaced this/i }).click();
+  await expect(item.getByRole("button", { name: "TAKE ACTION" })).toBeEnabled();
+
+  await item.getByLabel("Reason to snooze").fill("Waiting for the buyer review.");
+  await item.getByRole("button", { name: "SNOOZE" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "Durable case history confirms SNOOZED. No duplicate mutation was attempted."
+  );
+  await expect(item).toContainText("Already snoozed");
+
+  await item.getByLabel("Reason to dismiss").fill("Buyer confirmed no follow-up is required.");
+  await item.getByRole("button", { name: "DISMISS" }).click();
+  await expect(page.getByTestId("revenue-leak-queue-empty")).toBeVisible();
+  expect(posts).toEqual({ snooze: 1, dismiss: 1 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 test("keeps handoff controls blocked until an ambiguous mutation is reconciled", async ({ page }) => {
@@ -593,14 +691,14 @@ test("keeps handoff controls blocked until an ambiguous mutation is reconciled",
 
   await page.goto("/#opportunities");
   await page.getByRole("button", { name: /Why TGE surfaced this/i }).click();
-  await page.getByRole("button", { name: "Create recovery action" }).click();
+  await page.getByRole("button", { name: "TAKE ACTION" }).click();
   await expect(page.getByRole("button", {
     name: "Reconciling durable truth…"
   })).toBeDisabled();
   await expect(page.getByRole("button", { name: /^Refresh/ })).toBeDisabled();
   releaseReconciliation();
   await expect(page.getByRole("alert")).toContainText("handoff not confirmed");
-  await expect(page.getByRole("button", { name: "Create recovery action" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "TAKE ACTION" })).toBeEnabled();
   expect(posts).toBe(1);
 });
 
@@ -618,5 +716,5 @@ test("ignores a late queue response after a hash-route change", async ({ page })
   release();
   await expect(page).toHaveURL(/#pipeline$/);
   await expect(page.getByTestId("revenue-command-center")).toHaveCount(0);
-  await expect(page.getByText("What revenue needs attention?")).toHaveCount(0);
+  await expect(page.getByText("Find the first credible revenue problem")).toHaveCount(0);
 });

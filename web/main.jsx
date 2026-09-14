@@ -41,7 +41,7 @@ import {
 const nav = [
   ["dashboard", "Dashboard"],
   ["prospects", "Prospects"],
-  ["opportunities", "Opportunities"],
+  ["opportunities", "Revenue leaks"],
   ["pipeline", "Pipeline"],
   ["imports", "Imports"]
 ];
@@ -82,6 +82,16 @@ function pageFromHash() {
 function importRouteFromHash() {
   const hash = window.location.hash.replace(/^#\/?/, "");
   return hash.startsWith("imports?batch=") ? hash : "imports";
+}
+
+function pageTitle(page) {
+  if (page === "dashboard") return "Command Center";
+  if (page === "opportunities") {
+    return window.location.hash.replace(/^#\/?/, "").startsWith("opportunities/")
+      ? "Opportunity Action"
+      : "Revenue Leak Queue";
+  }
+  return nav.find(item => item[0] === page)?.[1] || page;
 }
 
 function App() {
@@ -187,12 +197,7 @@ function App() {
             </div>
 
             <h1>
-              {page === "dashboard"
-                ? "Command Center"
-                : nav.find(
-                    item =>
-                      item[0] === page
-                  )?.[1] || page}
+              {pageTitle(page)}
             </h1>
           </div>
 

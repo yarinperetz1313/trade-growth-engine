@@ -1278,7 +1278,11 @@ function ResultStep({ facts, onContinue, onReset, result }) {
   return (
     <section className="card import-panel import-terminal success">
       <h3>Import committed</h3>
-      <p>Batch {result?.batch?.id} is committed. No external action was performed.</p>
+      <p>
+        Batch {result?.batch?.id} is committed. TGE received {summary.committed || 0}
+        supported records; {summary.skipped || 0} were skipped. No detector or
+        external action ran automatically.
+      </p>
       {result?.reconciled && <p>Reconciled after an unconfirmed transaction outcome.</p>}
       <div className="result-grid">
         <strong>{summary.committed || 0} committed</strong>
@@ -1289,8 +1293,12 @@ function ResultStep({ facts, onContinue, onReset, result }) {
       {facts && <CommittedDataHealth facts={facts} />}
       <div className="import-footer-actions">
         <button className="text-button" onClick={onReset}>Start another import</button>
-        <button className="primary" onClick={onContinue}>
-          Continue to Revenue Command Center · review readiness
+        <button
+          aria-label="Continue to Revenue Command Center — Review Operational Data Health — no scan yet"
+          className="primary"
+          onClick={onContinue}
+        >
+          Review Operational Data Health — no scan yet
         </button>
       </div>
     </section>
@@ -1314,6 +1322,9 @@ function CommittedDataHealth({ facts, onContinue, resumed = false }) {
         <p>
           {resumed ? "Durable first-value continuation restored." : "The reviewed all-row result is retained."}{" "}
           Coverage describes available evidence; quality describes blocked or conflicting rows.
+          Next, TGE will load the server-assessed opportunity set and explain what
+          can be assessed, its limitations, and the next useful step. No scan runs
+          until you choose it.
         </p>
       </div>
       <dl className="committed-health-summary">
@@ -1331,8 +1342,12 @@ function CommittedDataHealth({ facts, onContinue, resumed = false }) {
         <span><strong>Invalid updated timestamps</strong> {facts.updated_at_invalid_count ?? 0}</span>
       </div>
       {onContinue && (
-        <button className="primary" onClick={onContinue}>
-          Continue to Revenue Command Center · review readiness
+        <button
+          aria-label="Continue to Revenue Command Center — Review Operational Data Health — no scan yet"
+          className="primary"
+          onClick={onContinue}
+        >
+          Review Operational Data Health — no scan yet
         </button>
       )}
     </section>
