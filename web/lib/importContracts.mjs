@@ -258,7 +258,11 @@ function unavailablePreviewLifecycle(body, expectedBatchId) {
     || !isBoundedString(batch.id, 200)
     || !matchesExpectedBatch(value, expectedBatchId)
     || !IMPORT_BATCH_STATUSES.has(batch.status)
-    || !isPreviewSummary(batch.previewSummary)
+    || (cleanup?.state === "SUCCEEDED"
+      && !["COMMITTED", "EXPIRED"].includes(batch.status))
+    || !(cleanup?.state === "SUCCEEDED"
+      ? isMinimizedPreviewSummary(batch.previewSummary)
+      : isPreviewSummary(batch.previewSummary))
     || !isBoundedString(batch.rawExpiresAt, 64)
     || !validTimestamp(batch.rawExpiresAt)
     || !isUnavailableRawCleanup(cleanup)
@@ -292,13 +296,7 @@ function isUnavailableRawCleanup(cleanup) {
       && cleanup.failureCode === undefined;
   }
   if (cleanup.state === "SUCCEEDED") {
-    return cleanup.attempts > 0
-      && cleanup.retryable === false
-      && isBoundedString(cleanup.startedAt, 64)
-      && validTimestamp(cleanup.startedAt)
-      && isBoundedString(cleanup.completedAt, 64)
-      && validTimestamp(cleanup.completedAt)
-      && cleanup.failureCode === undefined;
+    return isSucceededRawCleanup(cleanup, true);
   }
   return cleanup.state === "FAILED"
     && cleanup.attempts > 0
@@ -307,6 +305,19 @@ function isUnavailableRawCleanup(cleanup) {
     && validTimestamp(cleanup.startedAt)
     && cleanup.completedAt === undefined
     && cleanup.failureCode === "RAW_IMPORT_CLEANUP_FAILED";
+}
+
+function isSucceededRawCleanup(cleanup, dueRequired) {
+  return isObject(cleanup)
+    && cleanup.state === "SUCCEEDED"
+    && (dueRequired ? cleanup.due === true : cleanup.due === undefined)
+    && cleanup.attempts > 0
+    && cleanup.retryable === false
+    && isBoundedString(cleanup.startedAt, 64)
+    && validTimestamp(cleanup.startedAt)
+    && isBoundedString(cleanup.completedAt, 64)
+    && validTimestamp(cleanup.completedAt)
+    && cleanup.failureCode === undefined;
 }
 
 function isPreviewSummary(summary) {
@@ -322,6 +333,23 @@ function isPreviewSummary(summary) {
       summary.valueKindCounts,
       summary.rowCount * summary.columnCount
     );
+}
+
+function isMinimizedPreviewSummary(summary) {
+  return isObject(summary)
+    && sameStringSet(Object.keys(summary), [
+      "format",
+      "sourceCollection",
+      "rowCount",
+      "columnCount",
+      "rawEvidenceAvailable"
+    ])
+    && summary.format === "CSV"
+    && SOURCE_COLLECTIONS.has(summary.sourceCollection)
+    && isIntegerBetween(summary.rowCount, 0, MAX_ROWS)
+    && isIntegerBetween(summary.columnCount, 1, MAX_COLUMNS)
+    && summary.rowCount * summary.columnCount <= MAX_CELLS
+    && summary.rawEvidenceAvailable === false;
 }
 
 function isAnalysis(value, expectations) {
@@ -578,12 +606,17 @@ function isCommittedResult(value, expectations) {
       + summary.failed
     || summary.conflicted !== 0
     || summary.failed !== 0
-    || value.rows.length !== summary.total
     || (isNonNegativeInteger(expectations?.totalRows)
       && summary.total !== expectations.totalRows)
     || typeof value.reconciled !== "boolean"
     || (typeof expectations?.reconciled === "boolean"
       && value.reconciled !== expectations.reconciled)
+  ) return false;
+
+  if (isMinimizedCleanedCommittedResult(value, summary)) return true;
+  if (
+    value.rawEvidenceAvailable !== undefined
+    || value.rows.length !== summary.total
   ) return false;
 
   const ordinals = new Set();
@@ -608,6 +641,18 @@ function isCommittedResult(value, expectations) {
   return committed === summary.committed
     && skipped === summary.skipped
     && ordinals.size === summary.total;
+}
+
+function isMinimizedCleanedCommittedResult(value, summary) {
+  const batch = value.batch;
+  return value.rawEvidenceAvailable === false
+    && value.reconciled === true
+    && value.rows.length === 0
+    && isBoundedString(batch.rawExpiresAt, 64)
+    && validTimestamp(batch.rawExpiresAt)
+    && isSucceededRawCleanup(batch.rawCleanup, false)
+    && isMinimizedPreviewSummary(batch.previewSummary)
+    && batch.previewSummary.rowCount === summary.total;
 }
 
 function isDataHealth(health, columnCount = MAX_COLUMNS) {

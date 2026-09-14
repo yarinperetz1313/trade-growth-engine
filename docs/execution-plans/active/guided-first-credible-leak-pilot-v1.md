@@ -211,6 +211,29 @@
   aggregate diff hygiene, and artifact cleanup pass. No PostgreSQL suite, full
   Verify, or build was run because the authoritative server lifecycle contract,
   persistence, schema, and migrations are unchanged.
+- A second fresh review found that migration `015` intentionally minimizes a
+  cleaned preview summary to retained collection/count lifecycle facts and a
+  cleaned committed result to its authoritative summary with no per-row raw
+  evidence. Both successful tenant-authorized responses were still rejected by
+  the browser's raw-evidence validators and surfaced as retryable temporary
+  failures.
+- Exact migration-015 response fixtures were added before product edits.
+  Focused RED was **6/8**, with exactly the minimized preview and committed
+  result regressions failing. The contract boundary now recognizes only the
+  coherent `rawEvidenceAvailable: false` cleanup shapes before the original
+  strict raw-row validation. Cleaned non-committed state remains a terminal
+  start-new-import path with no retry; cleaned committed truth retains its
+  nonzero summary and Revenue Command Center continuation. Focused GREEN is
+  **8/8**. Contradictory availability, lifecycle, count, extra-header, and
+  cross-batch shapes remain `IMPORT_RESPONSE_INVALID`.
+- The affected authenticated import/mapping/repository/staging/Pilot browser-
+  contract set passes **79/79**. Managed Chromium guided intake passes **7/7**,
+  including committed-result precedence without a preview read, and the
+  complete existing import workflow passes **18/18**. Node syntax, the
+  engineering harness, migration `001`-`016` byte identity, aggregate diff
+  hygiene, and artifact cleanup pass. No PostgreSQL suite, production build,
+  full Verify, backend, persistence, schema, migration, connector, detector, or
+  later-slice work was run or changed.
 
 ## Review and handoff
 
@@ -220,8 +243,11 @@
   accessibility, and mobile overflow. No additional in-scope defect was found.
 - Fresh reviewer findings/resolution: the first review returned one P2 retained
   expired/cleaned lifecycle classification defect and one P3 unsupported
-  authentication presentation defect. Both are remediated at the browser
-  contract/UI boundary; one fresh final independent review remains pending.
+  authentication presentation defect. Both were remediated at the browser
+  contract/UI boundary. The second review returned one P2 migration-015
+  minimized-response classification defect covering preview and committed
+  results; it is remediated at the same browser-contract boundary. One fresh
+  final independent review remains pending.
 - Final-review evidence: coordinator-owned after any bounded remediation.
 - Debt/follow-up: Slice 2 and Slice 3 remain dependency-gated; all explicit
   milestone non-goals remain out of scope.

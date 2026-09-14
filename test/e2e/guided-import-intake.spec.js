@@ -3,6 +3,8 @@ import { expect, test } from "@playwright/test";
 import {
   adversarialCsv,
   analysisFixture,
+  cleanedCommittedFixture,
+  cleanedPreviewFixture,
   committedFixture,
   previewFixture
 } from "./fixtures/import-contracts.mjs";
@@ -218,14 +220,7 @@ test("uses retained lifecycle truth for expired and cleaned resume links", async
       attempts: 0,
       retryable: false
     }, /raw import evidence has expired/i],
-    ["cleaned-batch", {
-      state: "SUCCEEDED",
-      due: true,
-      attempts: 1,
-      retryable: false,
-      startedAt: "2026-09-14T00:00:00.000Z",
-      completedAt: "2026-09-14T00:00:01.000Z"
-    }, /raw import evidence was cleaned/i]
+    ["cleaned-batch", null, /raw import evidence was cleaned/i]
   ]) {
     await page.route(`${apiBaseUrl}/api/import-batches/${batchId}/commit`, route => (
       json(route, 404, {
@@ -235,11 +230,15 @@ test("uses retained lifecycle truth for expired and cleaned resume links", async
       })
     ));
     await page.route(`${apiBaseUrl}/api/import-batches/${batchId}/preview`, route => {
-      const preview = previewFixture();
+      const preview = cleanup === null
+        ? cleanedPreviewFixture()
+        : previewFixture();
       preview.batch.id = batchId;
-      preview.batch.rawExpiresAt = "2026-09-14T00:00:00.000Z";
-      preview.batch.rawCleanup = cleanup;
-      preview.records = [];
+      if (cleanup !== null) {
+        preview.batch.rawExpiresAt = "2026-09-14T00:00:00.000Z";
+        preview.batch.rawCleanup = cleanup;
+        preview.records = [];
+      }
       return json(route, 200, { ok: true, data: preview });
     });
 
@@ -249,6 +248,30 @@ test("uses retained lifecycle truth for expired and cleaned resume links", async
     await expect(page.getByRole("button", { name: "Start a new import" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Retry this batch" })).toHaveCount(0);
   }
+});
+
+test("restores migration-015 minimized committed truth before cleaned preview evidence", async ({ page }) => {
+  let commitReads = 0;
+  let previewReads = 0;
+  await mockEmptyPilotStatus(page);
+  await page.route(`${apiBaseUrl}/api/import-batches/cleaned-committed/commit`, route => {
+    commitReads += 1;
+    const committed = cleanedCommittedFixture();
+    committed.batch.id = "cleaned-committed";
+    return json(route, 200, { ok: true, data: committed });
+  });
+  await page.route(`${apiBaseUrl}/api/import-batches/cleaned-committed/preview`, route => {
+    previewReads += 1;
+    return json(route, 200, { ok: true, data: cleanedPreviewFixture() });
+  });
+
+  await page.goto("/#imports?batch=cleaned-committed");
+  await expect(page.getByRole("heading", { name: "Import committed" })).toBeVisible();
+  await expect(page.getByText("2 committed")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue to Revenue Command Center" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry this batch" })).toHaveCount(0);
+  expect(commitReads).toBe(1);
+  expect(previewReads).toBe(0);
 });
 
 test("does not claim workspace authentication when import access is unavailable", async ({ page }) => {

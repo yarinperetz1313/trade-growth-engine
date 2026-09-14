@@ -62,6 +62,23 @@ harness, syntax, migration byte identity, and diff hygiene pass. No backend,
 persistence, schema, migration, connector, detector, or later-slice behavior
 changed.
 
+The bounded Slice 1 second-review remediation now recognizes the exact
+migration-015 minimized shapes after raw-evidence cleanup. A cleaned,
+non-committed preview retains only bounded batch/collection/count lifecycle
+facts and produces the existing terminal cleaned explanation with new-import
+guidance and no ineffective retry. A cleaned committed result retains its
+authoritative nonzero outcome summary and continues to the Revenue Command
+Center even though deleted per-row evidence is no longer returned. Exact batch
+matching, cleanup-state coherence, non-oracle denial, request generations,
+committed-result precedence, and strict validation of still-available raw rows
+remain unchanged. Focused RED was **6/8** with exactly the two minimized shapes
+failing; GREEN is **8/8**. The affected authenticated import/mapping/repository/
+staging/Pilot browser-contract set passes **79/79**. Managed Chromium passes
+guided intake **7/7** and the existing import workflow **18/18**. Syntax,
+engineering harness, migration `001`-`016` byte identity, diff hygiene, and
+artifact cleanup pass. No backend, persistence, schema, migration, connector,
+detector, or later-slice behavior changed.
+
 Assisted Pilot Safety Gate V1 Slice 4 now adds one repository-native,
 production-like local acceptance command and the assisted-pilot operator
 runbook. The command accepts only an explicit loopback test-server URL, requires

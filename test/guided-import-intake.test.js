@@ -104,7 +104,7 @@ test("resume deep links carry only a bounded batch pointer", async () => {
 
 test("expired and cleaned preview responses retain authoritative restart truth", async () => {
   const { unwrapImportPreviewResponse } = await contracts;
-  const { previewFixture } = await fixtures;
+  const { cleanedPreviewFixture, previewFixture } = await fixtures;
 
   for (const [cleanup, expectedCode] of [
     [{
@@ -113,19 +113,16 @@ test("expired and cleaned preview responses retain authoritative restart truth",
       attempts: 0,
       retryable: false
     }, "IMPORT_RAW_EVIDENCE_EXPIRED"],
-    [{
-      state: "SUCCEEDED",
-      due: true,
-      attempts: 1,
-      retryable: false,
-      startedAt: "2026-09-14T00:00:00.000Z",
-      completedAt: "2026-09-14T00:00:01.000Z"
-    }, "IMPORT_RAW_EVIDENCE_CLEANED"]
+    [null, "IMPORT_RAW_EVIDENCE_CLEANED"]
   ]) {
-    const preview = previewFixture();
-    preview.batch.rawExpiresAt = "2026-09-14T00:00:00.000Z";
-    preview.batch.rawCleanup = cleanup;
-    preview.records = [];
+    const preview = cleanup === null
+      ? cleanedPreviewFixture()
+      : previewFixture();
+    if (cleanup !== null) {
+      preview.batch.rawExpiresAt = "2026-09-14T00:00:00.000Z";
+      preview.batch.rawCleanup = cleanup;
+      preview.records = [];
+    }
 
     assert.throws(
       () => unwrapImportPreviewResponse(
@@ -139,9 +136,47 @@ test("expired and cleaned preview responses retain authoritative restart truth",
   }
 });
 
+test("migration-015 minimized committed results preserve authoritative continuation truth", async () => {
+  const { unwrapImportCommitResponse } = await contracts;
+  const { cleanedCommittedFixture } = await fixtures;
+  const committed = cleanedCommittedFixture();
+
+  assert.deepEqual(
+    unwrapImportCommitResponse(
+      { ok: true, data: committed },
+      "browser-batch-1"
+    ),
+    committed
+  );
+
+  assert.throws(
+    () => unwrapImportCommitResponse(
+      { ok: true, data: committed },
+      "another-tenant-batch"
+    ),
+    error => error?.code === "IMPORT_RESPONSE_INVALID"
+  );
+
+  for (const mutate of [
+    value => { delete value.rawEvidenceAvailable; },
+    value => { value.batch.previewSummary.rawEvidenceAvailable = true; },
+    value => { value.summary.total = 3; }
+  ]) {
+    const malformed = cleanedCommittedFixture();
+    mutate(malformed);
+    assert.throws(
+      () => unwrapImportCommitResponse(
+        { ok: true, data: malformed },
+        "browser-batch-1"
+      ),
+      error => error?.code === "IMPORT_RESPONSE_INVALID"
+    );
+  }
+});
+
 test("terminal lifecycle classification stays strict and tenant-neutral", async () => {
   const { unwrapImportPreviewResponse } = await contracts;
-  const { previewFixture } = await fixtures;
+  const { cleanedPreviewFixture, previewFixture } = await fixtures;
   const malformed = previewFixture();
   malformed.batch.rawExpiresAt = "not-a-timestamp";
   malformed.batch.rawCleanup = {
@@ -169,6 +204,22 @@ test("terminal lifecycle classification stays strict and tenant-neutral", async 
     ),
     error => error?.code === "IMPORT_RESPONSE_INVALID"
   );
+
+  for (const mutate of [
+    value => { value.batch.status = "PREVIEWED"; },
+    value => { value.batch.previewSummary.rawEvidenceAvailable = true; },
+    value => { value.batch.previewSummary.headers = ["deleted_raw_header"]; }
+  ]) {
+    const cleaned = cleanedPreviewFixture();
+    mutate(cleaned);
+    assert.throws(
+      () => unwrapImportPreviewResponse(
+        { ok: true, data: cleaned },
+        "browser-batch-1"
+      ),
+      error => error?.code === "IMPORT_RESPONSE_INVALID"
+    );
+  }
 });
 
 test("the browser composes guidance and server reads without local authority or unsupported auth claims", () => {
