@@ -142,10 +142,50 @@
 - Repository, scoped web/test instructions, Project State, execution-plan index,
   completed Pilot Readiness evidence, completed first-value evidence, and live
   Issue #14 approval were inspected before the plan was changed.
+- Clean planning checkpoint: `d15f453dc1fb82d7aa16271709838353878a8fae`
+  (`docs: activate guided first leak milestone plan`). The engineering harness
+  passed before product implementation began.
+- Research confirmed that all five displayed collections can be staged and
+  previewed; the canonical browser mapping/commit contract supports prospects,
+  opportunities, tasks, and activities, while `revenue_actions` is explicitly
+  `UNSUPPORTED_TARGET`. Existing tenant-authorized GET-by-batch preview/commit,
+  deterministic analysis, and Pilot latest-committed evidence are sufficient
+  when paired with a bounded route batch pointer. No new persistence or list
+  authority is needed.
+- TDD RED: `node --test test/guided-import-intake.test.js` failed expected
+  **0/5** because the capability/template and resume modules were absent and the
+  browser lacked the guided/resume composition.
+- Focused GREEN: the identical command passes **5/5**. The inert header-only
+  templates are derived from the exact canonical browser target definitions;
+  unsupported collections cannot produce a template; opportunity guidance
+  preserves exact optional currency and missing-value truth; malformed or
+  authority-bearing route queries fail closed.
+- Affected integration/browser contracts pass **49/49** across guided intake,
+  import response/mapping, Pilot status, monetary-plan compatibility, and the
+  engineering harness. The existing Node module-type warning is unchanged and
+  non-fatal.
+- Managed Chromium passes **21/21** for the new focused guided/resume spec plus
+  the complete existing import workflow. The new scenarios cover desktop
+  guidance, every capability class, inert template contents, the supported
+  upload-to-mapping path, staged and committed reload/navigation recovery,
+  malformed/unknown/expired state, one reconciliation path, 390px no-overflow,
+  and no automatic preview mutation during resume.
+- The first expanded resume smoke run exposed a duplicate GET caused by changing
+  the component key both before and during hash navigation. The route lifecycle
+  now separates remembered import links from external hash-change versions; the
+  focused rerun passed **3/3**, and final affected Chromium remained **21/21**.
+- Production changes are limited to browser guidance, route/resume composition,
+  styles, and one read-only projection of the existing browser target contract.
+  No backend/domain/persistence/schema/migration, connector, detector,
+  case/action journey, session-result, external-send, or later-slice behavior
+  changed.
 
 ## Review and handoff
 
-- Implementer self-check: pending Slice 1 implementation.
+- Implementer self-check: the complete Slice 1 diff was reread defect-first for
+  capability drift, template/sample mixing, route authority, tenant isolation,
+  stale response handling, duplicate resume reads, explicit mutation control,
+  accessibility, and mobile overflow. No additional in-scope defect was found.
 - Fresh reviewer findings/resolution: pending after the local implementation
   checkpoint.
 - Final-review evidence: coordinator-owned after any bounded remediation.

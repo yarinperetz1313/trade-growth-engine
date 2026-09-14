@@ -86,6 +86,18 @@ const ANALYSIS_TARGETS = Object.freeze({
   ], ["id", "opportunity_id", "type"])
 });
 
+export function getImportAnalysisTargetDefinition(collection) {
+  const target = ANALYSIS_TARGETS[collection];
+  if (!target) return null;
+  return Object.freeze({
+    fields: Object.freeze(target.fields.map(field => Object.freeze({
+      name: field.targetField,
+      type: field.declaredType,
+      required: field.required
+    })))
+  });
+}
+
 export function unwrapImportPreviewResponse(body, expectedBatchId = null) {
   return unwrapImportResponse(body, value => (
     isPreview(value) && matchesExpectedBatch(value, expectedBatchId)

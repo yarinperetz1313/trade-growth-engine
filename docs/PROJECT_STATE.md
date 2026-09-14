@@ -22,6 +22,29 @@ separate insufficiency finding and independent architecture review. The
 completed Pilot Readiness plan remains available as historical evidence and is
 no longer the active roadmap.
 
+The local Slice 1 implementation candidate now guides the authenticated
+workspace and source label, derives explicit commit-supported versus preview-
+only capability for all five displayed collections from the browser's canonical
+mapping contract, and offers header-only inert CSV templates plus field guidance
+for prospects, opportunities, tasks, and activities. A bounded batch reference
+is kept in the hash route; reload and in-app navigation re-read committed truth
+first, then tenant-authorized staged preview and regenerated deterministic
+analysis. No browser storage or client tenant authority is used. Missing,
+malformed, expired, or temporarily unavailable durable state blocks progression
+with an explicit recovery action. Unconfirmed mapping edits are truthfully not
+claimed as persisted.
+
+Focused TDD was RED **0/5** before the guidance/resume modules and UI existed and
+GREEN **5/5** after implementation. The affected dependency-free browser,
+mapping, pilot-evidence, monetary, and engineering-harness set passes **49/49**.
+Managed Chromium passes **21/21** across the new desktop/390px guided and resume
+coverage plus the complete existing import workflow. The new smoke coverage
+exposed and closed one route-key remount race so a newly created preview or
+in-app resume performs one reconciliation path rather than duplicate server
+reads. This remains a local candidate pending independent review; no schema,
+migration, connector, detector, case/action, session-result, external-send,
+GitHub, or later-slice change is included.
+
 Assisted Pilot Safety Gate V1 Slice 4 now adds one repository-native,
 production-like local acceptance command and the assisted-pilot operator
 runbook. The command accepts only an explicit loopback test-server URL, requires

@@ -1670,6 +1670,137 @@ p {
   gap: 16px;
 }
 
+.import-source-context {
+  align-items: start;
+  background: rgba(255, 255, 255, .025);
+  border: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 10px;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(220px, .8fr) minmax(260px, 1.2fr);
+  margin-bottom: 18px;
+  padding: 16px;
+}
+
+.import-source-context strong {
+  display: block;
+  font-size: 13px;
+  margin-top: 5px;
+}
+
+.import-source-context p,
+.import-source-context small,
+.import-capability p,
+.import-field-guide p {
+  color: #7d8798;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.import-capability {
+  background: rgba(255, 255, 255, .018);
+  border: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 10px;
+  margin-top: 16px;
+  padding: 16px;
+}
+
+.import-capability-heading {
+  align-items: start;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+}
+
+.import-capability h4 {
+  font-size: 13px;
+  margin: 9px 0 4px;
+}
+
+.capability-badge {
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  padding: 5px 8px;
+  text-transform: uppercase;
+}
+
+.capability-badge.supported {
+  background: rgba(114, 217, 154, .08);
+  border-color: rgba(114, 217, 154, .22);
+  color: #a8d9b7;
+}
+
+.capability-badge.preview-only {
+  background: rgba(213, 181, 106, .07);
+  border-color: rgba(213, 181, 106, .24);
+  color: #d5c18d;
+}
+
+.import-template-download {
+  flex: 0 0 auto;
+  font-size: 10px;
+  text-decoration: none;
+}
+
+.import-field-guide {
+  border-top: 1px solid rgba(255, 255, 255, .06);
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.import-field-guide summary {
+  color: #bcc5d2;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.template-truth {
+  margin-top: 10px;
+}
+
+.import-field-groups {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.import-field-groups h5 {
+  color: #aeb8c8;
+  font-size: 9px;
+  margin: 0 0 7px;
+  text-transform: uppercase;
+}
+
+.import-field-groups dl {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.import-field-groups dl div {
+  background: rgba(0, 0, 0, .12);
+  border-radius: 7px;
+  padding: 9px;
+}
+
+.import-field-groups dt {
+  color: #bac3d1;
+  font-size: 9px;
+}
+
+.import-field-groups dd {
+  color: #6f7a8d;
+  font-size: 9px;
+  line-height: 1.45;
+  margin: 4px 0 0;
+}
+
 .import-panel label {
   color: #737e91;
   display: flex;
@@ -2179,6 +2310,8 @@ p {
 
 @media (max-width: 620px) {
   .import-form-grid,
+  .import-source-context,
+  .import-field-groups,
   .mapping-row,
   .result-grid,
   .committed-health-summary,
@@ -2194,5 +2327,14 @@ p {
 
   .import-footer-actions > span {
     margin: 0;
+  }
+
+  .import-capability-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .import-template-download {
+    width: fit-content;
   }
 }

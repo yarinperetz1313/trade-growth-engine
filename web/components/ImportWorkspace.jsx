@@ -23,16 +23,22 @@ import {
 import {
   readImportFileAsBase64
 } from "../lib/importFile.mjs";
+import {
+  buildImportTemplateDownload,
+  getImportCollectionCapability,
+  listImportCollectionCapabilities
+} from "../lib/importGuidance.mjs";
+import {
+  importResumeHash,
+  parseImportResumeHash
+} from "../lib/importResume.mjs";
 
-const SOURCE_COLLECTIONS = [
-  ["prospects", "Prospects"],
-  ["opportunities", "Opportunities"],
-  ["tasks", "Tasks"],
-  ["activities", "Activities"],
-  ["revenue_actions", "Revenue actions (preview only)"]
-];
+const SOURCE_COLLECTIONS = listImportCollectionCapabilities();
 
-export default function ImportWorkspace({ onContinueToCommandCenter }) {
+export default function ImportWorkspace({
+  onContinueToCommandCenter,
+  onResumeRouteChange
+}) {
   const [phase, setPhase] = useState("upload");
   const [sourceCollection, setSourceCollection] = useState("prospects");
   const [file, setFile] = useState(null);
@@ -52,11 +58,17 @@ export default function ImportWorkspace({ onContinueToCommandCenter }) {
   const [unknownOutcome, setUnknownOutcome] = useState(null);
   const [pilotStatus, setPilotStatus] = useState(null);
   const [pilotStatusState, setPilotStatusState] = useState("LOADING");
+  const initialResume = useMemo(() => parseImportResumeHash(window.location.hash), []);
+  const [resumeState, setResumeState] = useState(
+    initialResume.kind === "BATCH" ? "LOADING" : initialResume.kind
+  );
+  const [resumeIssue, setResumeIssue] = useState(null);
   const operationGuard = useRef(null);
   const attemptedPreviewRequest = useRef(null);
   const attemptedCommit = useRef(null);
   const mounted = useRef(false);
   const pilotStatusRequest = useRef(0);
+  const resumeRequest = useRef(0);
   if (operationGuard.current === null) {
     operationGuard.current = createImportOperationGuard();
   }
@@ -80,14 +92,76 @@ export default function ImportWorkspace({ onContinueToCommandCenter }) {
   useEffect(() => {
     mounted.current = true;
     loadPilotStatus();
+    if (initialResume.kind === "BATCH") {
+      void resumeFromServer(initialResume.batchId);
+    } else if (initialResume.kind === "INVALID") {
+      setResumeIssue({
+        title: "Setup could not be resumed",
+        message: "This link does not contain one valid import batch reference. Start a new import or return to a known batch link."
+      });
+    }
     return () => {
       mounted.current = false;
       pilotStatusRequest.current += 1;
+      resumeRequest.current += 1;
       operationGuard.current.invalidate();
     };
   }, [loadPilotStatus]);
 
+  async function resumeFromServer(batchId) {
+    const requestId = ++resumeRequest.current;
+    setResumeState("LOADING");
+    setResumeIssue(null);
+    try {
+      const committed = await getImportCommit(batchId);
+      if (!mounted.current || requestId !== resumeRequest.current) return;
+      setResult(committed);
+      setPhase("result");
+      setResumeState("COMMITTED");
+      setNotice("Committed import restored from durable server truth.");
+      return;
+    } catch (caught) {
+      if (!mounted.current || requestId !== resumeRequest.current) return;
+      if (!isConfirmedMissingReconciliation(caught)) {
+        failResume(caught);
+        return;
+      }
+    }
+
+    try {
+      const restoredPreview = await getImportPreview(batchId);
+      if (!mounted.current || requestId !== resumeRequest.current) return;
+      const restoredAnalysis = await analyzeImportPreview(
+        batchId,
+        {},
+        analysisExpectations(restoredPreview)
+      );
+      if (!mounted.current || requestId !== resumeRequest.current) return;
+      acceptPreview(restoredPreview, { updateRoute: false });
+      acceptAnalysis(restoredAnalysis);
+      setSourceCollection(restoredPreview.batch.previewSummary.sourceCollection);
+      setPhase("mapping");
+      setResumeState("PREVIEWED");
+      setNotice("Durable preview restored. Review the regenerated deterministic mapping; unconfirmed browser edits were not persisted.");
+    } catch (caught) {
+      if (!mounted.current || requestId !== resumeRequest.current) return;
+      failResume(caught);
+    }
+  }
+
+  function failResume(caught) {
+    const missing = isConfirmedMissingReconciliation(caught);
+    setResumeState(missing ? "UNAVAILABLE" : "ERROR");
+    setResumeIssue({
+      title: "Setup could not be resumed",
+      message: missing
+        ? "No tenant-authorized staged or committed import exists for this batch link. It may be unknown, expired, or already cleaned."
+        : "Durable import truth is temporarily unavailable. Retry this batch before uploading or committing anything else."
+    });
+  }
+
   const headers = preview?.batch?.previewSummary?.headers || [];
+  const selectedCapability = getImportCollectionCapability(sourceCollection);
   const dataHealth = analysis?.dataHealth;
   const sourceIdentityComplete = hasCompleteSourceIdentity(dataHealth);
   const canContinue = Boolean(
@@ -152,7 +226,7 @@ export default function ImportWorkspace({ onContinueToCommandCenter }) {
     }
   }
 
-  function acceptPreview(nextPreview) {
+  function acceptPreview(nextPreview, { updateRoute = true } = {}) {
     setPreview(nextPreview);
     setAnalysis(null);
     setSelections([]);
@@ -162,6 +236,7 @@ export default function ImportWorkspace({ onContinueToCommandCenter }) {
     setUnknownOutcome(null);
     setError(null);
     attemptedPreviewRequest.current = null;
+    if (updateRoute) setResumeRoute(nextPreview.batch.id);
   }
 
   async function reconcilePreview() {
@@ -358,7 +433,9 @@ export default function ImportWorkspace({ onContinueToCommandCenter }) {
     setUnknownOutcome(null);
     setError(null);
     setPhase("result");
+    setResumeState("COMMITTED");
     attemptedCommit.current = null;
+    setResumeRoute(nextResult.batch.id);
     void loadPilotStatus();
   }
 
@@ -372,6 +449,7 @@ export default function ImportWorkspace({ onContinueToCommandCenter }) {
 
   function reset() {
     operationGuard.current.invalidate();
+    resumeRequest.current += 1;
     setPhase("upload");
     setFile(null);
     setPreview(null);
@@ -386,9 +464,19 @@ export default function ImportWorkspace({ onContinueToCommandCenter }) {
     setConflict(null);
     setUnknownOutcome(null);
     setOperation(null);
+    setResumeState("NONE");
+    setResumeIssue(null);
     attemptedPreviewRequest.current = null;
     attemptedCommit.current = null;
+    window.history.replaceState(window.history.state, "", "#imports");
+    onResumeRouteChange?.("imports");
     clearMessages();
+  }
+
+  function setResumeRoute(batchId) {
+    const route = importResumeHash(batchId);
+    window.history.replaceState(window.history.state, "", `#${route}`);
+    onResumeRouteChange?.(route);
   }
 
   function clearMessages() {
@@ -451,18 +539,39 @@ export default function ImportWorkspace({ onContinueToCommandCenter }) {
               <button className="text-button" onClick={loadPilotStatus}>Retry status</button>
             </StatusPanel>
           )}
-          <UploadStep
-            error={error}
-            file={file}
-            loading={Boolean(operation)}
-            onFile={setFile}
-            onPreview={createPreview}
-            onReconcile={reconcilePreview}
-            onRetry={retryPreview}
-            sourceCollection={sourceCollection}
-            setSourceCollection={setSourceCollection}
-            unknownOutcome={unknownOutcome}
-          />
+          {resumeState === "LOADING" && (
+            <StatusPanel
+              title="Restoring import setup"
+              message="Checking this batch against tenant-authorized committed and staged server truth."
+            />
+          )}
+          {resumeIssue && (
+            <StatusPanel title={resumeIssue.title} message={resumeIssue.message} tone="error">
+              {initialResume.kind === "BATCH" && resumeState === "ERROR" && (
+                <button className="primary" onClick={() => resumeFromServer(initialResume.batchId)}>
+                  Retry this batch
+                </button>
+              )}
+              <button className="text-button" onClick={reset}>Start a new import</button>
+            </StatusPanel>
+          )}
+          {resumeState === "NONE" && (
+            <UploadStep
+              capability={selectedCapability}
+              error={error}
+              file={file}
+              loading={Boolean(operation)}
+              onFile={setFile}
+              onPreview={createPreview}
+              onReconcile={reconcilePreview}
+              onRetry={retryPreview}
+              setSourceCollection={setSourceCollection}
+              setSourceSystem={setSourceSystem}
+              sourceCollection={sourceCollection}
+              sourceSystem={sourceSystem}
+              unknownOutcome={unknownOutcome}
+            />
+          )}
         </>
       )}
 
@@ -559,6 +668,7 @@ function ImportSteps({ phase }) {
 }
 
 function UploadStep({
+  capability,
   error,
   file,
   loading,
@@ -566,22 +676,45 @@ function UploadStep({
   onPreview,
   onReconcile,
   onRetry,
-  sourceCollection,
   setSourceCollection,
+  setSourceSystem,
+  sourceCollection,
+  sourceSystem,
   unknownOutcome
 }) {
   const unauthorized = error && [401, 403].includes(error.status);
+  const template = capability?.commitSupported
+    ? buildImportTemplateDownload(capability.collection)
+    : null;
   return (
     <section className="card import-panel">
       <div className="card-head">
         <div>
-          <h3>{unauthorized ? "Import access unavailable" : "Upload CSV"}</h3>
+          <h3>{unauthorized ? "Import access unavailable" : "Choose source and upload CSV"}</h3>
           <p>{unauthorized
             ? "Only an OWNER or ADMIN can run imports."
             : "CSV only. The browser does not evaluate formulas or infer tenant authority."}</p>
         </div>
       </div>
       <div className="import-panel-body">
+        <section className="import-source-context" aria-label="Business and source context">
+          <div>
+            <span className="eyebrow">BUSINESS WORKSPACE</span>
+            <strong>Authenticated TGE workspace</strong>
+            <p>Membership and tenant authority are resolved by the server. This screen never asks you to choose or invent a tenant.</p>
+          </div>
+          <label>
+            <span>Source system label</span>
+            <input
+              disabled={loading || Boolean(unknownOutcome)}
+              maxLength={128}
+              onChange={event => setSourceSystem(event.target.value)}
+              placeholder="CRM name or sales spreadsheet"
+              value={sourceSystem}
+            />
+            <small>Name the export source for audit evidence. You can confirm or change it before commit.</small>
+          </label>
+        </section>
         {unknownOutcome?.kind === "preview" && (
           <StatusPanel title="Preview outcome unknown" message="Reconcile the attempted batch before retrying this upload.">
             {unknownOutcome.batchId ? (
@@ -609,7 +742,11 @@ function UploadStep({
           <label>
             <span>Source collection</span>
             <select value={sourceCollection} onChange={event => setSourceCollection(event.target.value)} disabled={loading || Boolean(unknownOutcome)}>
-              {SOURCE_COLLECTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              {SOURCE_COLLECTIONS.map(item => (
+                <option key={item.collection} value={item.collection}>
+                  {item.label} — {item.capabilityLabel}
+                </option>
+              ))}
             </select>
           </label>
           <label>
@@ -622,6 +759,7 @@ function UploadStep({
             />
           </label>
         </div>
+        <CollectionCapability capability={capability} template={template} />
         <p className="import-empty-copy">{file ? `${file.name} · ${formatBytes(file.size)}` : "No CSV selected yet."}</p>
         {loading ? (
           <div className="import-loading" role="status">Reading immutable CSV evidence…</div>
@@ -630,6 +768,59 @@ function UploadStep({
         )}
       </div>
     </section>
+  );
+}
+
+function CollectionCapability({ capability, template }) {
+  if (!capability) return null;
+  const required = capability.fields.filter(field => field.required);
+  const optional = capability.fields.filter(field => !field.required);
+  return (
+    <section className="import-capability" aria-label="Selected collection capability">
+      <div className="import-capability-heading">
+        <div>
+          <span className={capability.commitSupported ? "capability-badge supported" : "capability-badge preview-only"}>
+            {capability.commitSupported ? "Canonical commit supported" : "Preview only"}
+          </span>
+          <h4>{capability.label}</h4>
+          <p>{capability.description}</p>
+        </div>
+        {template && (
+          <a className="text-button import-template-download" download={template.filename} href={template.href}>
+            Download blank CSV template
+          </a>
+        )}
+      </div>
+      {capability.commitSupported ? (
+        <details className="import-field-guide">
+          <summary>Open field guide</summary>
+          <p className="template-truth">The download contains headers only—no sample or customer records—and is never uploaded automatically.</p>
+          <p>{capability.sourceIdentityGuidance}</p>
+          <div className="import-field-groups">
+            <FieldGuideGroup fields={required} title="Required fields" />
+            <FieldGuideGroup fields={optional} title="Optional fields" />
+          </div>
+        </details>
+      ) : (
+        <p className="template-truth">You may inspect immutable staged evidence and Data Health, but this collection cannot continue to canonical commit. No template is offered.</p>
+      )}
+    </section>
+  );
+}
+
+function FieldGuideGroup({ fields, title }) {
+  return (
+    <div>
+      <h5>{title}</h5>
+      <dl>
+        {fields.map(field => (
+          <div key={field.name}>
+            <dt><code>{field.name}</code> · {field.type}</dt>
+            <dd>{field.guidance}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }
 
