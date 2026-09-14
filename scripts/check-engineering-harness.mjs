@@ -566,52 +566,54 @@ function validateAuthBoundaryContract() {
 }
 
 function validatePilotReadinessContract() {
-  const planPath = "docs/execution-plans/active/pilot-readiness.md";
+  const completedPlanPath = "docs/execution-plans/completed/pilot-readiness.md";
+  const activePlanPath = "docs/execution-plans/active/guided-first-credible-leak-pilot-v1.md";
   const executionPlansIndexPath = "docs/execution-plans/README.md";
   const foundationPath = "docs/architecture/PILOT_READINESS_FOUNDATION.md";
   const productionGatePath = "docs/operations/PILOT_PRODUCTION_GATE.md";
-  const plan = readFile(planPath);
+  const completedPlan = readFile(completedPlanPath);
+  const activePlan = readFile(activePlanPath);
   const executionPlansIndex = readFile(executionPlansIndexPath);
   const foundation = readFile(foundationPath);
   const productionGate = readFile(productionGatePath);
 
   requireText(
     executionPlansIndex,
-    "[\`active/pilot-readiness.md\`](active/pilot-readiness.md)",
-    "Execution-plan index must link the active Pilot Readiness plan"
+    "[\`active/guided-first-credible-leak-pilot-v1.md\`](active/guided-first-credible-leak-pilot-v1.md)",
+    "Execution-plan index must link the active Guided First Credible Leak plan"
   );
   requireText(
     executionPlansIndex,
-    "PR-0 through PR-2 are COMPLETE",
-    "Execution-plan index must mark Pilot PR-0 through PR-2 complete"
+    "[\`completed/pilot-readiness.md\`](completed/pilot-readiness.md)",
+    "Execution-plan index must link the completed Pilot Readiness plan"
   );
   requireText(
-    executionPlansIndex,
-    "PR-3 and PR-4 are integrated in code",
-    "Execution-plan index must mark Pilot PR-3 and PR-4 integrated"
+    activePlan,
+    "Slice 2 depends on merged Slice 1; Slice 3 depends on merged Slice 2",
+    "Active milestone plan must preserve the approved slice dependency order"
   );
   requireText(
-    plan,
+    completedPlan,
     "[foundation](../../architecture/PILOT_READINESS_FOUNDATION.md)",
     "Pilot plan must link the canonical readiness foundation"
   );
   requireText(
-    plan,
+    completedPlan,
     "[production gate](../../operations/PILOT_PRODUCTION_GATE.md)",
     "Pilot plan must link the canonical production gate"
   );
   requireText(
-    plan,
+    completedPlan,
     "PR-0 through PR-2 are COMPLETE",
     "Pilot plan must mark PR-0 through PR-2 complete"
   );
   requireText(
-    plan,
+    completedPlan,
     "PR-3 — persistence implemented and integrated",
     "Pilot plan must mark PR-3 persistence integrated"
   );
   requireText(
-    plan,
+    completedPlan,
     "PR-4 — auth implemented and integrated",
     "Pilot plan must mark PR-4 auth integrated"
   );

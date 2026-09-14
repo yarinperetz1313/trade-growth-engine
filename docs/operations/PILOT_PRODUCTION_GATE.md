@@ -1,6 +1,6 @@
 # Pilot Production Gate
 
-Do not provision or invite external users until every applicable gate below has recorded evidence. This operations contract implements the [Pilot Readiness Foundation](../architecture/PILOT_READINESS_FOUNDATION.md); the [active plan](../execution-plans/active/pilot-readiness.md) is the execution status and next-PR record.
+Do not provision or invite external users until every applicable gate below has recorded evidence. This operations contract implements the [Pilot Readiness Foundation](../architecture/PILOT_READINESS_FOUNDATION.md); the [completed Pilot Readiness plan](../execution-plans/completed/pilot-readiness.md) retains the implementation evidence. Open production gates remain governed here rather than implying another active product slice.
 
 ## Release baseline to prove
 

@@ -2,10 +2,11 @@
 
 ## Active plan
 
-- [`active/pilot-readiness.md`](active/pilot-readiness.md) — **PR-0 through PR-2 are COMPLETE; PR-3 and PR-4 are integrated in code and complete; PR-5A through PR-5D remain complete. The Assisted Pilot Safety Gate V1 PR-1 secure runtime/readiness slice is also a complete, fully verified local checkpoint. Raw-evidence retention/deletion acceptance is still a separate reviewed follow-up, so the broader plan remains active.**
+- [`active/guided-first-credible-leak-pilot-v1.md`](active/guided-first-credible-leak-pilot-v1.md) — **Issue #14's approved three-slice milestone is active. Slice 1 (guided CSV intake and server-truth resumability) is in implementation; Slice 2 and Slice 3 remain sequentially merge-gated and unstarted.**
 
 ## Completed plans
 
+- [`completed/pilot-readiness.md`](completed/pilot-readiness.md) — **Pilot Readiness and the Assisted Pilot Safety Gate V1 are complete historical evidence. External provider, infrastructure, legal/privacy, backup/restore, and canonical tenant-data deletion gates remain explicit rather than implied.**
 - [`completed/first-value-onboarding-pilot-evidence.md`](completed/first-value-onboarding-pilot-evidence.md) — **Issue #9/#14 PR-3 completes the post-import first-value bridge and closed, tenant-scoped, privacy-minimized pilot-evidence contract as a local candidate; GitHub delivery remains coordinator-owned.**
 - [`completed/revenue-command-center-v2.md`](completed/revenue-command-center-v2.md) — **Issue #9 PR-2 makes the server-ordered RevenueLeakCase queue the primary Command Center and composes a tenant-safe, retry-safe handoff into the existing human-controlled RevenueAction lifecycle.**
 - [`completed/revenue-leak-operating-queue.md`](completed/revenue-leak-operating-queue.md) — **Issue #9 PR-1 implements the explicit bounded tenant-wide stalled-opportunity scan and truthful active RevenueLeakCase operating queue; its historical checkpoint excluded the later Command Center/action-handoff and onboarding/evidence work.**

@@ -126,7 +126,7 @@ test("completion evidence records the exact client-side grouped and withheld red
   );
 
   const plan = fs.readFileSync(
-    path.join(process.cwd(), "docs/execution-plans/active/pilot-readiness.md"),
+    path.join(process.cwd(), "docs/execution-plans/completed/pilot-readiness.md"),
     "utf8"
   );
   assert.match(

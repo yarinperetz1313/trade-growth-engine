@@ -24,36 +24,41 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
   const contractRemovals = [
     {
       relativePath: "docs/execution-plans/README.md",
-      expected: "PR-0 through PR-2 are COMPLETE",
-      error: /Execution-plan index must mark Pilot PR-0 through PR-2 complete/
+      expected: "[\`active/guided-first-credible-leak-pilot-v1.md\`](active/guided-first-credible-leak-pilot-v1.md)",
+      error: /Execution-plan index must link the active Guided First Credible Leak plan/
     },
     {
       relativePath: "docs/execution-plans/README.md",
-      expected: "PR-3 and PR-4 are integrated in code",
-      error: /Execution-plan index must mark Pilot PR-3 and PR-4 integrated/
+      expected: "[\`completed/pilot-readiness.md\`](completed/pilot-readiness.md)",
+      error: /Execution-plan index must link the completed Pilot Readiness plan/
     },
     {
-      relativePath: "docs/execution-plans/active/pilot-readiness.md",
+      relativePath: "docs/execution-plans/active/guided-first-credible-leak-pilot-v1.md",
+      expected: "Slice 2 depends on merged Slice 1; Slice 3 depends on merged Slice 2",
+      error: /Active milestone plan must preserve the approved slice dependency order/
+    },
+    {
+      relativePath: "docs/execution-plans/completed/pilot-readiness.md",
       expected: "[foundation](../../architecture/PILOT_READINESS_FOUNDATION.md)",
       error: /Pilot plan must link the canonical readiness foundation/
     },
     {
-      relativePath: "docs/execution-plans/active/pilot-readiness.md",
+      relativePath: "docs/execution-plans/completed/pilot-readiness.md",
       expected: "[production gate](../../operations/PILOT_PRODUCTION_GATE.md)",
       error: /Pilot plan must link the canonical production gate/
     },
     {
-      relativePath: "docs/execution-plans/active/pilot-readiness.md",
+      relativePath: "docs/execution-plans/completed/pilot-readiness.md",
       expected: "PR-0 through PR-2 are COMPLETE",
       error: /Pilot plan must mark PR-0 through PR-2 complete/
     },
     {
-      relativePath: "docs/execution-plans/active/pilot-readiness.md",
+      relativePath: "docs/execution-plans/completed/pilot-readiness.md",
       expected: "PR-3 — persistence implemented and integrated",
       error: /Pilot plan must mark PR-3 persistence integrated/
     },
     {
-      relativePath: "docs/execution-plans/active/pilot-readiness.md",
+      relativePath: "docs/execution-plans/completed/pilot-readiness.md",
       expected: "PR-4 — auth implemented and integrated",
       error: /Pilot plan must mark PR-4 auth integrated/
     },

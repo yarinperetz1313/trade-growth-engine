@@ -2,6 +2,26 @@
 
 _Last locally audited on 2026-09-14. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
+Guided First Credible Leak Pilot V1 is the active approved milestone under
+GitHub Issue #14. Its three slices are sequential: guided CSV intake and
+server-truth resumability first; operational Data Health and detector
+eligibility only after Slice 1 merges; and the coherent first-value operating
+journey only after Slice 2 merges. CSV remains the supported pilot ingestion
+mechanism, detector execution remains an explicit user action, and templates
+must remain inert and clearly labelled. Native connectors, additional
+detectors, attribution/ROI, autonomous outbound, AI ranking, generic automation,
+scheduling, and broad CRM replacement are out of scope. The 15-minute, 2/3
+completion, and 4/5 trust targets are measurement hypotheses, not customer
+evidence or shipped claims.
+
+Slice 1 starts at exact merged `origin/main`
+`ea22ce9cb06498f6f6c59ee5642d6ede2e7cea35`. It may compose the existing
+authenticated tenant/session, import batch/source, and Pilot evidence truth to
+guide and resume setup, but it may not add persistence or a migration without a
+separate insufficiency finding and independent architecture review. The
+completed Pilot Readiness plan remains available as historical evidence and is
+no longer the active roadmap.
+
 Assisted Pilot Safety Gate V1 Slice 4 now adds one repository-native,
 production-like local acceptance command and the assisted-pilot operator
 runbook. The command accepts only an explicit loopback test-server URL, requires
@@ -776,7 +796,10 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - Developer `data/*.json` must never be touched by tests/E2E.
 
 ## Milestone status
-- Active plan: [**Pilot Readiness**](execution-plans/active/pilot-readiness.md).
+- Active plan: [**Guided First Credible Leak Pilot V1**](execution-plans/active/guided-first-credible-leak-pilot-v1.md).
+  Only Slice 1 is authorized for current implementation. The completed
+  [**Pilot Readiness**](execution-plans/completed/pilot-readiness.md) record is
+  historical evidence, not an active backlog.
   The [**RevenueLeakCase foundation**](execution-plans/completed/revenue-leak-case-foundation.md)
   and [**deterministic stalled-opportunity detector**](execution-plans/completed/stalled-opportunity-detector.md)
   are complete in their bounded Issue #8 slices. The completed

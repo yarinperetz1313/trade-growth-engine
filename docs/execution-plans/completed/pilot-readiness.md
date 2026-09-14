@@ -1,4 +1,9 @@
-# Pilot Readiness
+# Pilot Readiness — completed historical record
+
+This plan is complete through the merged Assisted Pilot Safety Gate V1 and is
+retained as the durable decision and verification record. It is no longer the
+active product plan. Guided First Credible Leak Pilot V1 is tracked separately
+in `../active/guided-first-credible-leak-pilot-v1.md`.
 
 ## Assisted Pilot Safety Gate V1 Slice 4 bounded plan — 2026-09-14
 
