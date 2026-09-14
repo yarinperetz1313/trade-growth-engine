@@ -28,6 +28,14 @@ const SOURCE_COLLECTIONS = new Set([
   "revenue_actions",
   "tasks"
 ]);
+const IMPORT_BATCH_STATUSES = new Set([
+  "STAGED",
+  "PREVIEWED",
+  "READY",
+  "COMMITTED",
+  "FAILED",
+  "EXPIRED"
+]);
 const ANALYSIS_TARGETS = Object.freeze({
   prospects: targetContract([
     ["id", "TEXT", true],
@@ -86,7 +94,36 @@ const ANALYSIS_TARGETS = Object.freeze({
   ], ["id", "opportunity_id", "type"])
 });
 
+export function getImportAnalysisTargetDefinition(collection) {
+  const target = ANALYSIS_TARGETS[collection];
+  if (!target) return null;
+  return Object.freeze({
+    fields: Object.freeze(target.fields.map(field => Object.freeze({
+      name: field.targetField,
+      type: field.declaredType,
+      required: field.required
+    })))
+  });
+}
+
 export function unwrapImportPreviewResponse(body, expectedBatchId = null) {
+  const unavailableLifecycle = unavailablePreviewLifecycle(
+    body,
+    expectedBatchId
+  );
+  if (unavailableLifecycle) {
+    const cleaned = unavailableLifecycle === "CLEANED";
+    const error = new Error(cleaned
+      ? "The retained import batch confirms its raw evidence was cleaned."
+      : "The retained import batch confirms its raw evidence expired.");
+    error.name = "ApiError";
+    error.code = cleaned
+      ? "IMPORT_RAW_EVIDENCE_CLEANED"
+      : "IMPORT_RAW_EVIDENCE_EXPIRED";
+    error.status = 200;
+    error.details = { attemptedId: body.data.batch.id };
+    throw error;
+  }
   return unwrapImportResponse(body, value => (
     isPreview(value) && matchesExpectedBatch(value, expectedBatchId)
   ));
@@ -189,18 +226,10 @@ function isPreview(value) {
     || !isObject(value.batch)
     || !isBoundedString(value.batch.id, 200)
     || value.batch.status !== "PREVIEWED"
-    || !isObject(summary)
-    || summary.format !== "CSV"
-    || !SOURCE_COLLECTIONS.has(summary.sourceCollection)
-    || !isIntegerBetween(summary.byteCount, 1, MAX_FILE_BYTES)
-    || !isIntegerBetween(summary.rowCount, 0, MAX_ROWS)
-    || !isIntegerBetween(summary.columnCount, 1, MAX_COLUMNS)
-    || summary.rowCount * summary.columnCount > MAX_CELLS
-    || !isHeaderList(summary.headers, summary.columnCount)
+    || !isPreviewSummary(summary)
     || value.previewRowLimit !== PREVIEW_ROW_LIMIT
     || !Array.isArray(value.records)
     || value.records.length !== Math.min(summary.rowCount, PREVIEW_ROW_LIMIT)
-    || !isValueKindCounts(summary.valueKindCounts, summary.rowCount * summary.columnCount)
   ) return false;
 
   return value.records.every((record, sourceOrdinal) => (
@@ -214,6 +243,113 @@ function isPreview(value) {
     summary.rowCount - value.records.length,
     summary.columnCount
   );
+}
+
+function unavailablePreviewLifecycle(body, expectedBatchId) {
+  const value = body?.data;
+  const batch = value?.batch;
+  const cleanup = batch?.rawCleanup;
+  if (
+    !isObject(body)
+    || body.ok !== true
+    || !Object.hasOwn(body, "data")
+    || !isObject(value)
+    || !isObject(batch)
+    || !isBoundedString(batch.id, 200)
+    || !matchesExpectedBatch(value, expectedBatchId)
+    || !IMPORT_BATCH_STATUSES.has(batch.status)
+    || (cleanup?.state === "SUCCEEDED"
+      && !["COMMITTED", "EXPIRED"].includes(batch.status))
+    || !(cleanup?.state === "SUCCEEDED"
+      ? isMinimizedPreviewSummary(batch.previewSummary)
+      : isPreviewSummary(batch.previewSummary))
+    || !isBoundedString(batch.rawExpiresAt, 64)
+    || !validTimestamp(batch.rawExpiresAt)
+    || !isUnavailableRawCleanup(cleanup)
+    || value.previewRowLimit !== PREVIEW_ROW_LIMIT
+    || !Array.isArray(value.records)
+    || value.records.length !== 0
+  ) return null;
+  return cleanup.state === "SUCCEEDED" ? "CLEANED" : "EXPIRED";
+}
+
+function isUnavailableRawCleanup(cleanup) {
+  if (
+    !isObject(cleanup)
+    || cleanup.due !== true
+    || !isNonNegativeInteger(cleanup.attempts)
+    || typeof cleanup.retryable !== "boolean"
+  ) return false;
+  if (cleanup.state === "PENDING") {
+    return cleanup.attempts === 0
+      && cleanup.retryable === false
+      && cleanup.startedAt === undefined
+      && cleanup.completedAt === undefined
+      && cleanup.failureCode === undefined;
+  }
+  if (cleanup.state === "IN_PROGRESS") {
+    return cleanup.attempts > 0
+      && cleanup.retryable === false
+      && isBoundedString(cleanup.startedAt, 64)
+      && validTimestamp(cleanup.startedAt)
+      && cleanup.completedAt === undefined
+      && cleanup.failureCode === undefined;
+  }
+  if (cleanup.state === "SUCCEEDED") {
+    return isSucceededRawCleanup(cleanup, true);
+  }
+  return cleanup.state === "FAILED"
+    && cleanup.attempts > 0
+    && cleanup.retryable === true
+    && isBoundedString(cleanup.startedAt, 64)
+    && validTimestamp(cleanup.startedAt)
+    && cleanup.completedAt === undefined
+    && cleanup.failureCode === "RAW_IMPORT_CLEANUP_FAILED";
+}
+
+function isSucceededRawCleanup(cleanup, dueRequired) {
+  return isObject(cleanup)
+    && cleanup.state === "SUCCEEDED"
+    && (dueRequired ? cleanup.due === true : cleanup.due === undefined)
+    && cleanup.attempts > 0
+    && cleanup.retryable === false
+    && isBoundedString(cleanup.startedAt, 64)
+    && validTimestamp(cleanup.startedAt)
+    && isBoundedString(cleanup.completedAt, 64)
+    && validTimestamp(cleanup.completedAt)
+    && cleanup.failureCode === undefined;
+}
+
+function isPreviewSummary(summary) {
+  return isObject(summary)
+    && summary.format === "CSV"
+    && SOURCE_COLLECTIONS.has(summary.sourceCollection)
+    && isIntegerBetween(summary.byteCount, 1, MAX_FILE_BYTES)
+    && isIntegerBetween(summary.rowCount, 0, MAX_ROWS)
+    && isIntegerBetween(summary.columnCount, 1, MAX_COLUMNS)
+    && summary.rowCount * summary.columnCount <= MAX_CELLS
+    && isHeaderList(summary.headers, summary.columnCount)
+    && isValueKindCounts(
+      summary.valueKindCounts,
+      summary.rowCount * summary.columnCount
+    );
+}
+
+function isMinimizedPreviewSummary(summary) {
+  return isObject(summary)
+    && sameStringSet(Object.keys(summary), [
+      "format",
+      "sourceCollection",
+      "rowCount",
+      "columnCount",
+      "rawEvidenceAvailable"
+    ])
+    && summary.format === "CSV"
+    && SOURCE_COLLECTIONS.has(summary.sourceCollection)
+    && isIntegerBetween(summary.rowCount, 0, MAX_ROWS)
+    && isIntegerBetween(summary.columnCount, 1, MAX_COLUMNS)
+    && summary.rowCount * summary.columnCount <= MAX_CELLS
+    && summary.rawEvidenceAvailable === false;
 }
 
 function isAnalysis(value, expectations) {
@@ -470,12 +606,17 @@ function isCommittedResult(value, expectations) {
       + summary.failed
     || summary.conflicted !== 0
     || summary.failed !== 0
-    || value.rows.length !== summary.total
     || (isNonNegativeInteger(expectations?.totalRows)
       && summary.total !== expectations.totalRows)
     || typeof value.reconciled !== "boolean"
     || (typeof expectations?.reconciled === "boolean"
       && value.reconciled !== expectations.reconciled)
+  ) return false;
+
+  if (isMinimizedCleanedCommittedResult(value, summary)) return true;
+  if (
+    value.rawEvidenceAvailable !== undefined
+    || value.rows.length !== summary.total
   ) return false;
 
   const ordinals = new Set();
@@ -500,6 +641,18 @@ function isCommittedResult(value, expectations) {
   return committed === summary.committed
     && skipped === summary.skipped
     && ordinals.size === summary.total;
+}
+
+function isMinimizedCleanedCommittedResult(value, summary) {
+  const batch = value.batch;
+  return value.rawEvidenceAvailable === false
+    && value.reconciled === true
+    && value.rows.length === 0
+    && isBoundedString(batch.rawExpiresAt, 64)
+    && validTimestamp(batch.rawExpiresAt)
+    && isSucceededRawCleanup(batch.rawCleanup, false)
+    && isMinimizedPreviewSummary(batch.previewSummary)
+    && batch.previewSummary.rowCount === summary.total;
 }
 
 function isDataHealth(health, columnCount = MAX_COLUMNS) {

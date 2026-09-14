@@ -2,6 +2,102 @@
 
 _Last locally audited on 2026-09-14. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
+Guided First Credible Leak Pilot V1 is the active approved milestone under
+GitHub Issue #14. Its three slices are sequential: guided CSV intake and
+server-truth resumability first; operational Data Health and detector
+eligibility only after Slice 1 merges; and the coherent first-value operating
+journey only after Slice 2 merges. CSV remains the supported pilot ingestion
+mechanism, detector execution remains an explicit user action, and templates
+must remain inert and clearly labelled. Native connectors, additional
+detectors, attribution/ROI, autonomous outbound, AI ranking, generic automation,
+scheduling, and broad CRM replacement are out of scope. The 15-minute, 2/3
+completion, and 4/5 trust targets are measurement hypotheses, not customer
+evidence or shipped claims.
+
+Slice 1 starts at exact merged `origin/main`
+`ea22ce9cb06498f6f6c59ee5642d6ede2e7cea35`. It may compose the existing
+authenticated tenant/session, import batch/source, and Pilot evidence truth to
+guide and resume setup, but it may not add persistence or a migration without a
+separate insufficiency finding and independent architecture review. The
+completed Pilot Readiness plan remains available as historical evidence and is
+no longer the active roadmap.
+
+The local Slice 1 implementation candidate now guides the import workspace and
+source label, derives explicit commit-supported versus preview-
+only capability for all five displayed collections from the browser's canonical
+mapping contract, and offers header-only inert CSV templates plus field guidance
+for prospects, opportunities, tasks, and activities. A bounded batch reference
+is kept in the hash route; reload and in-app navigation re-read committed truth
+first, then tenant-authorized staged preview and regenerated deterministic
+analysis. No browser storage or client tenant authority is used. Missing,
+malformed, expired, or temporarily unavailable durable state blocks progression
+with an explicit recovery action. Unconfirmed mapping edits are truthfully not
+claimed as persisted.
+
+Focused TDD was RED **0/5** before the guidance/resume modules and UI existed and
+GREEN **5/5** after implementation. The affected dependency-free browser,
+mapping, pilot-evidence, monetary, and engineering-harness set passes **49/49**.
+Managed Chromium passes **22/22** across the new desktop/390px guided and resume
+coverage plus the complete existing import workflow. The new smoke coverage
+exposed and closed one route-key remount race so a newly created preview or
+in-app resume performs one reconciliation path rather than duplicate server
+reads. This remains a local candidate pending independent review; no schema,
+migration, connector, detector, case/action, session-result, external-send,
+GitHub, or later-slice change is included.
+
+The bounded Slice 1 review remediation now distinguishes retained import-batch
+lifecycle truth from transport failure before validating unavailable raw rows.
+A coherent tenant-authorized preview envelope with database-computed cleanup
+due state produces an explicit expired or cleaned terminal result and directs
+the operator to start a new import; malformed envelopes, mismatched batch IDs,
+and 401/403 non-oracle responses remain fail-closed. The intake panel also uses
+neutral workspace wording rather than asserting authentication without
+membership evidence. Focused lifecycle/presentation contracts were RED with
+**5/7** passing before the fix and are GREEN **7/7**. The affected browser,
+authentication, import, mapping, repository, staging, and Pilot evidence set
+passes **82/82**; managed Chromium guided intake passes **6/6**, including real
+expired/cleaned response shapes, access denial, and the 390px resume path, and
+the complete existing import workflow passes **18/18**. The engineering
+harness, syntax, migration byte identity, and diff hygiene pass. No backend,
+persistence, schema, migration, connector, detector, or later-slice behavior
+changed.
+
+The bounded Slice 1 second-review remediation now recognizes the exact
+migration-015 minimized shapes after raw-evidence cleanup. A cleaned,
+non-committed preview retains only bounded batch/collection/count lifecycle
+facts and produces the existing terminal cleaned explanation with new-import
+guidance and no ineffective retry. A cleaned committed result retains its
+authoritative nonzero outcome summary and continues to the Revenue Command
+Center even though deleted per-row evidence is no longer returned. Exact batch
+matching, cleanup-state coherence, non-oracle denial, request generations,
+committed-result precedence, and strict validation of still-available raw rows
+remain unchanged. Focused RED was **6/8** with exactly the two minimized shapes
+failing; GREEN is **8/8**. The affected authenticated import/mapping/repository/
+staging/Pilot browser-contract set passes **79/79**. Managed Chromium passes
+guided intake **7/7** and the existing import workflow **18/18**. Syntax,
+engineering harness, migration `001`-`016` byte identity, diff hygiene, and
+artifact cleanup pass. No backend, persistence, schema, migration, connector,
+detector, or later-slice behavior changed.
+
+The bounded Slice 1 third-review remediation aligns the guided source-system
+field with the existing canonical commit namespace contract. The browser now
+calls the value a source-system namespace, gives the accepted
+`quarterly-crm-export` example and exact character guidance, reports invalid
+human labels such as `Quarterly CRM export` inline, and blocks forward preview
+or commit actions while a non-empty invalid value is present. The value is
+submitted exactly as entered; the browser does not trim, slugify, or otherwise
+rewrite source identity. The focused regression exercises the real
+`validateCanonicalCommitInput()` boundary and was RED **8/9** before the
+browser validator existed, then GREEN **9/9**. Its blank, 128/129-character,
+leading-character, forbidden-character, and accepted namespace matrix agrees
+with the server contract. The directly affected import/commit/mapping/
+repository/staging/Pilot browser-contract set passes **100/100**. Managed
+Chromium guided intake passes **7/7**, including accessible inline validation
+without 390px overflow, and the existing import workflow remains **18/18**.
+The engineering harness, syntax, migration byte identity, aggregate diff
+hygiene, and artifact cleanup pass. No server validation, persistence, schema,
+migration, connector, detector, or later-slice behavior changed.
+
 Assisted Pilot Safety Gate V1 Slice 4 now adds one repository-native,
 production-like local acceptance command and the assisted-pilot operator
 runbook. The command accepts only an explicit loopback test-server URL, requires
@@ -776,7 +872,10 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - Developer `data/*.json` must never be touched by tests/E2E.
 
 ## Milestone status
-- Active plan: [**Pilot Readiness**](execution-plans/active/pilot-readiness.md).
+- Active plan: [**Guided First Credible Leak Pilot V1**](execution-plans/active/guided-first-credible-leak-pilot-v1.md).
+  Only Slice 1 is authorized for current implementation. The completed
+  [**Pilot Readiness**](execution-plans/completed/pilot-readiness.md) record is
+  historical evidence, not an active backlog.
   The [**RevenueLeakCase foundation**](execution-plans/completed/revenue-leak-case-foundation.md)
   and [**deterministic stalled-opportunity detector**](execution-plans/completed/stalled-opportunity-detector.md)
   are complete in their bounded Issue #8 slices. The completed

@@ -95,6 +95,35 @@ export function previewFixture({ rowCount = 2 } = {}) {
   };
 }
 
+export function cleanedPreviewFixture() {
+  return {
+    batch: {
+      id: "browser-batch-1",
+      status: "EXPIRED",
+      sourceFilename: "[deleted]",
+      sourceSha256: "f".repeat(64),
+      previewSummary: {
+        format: "CSV",
+        sourceCollection: "opportunities",
+        rowCount: 2,
+        columnCount: headers.length,
+        rawEvidenceAvailable: false
+      },
+      rawExpiresAt: "2026-09-14T00:00:00.000Z",
+      rawCleanup: {
+        state: "SUCCEEDED",
+        due: true,
+        attempts: 1,
+        retryable: false,
+        startedAt: "2026-09-14T00:00:00.000Z",
+        completedAt: "2026-09-14T00:00:01.000Z"
+      }
+    },
+    records: [],
+    previewRowLimit: 100
+  };
+}
+
 export function analysisFixture({ valueColumn = "amount", rowCount = 2 } = {}) {
   const fieldDefinitions = [
     ["id", "external_id", "TEXT", true],
@@ -252,6 +281,37 @@ export function committedFixture({ reconciled = false } = {}) {
     ],
     summary: { total: 2, committed: 2, skipped: 0, conflicted: 0, failed: 0 },
     reconciled
+  };
+}
+
+export function cleanedCommittedFixture() {
+  return {
+    outcome: "COMMITTED",
+    batch: {
+      id: "browser-batch-1",
+      status: "COMMITTED",
+      sourceFilename: "[deleted]",
+      sourceSha256: "f".repeat(64),
+      previewSummary: {
+        format: "CSV",
+        sourceCollection: "opportunities",
+        rowCount: 2,
+        columnCount: headers.length,
+        rawEvidenceAvailable: false
+      },
+      rawExpiresAt: "2026-09-14T00:00:00.000Z",
+      rawCleanup: {
+        state: "SUCCEEDED",
+        attempts: 1,
+        retryable: false,
+        startedAt: "2026-09-14T00:00:00.000Z",
+        completedAt: "2026-09-14T00:00:01.000Z"
+      }
+    },
+    rows: [],
+    summary: { total: 2, committed: 2, skipped: 0, conflicted: 0, failed: 0 },
+    reconciled: true,
+    rawEvidenceAvailable: false
   };
 }
 

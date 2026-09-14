@@ -1,6 +1,6 @@
 # Pilot Readiness Foundation
 
-The Pilot production target is **Cloud Run + Cloud SQL PostgreSQL in australia-southeast2 (Melbourne)**, with Auth0 Australia (AU) for identity. This is a future-state contract, not evidence that infrastructure or production capabilities exist. The execution status lives in the [active plan](../execution-plans/active/pilot-readiness.md); release/provisioning proof lives in the [Pilot Production Gate](../operations/PILOT_PRODUCTION_GATE.md).
+The Pilot production target is **Cloud Run + Cloud SQL PostgreSQL in australia-southeast2 (Melbourne)**, with Auth0 Australia (AU) for identity. This is a future-state contract, not evidence that infrastructure or production capabilities exist. Its completed implementation evidence lives in the [Pilot Readiness plan](../execution-plans/completed/pilot-readiness.md); release/provisioning proof lives in the [Pilot Production Gate](../operations/PILOT_PRODUCTION_GATE.md).
 
 ## Locked deployment and recovery baseline
 
@@ -157,7 +157,7 @@ The environment contract names the public app URL, API URL, Auth0 domain/issuer/
 ## Implementation checklist
 
 - [x] PR-1 characterized the legacy JSON compatibility contract without production changes; see [Legacy JSON Compatibility Contract](LEGACY_JSON_COMPATIBILITY.md).
-- [x] PR-2 schema/security and its real PostgreSQL 16.15 final gate are recorded in the [active plan](../execution-plans/active/pilot-readiness.md).
+- [x] PR-2 schema/security and its real PostgreSQL 16.15 final gate are recorded in the [completed Pilot Readiness plan](../execution-plans/completed/pilot-readiness.md).
 - [x] PR-3 supplies tenant-aware PostgreSQL repositories and transactional RevenueAction mutations while JSON remains the default local/test adapter.
 - [x] PR-4 implements exact Auth0 token validation, membership-backed immutable `TenantContext`, centralized role policy, assisted invitation contracts, and a server-only bridge into PR-3 persistence. Real Auth0/email acceptance remains deployment-gated.
 - [ ] Every production tenant operation has server authorization, RLS, and a negative cross-tenant test.

@@ -68,14 +68,20 @@ function fractionalProbability(value) {
 
 function pageFromHash() {
   const hash = window.location.hash.replace(/^#\/?/, "");
+  const route = hash.split("?", 1)[0];
 
-  if (hash.startsWith("opportunities/")) {
+  if (route.startsWith("opportunities/")) {
     return "opportunities";
   }
 
-  return nav.some(([id]) => id === hash)
-    ? hash
+  return nav.some(([id]) => id === route)
+    ? route
     : "dashboard";
+}
+
+function importRouteFromHash() {
+  const hash = window.location.hash.replace(/^#\/?/, "");
+  return hash.startsWith("imports?batch=") ? hash : "imports";
 }
 
 function App() {
@@ -90,10 +96,17 @@ function App() {
     search,
     setSearch
   ] = useState("");
+  const [importRoute, setImportRoute] = useState(importRouteFromHash);
+  const [importRouteVersion, setImportRouteVersion] = useState(0);
 
   useEffect(() => {
     const syncPageFromHash = () => {
-      setPage(pageFromHash());
+      const nextPage = pageFromHash();
+      setPage(nextPage);
+      if (nextPage === "imports") {
+        setImportRoute(importRouteFromHash());
+        setImportRouteVersion(current => current + 1);
+      }
     };
 
     window.addEventListener(
@@ -110,8 +123,8 @@ function App() {
   }, []);
 
   const navigatePage = id => {
-    window.location.hash = id;
-    setPage(id);
+    window.location.hash = id === "imports" ? importRoute : id;
+    if (id !== "imports") setPage(id);
   };
 
   return (
@@ -224,7 +237,9 @@ function App() {
 
         {page === "imports" && (
           <ImportWorkspace
+            key={importRouteVersion}
             onContinueToCommandCenter={() => navigatePage("opportunities")}
+            onResumeRouteChange={setImportRoute}
           />
         )}
 
