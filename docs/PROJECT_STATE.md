@@ -125,6 +125,25 @@ RevenueAction authority changed. Engineering harness, migration byte identity,
 diff hygiene, and artifact cleanup pass; fresh independent review remains the
 final local checkpoint gate.
 
+That review confirmed the mutation epoch and stale-read rejection, then found
+one presentation path that still bypassed the same truth boundary: a revisited
+queue with no scan summary rendered its monetary aggregate unconditionally
+after a confirmed Dismiss while the authoritative post-write read was pending
+or unavailable. Queue economic freshness is now independent of scan-session
+state. Every consequential queue mutation invalidates the prior aggregate;
+both scan and no-scan summaries consume the same `CURRENT` gate; and only an
+authorized successful durable queue read restores counts and exact
+currency-grouped money. A definitive rejected mutation restores the unchanged
+pre-write snapshot, while confirmed or ambiguous outcomes continue to require
+durable reconciliation. The exact no-scan regression was RED **0/1** because
+`AUD 42,000.5 / 1 case` remained visible, then GREEN **1/1**; a companion
+definitive-rejection regression is also green. The complete Revenue Command
+Center Chromium file passes **17/17**, complete managed Chromium passes
+**73/73**, focused cross-layer contracts pass **31/31**, complete integration
+passes **473/473**, and the production build and engineering harness pass.
+Migrations `001`-`016` remain unchanged; no server or PostgreSQL/RLS boundary
+changed. Fresh independent review remains the next gate.
+
 The merged Slice 2 implementation exposes a tenant-bound,
 read-only stalled-opportunity eligibility projection before scan. It uses the
 same portfolio admission and version-1 detector evaluator as the existing
@@ -1013,8 +1032,8 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 ## Milestone status
 - Active plan: [**Guided First Credible Leak Pilot V1**](execution-plans/active/guided-first-credible-leak-pilot-v1.md).
   Slices 1 and 2 are merged; Slice 3 has reached a clean local implementation
-  candidate, completed one bounded review remediation, and awaits fresh
-  independent review. The completed
+  candidate, completed the explicitly authorized bounded freshness
+  remediations, and awaits fresh independent review. The completed
   [**Pilot Readiness**](execution-plans/completed/pilot-readiness.md) record is
   historical evidence, not an active backlog.
   The [**RevenueLeakCase foundation**](execution-plans/completed/revenue-leak-case-foundation.md)

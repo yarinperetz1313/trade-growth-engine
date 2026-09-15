@@ -520,6 +520,28 @@
   RevenueAction authority. Harness, migration byte identity, diff hygiene, and
   artifact cleanup pass; fresh independent review is the remaining checkpoint
   gate.
+- That review confirmed the shared mutation epoch across scan, Snooze/Dismiss,
+  reconciliation, and RevenueAction handoff, then found one no-scan presentation
+  bypass: a revisited queue rendered its cached monetary aggregate while a
+  confirmed Dismiss awaited or failed its owned post-write refresh. The exact
+  deterministic Chromium regression was RED **0/1**, retaining `AUD 42,000.5 / 1
+  case` as current during the pending refresh.
+- Queue economic freshness is now independent of local scan-summary existence.
+  Mutation start invalidates the prior economic snapshot unconditionally, and
+  both aggregate-rendering paths use one `CURRENT` gate. Pending, failed, or
+  ambiguous reconciliation withholds counts and money without inferring zero;
+  only an authorized successful durable queue read restores exact current
+  aggregates. A definitive 409 mutation rejection restores the unchanged
+  authoritative pre-write snapshot and has its own regression.
+- The no-scan regression is GREEN **1/1** and the definitive-rejection companion
+  is GREEN **1/1**. The complete Revenue Command Center Chromium specification
+  passes **17/17**, including scan/no-scan freshness, normal refresh,
+  known-zero/unknown/multiple-currency presentation, stale-read ownership,
+  ambiguous recovery, Snooze/Dismiss, and RevenueAction handoff. Focused
+  first-value/browser/queue/money contracts pass **31/31**; complete Node
+  integration passes **473/473**; complete managed Chromium passes **73/73**;
+  the production build and engineering harness pass. Migrations `001`-`016`
+  remain byte-identical, and no backend or PostgreSQL/RLS boundary changed.
 
 ## Review and handoff
 

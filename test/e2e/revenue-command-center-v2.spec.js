@@ -897,6 +897,135 @@ test("does not let a refresh during Dismiss certify pre-mutation money as curren
   expect(queueReads).toBe(4);
 });
 
+test("withholds revisited queue money until a confirmed Dismiss is durably refreshed", async ({ page }) => {
+  const reference = Date.now();
+  const context = caseContext({
+    id: "case-revisited-current-truth",
+    opportunityId: "e2e-opp-stalled",
+    businessName: "E2E Stalled Roofing",
+    amount: "42000.5",
+    currency: "AUD",
+    reference
+  });
+  let queueReads = 0;
+  let releasePostWriteRefresh;
+  const postWriteRefreshGate = new Promise(resolve => {
+    releasePostWriteRefresh = resolve;
+  });
+
+  await page.route(`${apiBaseUrl}/api/revenue-leak-cases/operating-queue`, async route => {
+    queueReads += 1;
+    if (queueReads === 2) {
+      await postWriteRefreshGate;
+      return json(route, 503, {
+        ok: false,
+        error: "REVENUE_LEAK_CASE_PERSISTENCE_UNAVAILABLE",
+        message: "Queue refresh unavailable."
+      });
+    }
+    return json(
+      route,
+      200,
+      queueResponse(queueReads === 1 ? [context] : [], reference + queueReads)
+    );
+  });
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/case-revisited-current-truth/dismiss`,
+    route => {
+      const dismissedAt = new Date(reference + 1).toISOString();
+      return json(route, 200, {
+        ok: true,
+        data: {
+          ...context.case,
+          state: "DISMISSED",
+          dismissed_at: dismissedAt,
+          dismissal_reason: "No further follow-up is required.",
+          updated_at: dismissedAt,
+          audit: [...context.case.audit, {
+            transition: "DISMISSED",
+            at: dismissedAt,
+            subject_id: "auth0|e2e-operator",
+            reason: "No further follow-up is required."
+          }]
+        }
+      });
+    }
+  );
+
+  await page.goto("/#opportunities");
+  const summary = page.getByLabel("Known potential revenue at risk summary");
+  await expect(summary).toContainText("AUD 42,000.5");
+  await expect(summary).toContainText("1 case");
+
+  const item = page.locator('[data-case-id="case-revisited-current-truth"]');
+  await item.getByRole("button", { name: /Why TGE surfaced this/i }).click();
+  await item.getByLabel("Reason to dismiss").fill("No further follow-up is required.");
+  await item.getByRole("button", { name: "DISMISS" }).click();
+  await expect.poll(() => queueReads).toBe(2);
+
+  await expect(summary).toHaveCount(0);
+  await expect(page.getByText("Refreshing current queue economics…", { exact: true }))
+    .toBeVisible();
+
+  releasePostWriteRefresh();
+  await expect(page.getByRole("alert")).toContainText(
+    "Revenue operating queue persistence unavailable"
+  );
+  await expect(summary).toHaveCount(0);
+  await expect(page.getByText("Current queue economics unavailable", { exact: true }))
+    .toBeVisible();
+
+  await page.getByRole("button", { name: "Retry queue" }).click();
+  await expect(summary).toContainText("No known positive totals");
+  await expect(summary).not.toContainText("AUD 42,000.5");
+  await expect(page.getByTestId("revenue-leak-queue-empty")).toBeVisible();
+  expect(queueReads).toBe(3);
+});
+
+test("keeps revisited queue money current when Dismiss is definitively rejected", async ({ page }) => {
+  const reference = Date.now();
+  const context = caseContext({
+    id: "case-definitive-dismiss-failure",
+    opportunityId: "e2e-opp-stalled",
+    businessName: "E2E Stalled Roofing",
+    amount: "42000.5",
+    currency: "AUD",
+    reference
+  });
+  let queueReads = 0;
+
+  await page.route(`${apiBaseUrl}/api/revenue-leak-cases/operating-queue`, route => {
+    queueReads += 1;
+    return json(route, 200, queueResponse([context], reference));
+  });
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/case-definitive-dismiss-failure/dismiss`,
+    route => json(route, 409, {
+      ok: false,
+      error: "REVENUE_LEAK_CASE_INVALID_TRANSITION",
+      message: "Case cannot be dismissed from its current state."
+    })
+  );
+
+  await page.goto("/#opportunities");
+  const summary = page.getByLabel("Known potential revenue at risk summary");
+  await expect(summary).toContainText("AUD 42,000.5");
+
+  const item = page.locator('[data-case-id="case-definitive-dismiss-failure"]');
+  await item.getByRole("button", { name: /Why TGE surfaced this/i }).click();
+  await item.getByLabel("Reason to dismiss").fill("No further follow-up is required.");
+  await item.getByRole("button", { name: "DISMISS", exact: true }).click();
+
+  await expect(page.getByRole("alert")).toContainText(
+    "Case cannot be dismissed from its current state."
+  );
+  await expect(summary).toContainText("AUD 42,000.5");
+  await expect(summary).toContainText("1 case");
+  await expect(item.getByRole("button", { name: "DISMISS", exact: true }))
+    .toBeEnabled();
+  expect(queueReads).toBe(1);
+});
+
 test("withholds cached active-case money until the post-scan queue refresh succeeds", async ({ page }) => {
   const reference = Date.now();
   const current = caseContext({
