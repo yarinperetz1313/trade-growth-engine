@@ -24,8 +24,13 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
   const contractRemovals = [
     {
       relativePath: "docs/execution-plans/README.md",
-      expected: "[\`active/guided-first-credible-leak-pilot-v1.md\`](active/guided-first-credible-leak-pilot-v1.md)",
-      error: /Execution-plan index must link the active Guided First Credible Leak plan/
+      expected: "[\`active/pilot-zero-business-first-presentation.md\`](active/pilot-zero-business-first-presentation.md)",
+      error: /Execution-plan index must link the active Pilot Zero presentation plan/
+    },
+    {
+      relativePath: "docs/execution-plans/README.md",
+      expected: "[\`completed/guided-first-credible-leak-pilot-v1.md\`](completed/guided-first-credible-leak-pilot-v1.md)",
+      error: /Execution-plan index must link the completed Guided First Credible Leak plan/
     },
     {
       relativePath: "docs/execution-plans/README.md",
@@ -33,9 +38,14 @@ test("engineering harness gate rejects removal of every Pilot Readiness contract
       error: /Execution-plan index must link the completed Pilot Readiness plan/
     },
     {
-      relativePath: "docs/execution-plans/active/guided-first-credible-leak-pilot-v1.md",
+      relativePath: "docs/execution-plans/completed/guided-first-credible-leak-pilot-v1.md",
       expected: "Slice 2 depends on merged Slice 1; Slice 3 depends on merged Slice 2",
-      error: /Active milestone plan must preserve the approved slice dependency order/
+      error: /Completed Guided milestone plan must preserve the approved slice dependency order/
+    },
+    {
+      relativePath: "docs/execution-plans/active/pilot-zero-business-first-presentation.md",
+      expected: "GitHub Issue #39 is open and labelled `status:approved` / `type:feature`.",
+      error: /Active Pilot Zero plan must preserve its approved authority/
     },
     {
       relativePath: "docs/execution-plans/completed/pilot-readiness.md",

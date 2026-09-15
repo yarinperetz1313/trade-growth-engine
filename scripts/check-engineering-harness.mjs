@@ -567,11 +567,13 @@ function validateAuthBoundaryContract() {
 
 function validatePilotReadinessContract() {
   const completedPlanPath = "docs/execution-plans/completed/pilot-readiness.md";
-  const activePlanPath = "docs/execution-plans/active/guided-first-credible-leak-pilot-v1.md";
+  const guidedPlanPath = "docs/execution-plans/completed/guided-first-credible-leak-pilot-v1.md";
+  const activePlanPath = "docs/execution-plans/active/pilot-zero-business-first-presentation.md";
   const executionPlansIndexPath = "docs/execution-plans/README.md";
   const foundationPath = "docs/architecture/PILOT_READINESS_FOUNDATION.md";
   const productionGatePath = "docs/operations/PILOT_PRODUCTION_GATE.md";
   const completedPlan = readFile(completedPlanPath);
+  const guidedPlan = readFile(guidedPlanPath);
   const activePlan = readFile(activePlanPath);
   const executionPlansIndex = readFile(executionPlansIndexPath);
   const foundation = readFile(foundationPath);
@@ -579,8 +581,13 @@ function validatePilotReadinessContract() {
 
   requireText(
     executionPlansIndex,
-    "[\`active/guided-first-credible-leak-pilot-v1.md\`](active/guided-first-credible-leak-pilot-v1.md)",
-    "Execution-plan index must link the active Guided First Credible Leak plan"
+    "[\`active/pilot-zero-business-first-presentation.md\`](active/pilot-zero-business-first-presentation.md)",
+    "Execution-plan index must link the active Pilot Zero presentation plan"
+  );
+  requireText(
+    executionPlansIndex,
+    "[\`completed/guided-first-credible-leak-pilot-v1.md\`](completed/guided-first-credible-leak-pilot-v1.md)",
+    "Execution-plan index must link the completed Guided First Credible Leak plan"
   );
   requireText(
     executionPlansIndex,
@@ -588,9 +595,14 @@ function validatePilotReadinessContract() {
     "Execution-plan index must link the completed Pilot Readiness plan"
   );
   requireText(
-    activePlan,
+    guidedPlan,
     "Slice 2 depends on merged Slice 1; Slice 3 depends on merged Slice 2",
-    "Active milestone plan must preserve the approved slice dependency order"
+    "Completed Guided milestone plan must preserve the approved slice dependency order"
+  );
+  requireText(
+    activePlan,
+    "GitHub Issue #39 is open and labelled `status:approved` / `type:feature`.",
+    "Active Pilot Zero plan must preserve its approved authority"
   );
   requireText(
     completedPlan,

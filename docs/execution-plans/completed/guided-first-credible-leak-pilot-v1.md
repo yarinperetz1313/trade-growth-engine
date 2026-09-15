@@ -1,5 +1,19 @@
 # Guided First Credible Leak Pilot V1
 
+## Completion status
+
+- **Complete and archived on 2026-09-15.** Slice 1 merged through PR #36 as
+  `0666e974ac0e007b8c0ead3ebef3b101f4688017`; post-merge Verify run
+  `34830965722` succeeded. Slice 2 merged through PR #37 as
+  `3c1a3423c7ac03def96047783ca0f3f4b1f68f74`; post-merge Verify run
+  `34836937086` succeeded. Slice 3 merged through PR #38 as
+  `c6cb6a7752fc68361498052b7a884cdb2cb93e74`; post-merge Verify run
+  `34932001831` succeeded.
+- This file is historical evidence, not active authority. Pilot Zero
+  Business-First Presentation is tracked in
+  `../active/pilot-zero-business-first-presentation.md` under approved Issue
+  #39.
+
 ## Outcome
 
 - Problem: TGE's secure import, deterministic leak detection, case review, and

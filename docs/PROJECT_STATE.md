@@ -1,8 +1,40 @@
 # Project State
 
-_Last locally audited on 2026-09-14. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+_Last locally audited on 2026-09-15. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
-Guided First Credible Leak Pilot V1 is the active approved milestone under
+Pilot Zero Business-First Presentation is the active approved browser-only
+mission under GitHub Issue #39. It starts from exact clean `origin/main`
+`c6cb6a7752fc68361498052b7a884cdb2cb93e74` on
+`feat/pilot-zero-business-first-presentation`. The bounded objective is to make
+the existing supported journey immediately legible as existing business data →
+trustworthy economic problem → why now → human-controlled action. Opportunities
+are the first-value import path; readiness precedes an explicit scan; the
+strongest server-ordered imported-customer case leads; and the existing
+RevenueAction prepare, approve, and safe internal-task execution mutations
+remain the sole action authority.
+
+This mission may change browser composition, copy, navigation, progressive
+disclosure, loading/empty/error hierarchy, and desktop/390px presentation only.
+It does not authorize API, persistence, schema, migration, detector, tenant/RLS,
+case-ordering, monetary-calculation, RevenueAction-authority, connector,
+autonomous outbound, attribution/ROI, recovered-revenue, or external-pilot
+work. Sample/demo evidence remains visibly separate and cannot satisfy
+first-value evidence. Exact money/currency, known-zero versus unknown, immutable
+evidence, explicit scan, ambiguous-write reconciliation, and human approval are
+preserved.
+
+Guided First Credible Leak Pilot V1 is complete. Slice 1 merged through PR #36
+as `0666e974ac0e007b8c0ead3ebef3b101f4688017` with post-merge Verify
+`34830965722`; Slice 2 merged through PR #37 as
+`3c1a3423c7ac03def96047783ca0f3f4b1f68f74` with post-merge Verify
+`34836937086`; Slice 3 merged through PR #38 as
+`c6cb6a7752fc68361498052b7a884cdb2cb93e74` with post-merge Verify
+`34932001831`. Its execution plan is archived as completed historical evidence.
+
+## Historical Guided First Credible Leak evidence
+
+At the recorded pre-merge checkpoint, Guided First Credible Leak Pilot V1 was
+the active approved milestone under
 GitHub Issue #14. Its three slices are sequential: guided CSV intake and
 server-truth resumability first; operational Data Health and detector
 eligibility only after Slice 1 merges; and the coherent first-value operating
@@ -18,7 +50,7 @@ Slice 1 merged through PR #36 as
 `0666e974ac0e007b8c0ead3ebef3b101f4688017`; post-merge Verify run
 `34830965722` succeeded. Slice 2 merged through PR #37 as exact `origin/main`
 `3c1a3423c7ac03def96047783ca0f3f4b1f68f74`; post-merge Verify run
-`34836937086` succeeded. Slice 3 is now active from that exact clean base on
+`34836937086` succeeded. Slice 3 was then active from that exact clean base on
 `feat/first-credible-revenue-moment-v1`. It may compose the existing guided
 import/resume, server-authoritative readiness, explicit detector scan,
 RevenueLeakCase queue/lifecycle/evidence, Pilot evidence, and RevenueAction
@@ -1030,10 +1062,10 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - Developer `data/*.json` must never be touched by tests/E2E.
 
 ## Milestone status
-- Active plan: [**Guided First Credible Leak Pilot V1**](execution-plans/active/guided-first-credible-leak-pilot-v1.md).
-  Slices 1 and 2 are merged; Slice 3 has reached a clean local implementation
-  candidate, completed the explicitly authorized bounded freshness
-  remediations, and awaits fresh independent review. The completed
+- Active plan: [**Pilot Zero Business-First Presentation**](execution-plans/active/pilot-zero-business-first-presentation.md).
+- Completed predecessor: [**Guided First Credible Leak Pilot V1**](execution-plans/completed/guided-first-credible-leak-pilot-v1.md).
+  Slices 1, 2, and 3 are merged through PRs #36/#37/#38 at exact `origin/main`
+  `c6cb6a7`; the post-merge Verify runs all succeeded. The completed
   [**Pilot Readiness**](execution-plans/completed/pilot-readiness.md) record is
   historical evidence, not an active backlog.
   The [**RevenueLeakCase foundation**](execution-plans/completed/revenue-leak-case-foundation.md)
