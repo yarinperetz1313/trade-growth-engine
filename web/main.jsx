@@ -84,10 +84,14 @@ function importRouteFromHash() {
   return hash.startsWith("imports?batch=") ? hash : "imports";
 }
 
-function pageTitle(page) {
+function routeFromHash() {
+  return window.location.hash.replace(/^#\/?/, "").split("?", 1)[0];
+}
+
+function pageTitle(page, route) {
   if (page === "dashboard") return "Command Center";
   if (page === "opportunities") {
-    return window.location.hash.replace(/^#\/?/, "").startsWith("opportunities/")
+    return route.startsWith("opportunities/")
       ? "Opportunity Action"
       : "Revenue Leak Queue";
   }
@@ -108,10 +112,12 @@ function App() {
   ] = useState("");
   const [importRoute, setImportRoute] = useState(importRouteFromHash);
   const [importRouteVersion, setImportRouteVersion] = useState(0);
+  const [route, setRoute] = useState(routeFromHash);
 
   useEffect(() => {
     const syncPageFromHash = () => {
       const nextPage = pageFromHash();
+      setRoute(routeFromHash());
       setPage(nextPage);
       if (nextPage === "imports") {
         setImportRoute(importRouteFromHash());
@@ -197,7 +203,7 @@ function App() {
             </div>
 
             <h1>
-              {pageTitle(page)}
+              {pageTitle(page, route)}
             </h1>
           </div>
 

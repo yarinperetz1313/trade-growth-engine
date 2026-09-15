@@ -269,6 +269,36 @@ test("renders the server-ordered truthful operating queue with evidence and auth
   }))).toEqual({ body: 390, viewport: 390 });
 });
 
+test("keeps queue and opportunity action titles synchronized during in-place mobile navigation", async ({ page }) => {
+  const reference = Date.now();
+  const context = caseContext({
+    id: "case-route-title",
+    opportunityId: "e2e-opp-stalled",
+    businessName: "E2E Stalled Roofing",
+    amount: "42000.5",
+    currency: "AUD",
+    reference
+  });
+  await page.route(`${apiBaseUrl}/api/revenue-leak-cases/operating-queue`, route =>
+    json(route, 200, queueResponse([context], reference))
+  );
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/#opportunities");
+  await expect(page.locator(".topbar h1")).toHaveText("Revenue Leak Queue");
+
+  const item = page.locator('[data-case-id="case-route-title"]');
+  await item.getByRole("button", { name: /Why TGE surfaced this/i }).click();
+  await item.getByRole("button", { name: "Open opportunity" }).click();
+  await expect(page).toHaveURL(/#opportunities\/e2e-opp-stalled$/);
+  await expect(page.locator(".topbar h1")).toHaveText("Opportunity Action");
+
+  await page.getByRole("button", { name: "← Back to opportunities" }).click();
+  await expect(page).toHaveURL(/#opportunities$/);
+  await expect(page.locator(".topbar h1")).toHaveText("Revenue Leak Queue");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
 test("renders exact same-currency aggregate totals beyond one case's numeric envelope", async ({ page }) => {
   const reference = Date.now();
   const contexts = ["aggregate-a", "aggregate-b"].map(id => caseContext({
@@ -475,6 +505,8 @@ test("explains no-opportunity and no-leak scan states without inferring success"
 
 function scanStateResponse(mode, reference) {
   const noLeak = mode === "NO_LEAK";
+  const credible = mode === "CREDIBLE";
+  const hasOpportunity = noLeak || credible;
   return {
     ok: true,
     evaluated_at: new Date(reference).toISOString(),
@@ -483,20 +515,22 @@ function scanStateResponse(mode, reference) {
     summary: {
       complete: true,
       limit: 100,
-      total_opportunities: noLeak ? 1 : 0,
-      evaluated_count: noLeak ? 1 : 0,
+      total_opportunities: hasOpportunity ? 1 : 0,
+      evaluated_count: hasOpportunity ? 1 : 0,
       unevaluated_count: 0,
       overflow_count: 0,
       invalid_record_count: 0,
       excluded_count: 0,
       reconciliation: {
-        detected_count: 0,
-        created_count: 0,
+        detected_count: credible ? 1 : 0,
+        created_count: credible ? 1 : 0,
         replayed_count: 0,
         superseded_count: 0
       },
       outcomes: {
-        ELIGIBLE_LEAK_DETECTED: { count: 0, reasons: {} },
+        ELIGIBLE_LEAK_DETECTED: credible
+          ? { count: 1, reasons: { STALE_WITHOUT_NEXT_ACTION: 1 } }
+          : { count: 0, reasons: {} },
         ELIGIBLE_NO_LEAK: noLeak
           ? { count: 1, reasons: { NEXT_ACTION_PRESENT: 1 } }
           : { count: 0, reasons: {} },
@@ -505,14 +539,25 @@ function scanStateResponse(mode, reference) {
         DATA_HEALTH_SUPPRESSED: { count: 0, reasons: {} }
       }
     },
-    results: noLeak ? [{
-      opportunity_id: "no-leak-opportunity",
-      outcome: "ELIGIBLE_NO_LEAK",
-      reason_code: "NEXT_ACTION_PRESENT",
-      disposition: "READ_ONLY",
-      case_id: null,
-      superseded_case_id: null
-    }] : []
+    results: credible
+      ? [{
+          opportunity_id: "e2e-opp-stalled",
+          outcome: "ELIGIBLE_LEAK_DETECTED",
+          reason_code: "STALE_WITHOUT_NEXT_ACTION",
+          disposition: "CREATED",
+          case_id: "case-current-truth",
+          superseded_case_id: null
+        }]
+      : noLeak
+        ? [{
+            opportunity_id: "no-leak-opportunity",
+            outcome: "ELIGIBLE_NO_LEAK",
+            reason_code: "NEXT_ACTION_PRESENT",
+            disposition: "READ_ONLY",
+            case_id: null,
+            superseded_case_id: null
+          }]
+        : []
   };
 }
 
@@ -834,6 +879,127 @@ test("withholds cached active-case money until the post-scan queue refresh succe
   await expect(result).toContainText("Active cases now1");
   await expect(result).toContainText("AUD 42,000.5");
   expect(queueReads).toBe(3);
+});
+
+test("withholds current case money when a successful lifecycle mutation cannot refresh the queue, then recovers", async ({ page }) => {
+  const reference = Date.now();
+  const context = caseContext({
+    id: "case-current-truth",
+    opportunityId: "e2e-opp-stalled",
+    businessName: "E2E Stalled Roofing",
+    amount: "42000.5",
+    currency: "AUD",
+    reference
+  });
+  let queueMode = "CURRENT";
+
+  await page.route(`${apiBaseUrl}/api/revenue-leak-cases/operating-queue`, route => {
+    if (queueMode === "FAILED") {
+      return json(route, 503, {
+        ok: false,
+        error: "REVENUE_LEAK_CASE_PERSISTENCE_UNAVAILABLE",
+        message: "Queue refresh unavailable."
+      });
+    }
+    return json(
+      route,
+      200,
+      queueResponse(queueMode === "RECOVERED" ? [] : [context], reference)
+    );
+  });
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/scan-stalled-opportunities`,
+    route => json(route, 200, scanStateResponse("CREDIBLE", reference))
+  );
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/case-current-truth/dismiss`,
+    route => {
+      const dismissedAt = new Date(reference + 1).toISOString();
+      return json(route, 200, {
+        ok: true,
+        data: {
+          ...context.case,
+          state: "DISMISSED",
+          dismissed_at: dismissedAt,
+          dismissal_reason: "No further follow-up is required.",
+          updated_at: dismissedAt,
+          audit: [...context.case.audit, {
+            transition: "DISMISSED",
+            at: dismissedAt,
+            subject_id: "auth0|e2e-operator",
+            reason: "No further follow-up is required."
+          }]
+        }
+      });
+    }
+  );
+
+  await page.goto("/#opportunities");
+  await page.getByRole("button", { name: "Scan stalled opportunities" }).click();
+  const result = page.getByLabel("Complete explicit scan outcomes");
+  await expect(result).toContainText("Active cases now1");
+  await expect(result).toContainText("AUD 42,000.5");
+
+  const item = page.locator('[data-case-id="case-current-truth"]');
+  await item.getByRole("button", { name: /Why TGE surfaced this/i }).click();
+  await item.getByLabel("Reason to dismiss").fill("No further follow-up is required.");
+  queueMode = "FAILED";
+  await item.getByRole("button", { name: "DISMISS" }).click();
+
+  await expect(result).toContainText("current active-case counts and money unavailable");
+  await expect(result).not.toContainText("Active cases now1");
+  await expect(result).not.toContainText("AUD 42,000.5");
+
+  queueMode = "RECOVERED";
+  await page.getByRole("button", { name: "Retry queue" }).click();
+  await expect(result).toContainText("Active cases now0");
+  await expect(result).not.toContainText("AUD 42,000.5");
+});
+
+test("withholds current case money when ambiguous scan reconciliation fails, then recovers", async ({ page }) => {
+  const reference = Date.now();
+  const context = caseContext({
+    id: "case-current-truth",
+    opportunityId: "e2e-opp-stalled",
+    businessName: "E2E Stalled Roofing",
+    amount: "42000.5",
+    currency: "AUD",
+    reference
+  });
+  let queueAvailable = true;
+  let scanCalls = 0;
+
+  await page.route(`${apiBaseUrl}/api/revenue-leak-cases/operating-queue`, route => {
+    if (!queueAvailable) return route.abort("failed");
+    return json(route, 200, queueResponse([context], reference));
+  });
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/scan-stalled-opportunities`,
+    route => {
+      scanCalls += 1;
+      return scanCalls === 1
+        ? json(route, 200, scanStateResponse("CREDIBLE", reference))
+        : route.abort("failed");
+    }
+  );
+
+  await page.goto("/#opportunities");
+  const result = page.getByLabel("Complete explicit scan outcomes");
+  await page.getByRole("button", { name: "Scan stalled opportunities" }).click();
+  await expect(result).toContainText("Active cases now1");
+  await expect(result).toContainText("AUD 42,000.5");
+
+  queueAvailable = false;
+  await page.getByRole("button", { name: "Scan stalled opportunities" }).click();
+  await expect(page.getByText("Scan outcome unknown", { exact: true })).toBeVisible();
+  await expect(result).toContainText("current active-case counts and money unavailable");
+  await expect(result).not.toContainText("Active cases now1");
+  await expect(result).not.toContainText("AUD 42,000.5");
+
+  queueAvailable = true;
+  await page.getByRole("button", { name: "Retry queue" }).click();
+  await expect(result).toContainText("Active cases now1");
+  await expect(result).toContainText("AUD 42,000.5");
 });
 
 test("keeps handoff controls blocked until an ambiguous mutation is reconciled", async ({ page }) => {

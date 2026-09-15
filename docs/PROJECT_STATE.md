@@ -62,7 +62,42 @@ restores exact currency-grouped money and current counts. Focused RED was
 RED **0/2** for both races; GREEN is **5/5** and **2/2**. The affected Node
 contracts pass **49/49**, affected managed Chromium passes **23/23**, and the
 engineering harness and production build pass. Migrations `001`-`016` remain
-unchanged. Fresh independent review remains the next gate.
+unchanged.
+
+The subsequent fresh Slice 3 review confirmed those two findings closed and
+identified one remaining P2 current-truth gap plus one P3 route-title gap. A
+successful lifecycle mutation followed by a failed queue refresh, or an
+ambiguous later scan followed by failed queue reconciliation, could leave a
+previously current active-case count and exact monetary summary labelled as
+current. In-place queue-to-opportunity hash navigation could also leave the
+top-bar title on the prior route because the parent page identifier did not
+change.
+
+The additional bounded remediation makes queue truth generation-aware across
+scan, RevenueAction handoff, and case lifecycle mutations. Those operations
+invalidate current-case presentation before mutation; only a corresponding
+successful durable queue read can restore `CURRENT`, and an older read cannot
+restore it after a later reconciliation failure. `queueState` independently
+prevents stale queue data from reaching the exact-money result summary.
+Confirmed detector outcomes remain visible while current counts and every
+monetary summary are withheld, and an explicit successful retry restores them.
+The app now also tracks the exact hash route reactively, so queue, opportunity
+action, and back navigation update the title without changing route authority.
+
+Deterministic browser RED evidence reproduced all three product defects: the
+title and successful-lifecycle scenarios failed their intended assertions in
+the combined run; after correcting an initially ambiguous alert selector, the
+ambiguous-scan scenario separately failed its intended stale-money assertion.
+The same three scenarios are GREEN **3/3**. The affected first-value,
+queue/case, handoff, monetary, Operational Data Health, and Pilot browser
+contracts pass **54/54**. Managed Chromium passes **35/35** across the complete
+first-value, readiness, Opportunity Command Center, product-truth, and Revenue
+Command Center journeys, including recovery and 390px title navigation. The
+production build passes with **34 modules** and the existing chunk-size warning;
+the engineering harness and diff hygiene pass. Migrations `001`-`016` remain
+byte-identical, and no backend, persistence, tenant/RLS, detector, schema, or
+RevenueAction authority changed. Fresh independent review of the resulting
+pinned checkpoint is the next gate.
 
 The merged Slice 2 implementation exposes a tenant-bound,
 read-only stalled-opportunity eligibility projection before scan. It uses the

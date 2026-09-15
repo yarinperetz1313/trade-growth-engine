@@ -465,6 +465,41 @@
   The engineering harness and production build pass. Migrations `001`-`016`
   remain unchanged; no PostgreSQL gate was repeated because no server,
   persistence, tenant/RLS, schema, migration, or mutation authority changed.
+- The fresh post-remediation review confirmed the original lifecycle lock and
+  initial post-scan refresh findings closed, then found two remaining browser
+  composition defects. Later successful lifecycle writes or ambiguous scans
+  could fail their durable queue read while retaining `CURRENT` on the prior
+  active-case counts and exact money. Queue-to-opportunity and back hash
+  navigation could also retain the prior page title because the parent `page`
+  state remained `opportunities` throughout.
+- The additionally authorized remediation added three deterministic managed-
+  browser regressions before production edits. In the combined RED run, the
+  route-title and successful-lifecycle scenarios failed their intended
+  assertions. The ambiguous-scan scenario first exposed an ambiguous test
+  selector; after narrowing it to the exact mutation alert, it failed the
+  intended stale-money assertion. All three product regressions are GREEN
+  **3/3**.
+- Queue freshness now has an independent generation. Scan, handoff, and case
+  lifecycle mutations invalidate current presentation before mutation; only a
+  matching-generation durable queue read restores `CURRENT`. A reconciliation
+  failure advances that generation, so a read begun earlier cannot republish
+  stale counts or money. `queueState !== READY` is an additional fail-closed
+  rendering boundary. Confirmed scan outcomes remain visible while current
+  active-case counts and every monetary summary are withheld, and explicit
+  recovery restores exact currency-grouped truth.
+- The application tracks the exact hash route as reactive state in addition to
+  the bounded top-level page. The title therefore follows queue → Opportunity
+  Action → queue/back navigation, including at 390px, without changing the
+  existing route or Opportunity Command Center authority.
+- The affected Node contracts pass **54/54**. Managed Chromium passes **35/35**
+  across the first-value, Operational Data Health, Opportunity Command Center,
+  product-truth, and Revenue Command Center journeys. The production build
+  passes with **34 modules** and only the existing chunk-size warning; the
+  engineering harness, syntax, migration byte identity, aggregate diff hygiene,
+  and artifact cleanup pass. No backend, persistence, tenant/RLS, detector,
+  schema, migration, or RevenueAction authority changed, so PostgreSQL was not
+  repeated. Fresh independent review of the new pinned checkpoint is the next
+  gate.
 
 ## Review and handoff
 
@@ -507,7 +542,10 @@
   queue-freshness boundaries. The exact delayed-refresh lifecycle interleaving
   remains blocked until successful history reconciliation, and delayed/failed/
   recovered post-scan reads prove cached money is never promoted to current.
-  Fresh independent review of the new pinned checkpoint is the next gate.
+  The following fresh review found the later-mutation freshness and reactive
+  title gaps described above; both are now covered by RED-first browser
+  regressions and the generation-aware/reactive-route remediation. Fresh
+  independent review of the new pinned checkpoint is the next gate.
 - Debt/follow-up: no new product debt was introduced. The existing production
   bundle-size warning remains visible; broad information architecture,
   connectors, additional detectors, attribution/ROI, recovered-revenue claims,
