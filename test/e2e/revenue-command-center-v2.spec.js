@@ -291,7 +291,9 @@ test("keeps queue and opportunity action titles synchronized during in-place mob
   const item = page.locator('[data-case-id="case-route-title"]');
   await item.getByRole("button", { name: /Why TGE surfaced this/i }).click();
   await item.getByRole("button", { name: "Open opportunity" }).click();
-  await expect(page).toHaveURL(/#opportunities\/e2e-opp-stalled$/);
+  await expect(page).toHaveURL(
+    /#opportunities\/e2e-opp-stalled\?case=case-route-title$/
+  );
   await expect(page.locator(".topbar h1")).toHaveText("Opportunity Action");
 
   await page.getByRole("button", { name: "← Back to opportunities" }).click();

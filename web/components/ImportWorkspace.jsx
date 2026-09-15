@@ -793,11 +793,10 @@ function UploadStep({
           <div className="import-loading" role="status">Reading immutable CSV evidence…</div>
         ) : (
           <button
-            aria-label="Create preview"
             className="primary"
             disabled={!file || Boolean(unknownOutcome) || unauthorized || (sourceSystem.length > 0 && !sourceSystemValidation.valid)}
             onClick={onPreview}
-          >Review this export</button>
+          >Create preview</button>
         )}
       </div>
     </section>

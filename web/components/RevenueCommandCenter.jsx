@@ -174,7 +174,11 @@ function ScanSummary({ summary, queue, queueFreshness }) {
           </div>
         )}
       </div>
-      <QueueSummary summary={queue?.value_summary} freshness={queueFreshness} />
+      <QueueSummary
+        summary={queue?.value_summary}
+        freshness={queueFreshness}
+        entries={queue?.entries}
+      />
       {queueCurrent ? (
         <small className="rcc2-result-truth">
           Known amounts are exact current active-case values grouped by authoritative currency.
@@ -419,20 +423,7 @@ function ScanAction({ disabled, disabledRefresh, running, onScan, onRefresh, ref
   );
 }
 
-function QueueSummary({ summary, freshness }) {
-  if (freshness !== "CURRENT") {
-    return (
-      <div className="rcc2-state" role="status" aria-label="Current queue economic truth">
-        <strong>{freshness === "REFRESHING"
-          ? "Refreshing current queue economics…"
-          : "Current queue economics unavailable"}</strong>
-        <small>
-          Exact active-case counts and money are withheld until an authorized
-          durable queue refresh succeeds. Unknown is not zero.
-        </small>
-      </div>
-    );
-  }
+function AllCaseQueueSummary({ summary }) {
   const totals = summary?.known_positive?.totals_by_currency || [];
   return (
     <div className="rcc2-summary" aria-label="Potential revenue at risk summary">
@@ -464,6 +455,64 @@ function QueueSummary({ summary, freshness }) {
         <small>Excluded from monetary totals</small>
       </div>
     </div>
+  );
+}
+
+function QueueSummary({ summary, freshness, entries = [] }) {
+  if (freshness !== "CURRENT") {
+    return (
+      <div className="rcc2-state" role="status" aria-label="Current queue economic truth">
+        <strong>{freshness === "REFRESHING"
+          ? "Refreshing current queue economics…"
+          : "Current queue economics unavailable"}</strong>
+        <small>
+          Exact active-case counts and money are withheld until an authorized
+          durable queue refresh succeeds. Unknown is not zero.
+        </small>
+      </div>
+    );
+  }
+
+  const { demoEntries } = partitionCredibleCases(entries);
+  const customerHero = selectCredibleHero(entries);
+  if (demoEntries.length > 0) {
+    const potential = customerHero
+      ? formatPotentialRevenueAtRisk(customerHero.potential_value)
+      : null;
+    const businessName = customerHero ? identityCopy(customerHero) : null;
+    return (
+      <div className="rcc2-economic-evidence">
+        <section
+          className="rcc2-primary-economic-evidence"
+          aria-label="Primary customer-case economic evidence"
+        >
+          <span className="eyebrow">CUSTOMER-CASE EVIDENCE</span>
+          <h4>{businessName || "No active customer case"}</h4>
+          <strong>{potential?.value || "No customer-case amount"}</strong>
+          <small>{potential
+            ? `${potential.detail} · exact server-projected case evidence`
+            : "Sample/demo evidence is excluded from customer first-value evidence."}</small>
+        </section>
+        <details
+          className="rcc2-all-case-aggregate"
+          aria-label="All active-case aggregate including sample and demo evidence"
+        >
+          <summary>
+            Server all-case aggregate · includes {demoEntries.length} sample/demo
+            {demoEntries.length === 1 ? " case" : " cases"}
+          </summary>
+          <p>
+            This secondary server-authoritative disclosure includes customer and
+            sample/demo cases. It is not customer first-value evidence.
+          </p>
+          <AllCaseQueueSummary summary={summary} />
+        </details>
+      </div>
+    );
+  }
+
+  return (
+    <AllCaseQueueSummary summary={summary} />
   );
 }
 
@@ -645,7 +694,9 @@ function QueueCase({
                   className="oc-secondary-button"
                   disabled={disabled}
                   onClick={() => onOpenOpportunity(entry.opportunity.id, {
-                    focusAction: Boolean(linkedAction)
+                    focusAction: Boolean(linkedAction),
+                    caseId: entry.case.id,
+                    actionId: linkedAction?.id || null
                   })}
                 >
                   {linkedAction
@@ -1476,6 +1527,7 @@ export default function RevenueCommandCenter({
             <QueueSummary
               summary={queue.value_summary}
               freshness={presentedQueueFreshness}
+              entries={queue.entries}
             />
           )}
           <fieldset className="rcc2-filters">

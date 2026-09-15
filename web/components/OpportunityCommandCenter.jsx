@@ -12,6 +12,10 @@ import {
   isKnownCommercialValue,
   weightedAmountWithKnownBase
 } from "../lib/commercialValue";
+import {
+  detectorReasonExplanation,
+  formatPotentialRevenueAtRisk
+} from "../lib/revenueLeakCaseContracts.mjs";
 
 const ACTIVE_REVENUE_ACTION_STATUSES = new Set([
   "RECOMMENDED",
@@ -106,7 +110,9 @@ export default function OpportunityCommandCenter({
   opportunity,
   onBack,
   onOpportunityUpdated,
-  focusRevenueAction = false
+  focusRevenueAction = false,
+  focusRevenueLeakCaseId = null,
+  focusRevenueActionId = null
 }) {
   const [payload, setPayload] =
     useState(null);
@@ -146,6 +152,12 @@ export default function OpportunityCommandCenter({
 
   const [executionMessage, setExecutionMessage] =
     useState(null);
+
+  const [originatingRevenueLeakCase, setOriginatingRevenueLeakCase] =
+    useState(null);
+
+  const [originatingRevenueLeakCaseState, setOriginatingRevenueLeakCaseState] =
+    useState("IDLE");
 
   const revenueActionOpportunityId = useRef(opportunity.id);
   const revenueActionGeneration = useRef(0);
@@ -260,6 +272,8 @@ export default function OpportunityCommandCenter({
     setExecutionLoading(null);
     setExecutionError(null);
     setExecutionMessage(null);
+    setOriginatingRevenueLeakCase(null);
+    setOriginatingRevenueLeakCaseState("IDLE");
     setActionLoading(null);
     setActionError(null);
     setActionMessage(null);
@@ -333,32 +347,56 @@ export default function OpportunityCommandCenter({
     Number(scoreData?.stale_risk) >=
     70;
 
-  const activeRevenueAction = revenueActions
-    .filter(action =>
-      action.opportunity_id === opportunity.id
-      && ACTIVE_REVENUE_ACTION_STATUSES.has(action.status)
-    )
+  const orderedRevenueActions = revenueActions
+    .filter(action => action.opportunity_id === opportunity.id)
     .sort((left, right) =>
       String(right.updated_at || right.created_at || "").localeCompare(
         String(left.updated_at || left.created_at || "")
       ) || String(right.id).localeCompare(String(left.id))
-    )[0] || null;
+    );
+
+  const activeRevenueAction = orderedRevenueActions.find(action =>
+    ACTIVE_REVENUE_ACTION_STATUSES.has(action.status)
+  ) || null;
+
+  const focusedRevenueAction = focusRevenueActionId
+    && originatingRevenueLeakCase?.revenue_action_id === focusRevenueActionId
+    ? orderedRevenueActions.find(action => action.id === focusRevenueActionId) || null
+    : null;
+
+  const primaryRevenueAction = activeRevenueAction
+    || focusedRevenueAction
+    || (focusRevenueActionId ? null : orderedRevenueActions[0])
+    || null;
 
   const canPrepareRevenueAction =
     SUPPORTED_REVENUE_ACTION_TYPES.has(nextAction?.type);
 
-  const completedInternalTaskAction = [...revenueActions]
-    .filter(action =>
-      action.opportunity_id === opportunity.id
-      && action.status === "EXECUTED"
-      && action.execution_type === "INTERNAL_TASK"
-      && action.execution_result?.outcome === "TASK_CREATED"
-    )
-    .sort((left, right) =>
-      String(right.executed_at || right.updated_at || "").localeCompare(
-        String(left.executed_at || left.updated_at || "")
-      ) || String(right.id).localeCompare(String(left.id))
-    )[0] || null;
+  const completedInternalTaskAction = primaryRevenueAction?.status === "EXECUTED"
+    && primaryRevenueAction.execution_type === "INTERNAL_TASK"
+    && primaryRevenueAction.execution_result?.outcome === "TASK_CREATED"
+    ? primaryRevenueAction
+    : null;
+
+  const completedCommunicationAction = primaryRevenueAction?.status === "EXECUTED"
+    && primaryRevenueAction.execution_type === "COMMUNICATION_DRAFT"
+    && primaryRevenueAction.execution_result?.mode === "MANUAL_CONFIRMED"
+    ? primaryRevenueAction
+    : null;
+
+  const workflowExecutionType = primaryRevenueAction?.execution_type
+    || primaryRevenueAction?.proposed_execution?.type
+    || null;
+
+  const workflowHeading = workflowExecutionType === "COMMUNICATION_DRAFT"
+    ? "Review → Approve → Mark completed manually"
+    : workflowExecutionType === "INTERNAL_TASK"
+      ? "Review → Approve → Create internal task"
+      : "Review → Approve → Complete safely";
+
+  const originatingCaseValue = originatingRevenueLeakCase
+    ? formatPotentialRevenueAtRisk(originatingRevenueLeakCase.commercial_value)
+    : null;
 
   useEffect(() => {
     if (!focusRevenueAction || loading) return;
@@ -860,6 +898,11 @@ export default function OpportunityCommandCenter({
         key={opportunity.id}
         opportunityId={opportunity.id}
         revenueActions={revenueActions}
+        focusedCaseId={focusRevenueLeakCaseId}
+        onFocusedCaseResolved={(record, state) => {
+          setOriginatingRevenueLeakCase(record);
+          setOriginatingRevenueLeakCaseState(state);
+        }}
       />
 
       <section
@@ -870,18 +913,93 @@ export default function OpportunityCommandCenter({
       >
         <div className="oc-card-label">SAFE NEXT ACTION</div>
 
-        <h2>Review → Approve → Create internal task</h2>
+        <h2>{workflowHeading}</h2>
+
+        {focusRevenueLeakCaseId && (
+          <section
+            className="oc-originating-case"
+            aria-label="Originating revenue leak case"
+          >
+            <div>
+              <span className="oc-card-label">ORIGINATING CASE EVIDENCE</span>
+              {originatingRevenueLeakCaseState === "LOADING" ? (
+                <>
+                  <h3>Loading originating case evidence…</h3>
+                  <p>Checking tenant-authorized durable opportunity case history.</p>
+                </>
+              ) : originatingRevenueLeakCase ? (
+                <>
+                  <h3>Case {originatingRevenueLeakCase.id}</h3>
+                  <p>
+                    Why this case reached the action workflow: {" "}
+                    {detectorReasonExplanation(originatingRevenueLeakCase.reason_code)}
+                  </p>
+                  <code>{originatingRevenueLeakCase.reason_code}</code>
+                </>
+              ) : (
+                <>
+                  <h3>Originating case evidence unavailable</h3>
+                  <p>
+                    {originatingRevenueLeakCaseState === "ERROR"
+                      ? `Tenant-authorized durable history for case ${focusRevenueLeakCaseId} could not be loaded.`
+                      : `Case ${focusRevenueLeakCaseId} was not confirmed by the tenant-authorized durable opportunity case history.`}
+                  </p>
+                </>
+              )}
+            </div>
+            {originatingCaseValue && (
+              <div className="oc-originating-case-value">
+                <span>Potential revenue at risk at detection</span>
+                <strong>{originatingCaseValue.value}</strong>
+                <small>{originatingCaseValue.detail}</small>
+              </div>
+            )}
+            <div className="oc-current-intelligence-context">
+              <span>Current opportunity intelligence</span>
+              <strong>
+                {formatCommercialValue(
+                  currentOpportunity.value,
+                  currentOpportunity.currency
+                )}
+              </strong>
+              <small>{nextAction?.reason || "No current recommendation reason is available."}</small>
+            </div>
+            {focusRevenueActionId && (
+              <small>
+                {originatingRevenueLeakCase?.revenue_action_id === focusRevenueActionId
+                  ? `Authoritative case history links RevenueAction ${focusRevenueActionId}.`
+                  : `RevenueAction ${focusRevenueActionId} was not confirmed by the authoritative case link.`}
+              </small>
+            )}
+          </section>
+        )}
 
         <p className="oc-section-description">
-          Review the recommendation for {resolved?.business_name || currentOpportunity.business_name || currentOpportunity.name || "this opportunity"}
+          Current opportunity intelligence: review the recommendation for {resolved?.business_name || currentOpportunity.business_name || currentOpportunity.name || "this opportunity"}
           {hasValue ? ` (${formatCommercialValue(currentOpportunity.value, currentOpportunity.currency)})` : " (value unknown)"}.
-          {nextAction?.reason ? ` Why now: ${nextAction.reason}` : ""} TGE prepares the work; a human approves it before any internal task is created.
+          {nextAction?.reason ? ` Why now: ${nextAction.reason}` : ""} {workflowExecutionType === "COMMUNICATION_DRAFT"
+            ? "TGE prepares a draft for review; a human approves it and manually confirms completion. TGE does not send it."
+            : workflowExecutionType === "INTERNAL_TASK"
+              ? "TGE prepares the work; a human approves it before any internal task is created."
+              : "The prepared RevenueAction determines the supported completion path; no execution occurs before human approval."}
         </p>
 
         <ol className="oc-action-sequence" aria-label="Human-controlled action steps">
-          <li><span>1</span><strong>Review</strong><small>Check the recommendation and prepared task.</small></li>
+          <li><span>1</span><strong>Review</strong><small>{workflowExecutionType === "COMMUNICATION_DRAFT" ? "Check the recommendation and prepared draft." : "Check the recommendation and prepared task."}</small></li>
           <li><span>2</span><strong>Approve</strong><small>Record the human decision explicitly.</small></li>
-          <li><span>3</span><strong>Create internal task</strong><small>No external message is sent.</small></li>
+          <li>
+            <span>3</span>
+            <strong>{workflowExecutionType === "COMMUNICATION_DRAFT"
+              ? "Complete manually"
+              : workflowExecutionType === "INTERNAL_TASK"
+                ? "Create internal task"
+                : "Complete through the supported path"}</strong>
+            <small>{workflowExecutionType === "COMMUNICATION_DRAFT"
+              ? "No message is sent by TGE."
+              : workflowExecutionType === "INTERNAL_TASK"
+                ? "No external message is sent."
+                : "No autonomous outbound action occurs."}</small>
+          </li>
         </ol>
 
         {executionError && (
@@ -917,8 +1035,32 @@ export default function OpportunityCommandCenter({
           </section>
         )}
 
+        {completedCommunicationAction && (
+          <section
+            className="oc-task-completion"
+            data-testid="manual-communication-completion"
+            aria-label="Manual communication completion"
+          >
+            <span className="oc-status-badge">COMPLETE</span>
+            <h3>Manual completion recorded</h3>
+            <p>The approved communication draft was marked complete by a human.</p>
+            <strong>No message was sent by TGE.</strong>
+            <small>This confirms manual completion only. It does not prove delivery, response, recovered revenue, attribution, or return on investment.</small>
+            {canPrepareRevenueAction && (
+              <button
+                className="oc-secondary-button"
+                data-testid="prepare-revenue-action"
+                disabled={executionLoading === "prepare"}
+                onClick={prepareCurrentRevenueAction}
+              >
+                {executionLoading === "prepare" ? "Preparing…" : "Prepare another recommended action"}
+              </button>
+            )}
+          </section>
+        )}
+
         {!activeRevenueAction ? (
-          completedInternalTaskAction ? null : (
+          completedInternalTaskAction || completedCommunicationAction ? null : (
           <div className="oc-execution-recommendation">
             <div>
               <span className="oc-status-badge">RECOMMENDED</span>
@@ -1088,6 +1230,9 @@ export default function OpportunityCommandCenter({
                 <span>{action.status}</span>
                 <div>
                   <strong>{action.title}</strong>
+                  <small>{action.id === primaryRevenueAction?.id
+                    ? "Current workflow"
+                    : "Historical workflow"}</small>
                   <small>
                     {action.executed_at || action.rejected_at || action.prepared_at || action.created_at}
                   </small>

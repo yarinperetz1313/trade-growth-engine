@@ -1,4 +1,10 @@
+import { createRequire } from "node:module";
 import { expect, test } from "@playwright/test";
+
+const require = createRequire(`${process.cwd()}/package.json`);
+const {
+  buildRevenueLeakCaseDetection
+} = require("./src/revenueLeakCases/revenueLeakCaseDomain");
 
 const opportunityId = "e2e-opp-command";
 const businessName = "E2E Command Plumbing";
@@ -319,6 +325,14 @@ test("prepares, approves, and manually confirms a ranked communication action wi
   await page.getByTestId("prepare-revenue-action").click();
   await expect(page.getByTestId("communication-draft")).toContainText("Email draft · not sent by TGE");
   await expect(page.getByTestId("communication-draft")).toContainText("Morgan Lee");
+  const execution = page.getByTestId("revenue-action-execution");
+  await expect(execution.getByRole("heading", {
+    name: "Review → Approve → Mark completed manually"
+  })).toBeVisible();
+  await expect(execution.getByLabel("Human-controlled action steps"))
+    .toContainText("Complete manually");
+  await expect(execution.getByLabel("Human-controlled action steps"))
+    .toContainText("No message is sent by TGE");
 
   await page.getByTestId("approve-revenue-action").click();
   await expect(page.getByTestId("revenue-action-status")).toHaveText("APPROVED");
@@ -326,6 +340,10 @@ test("prepares, approves, and manually confirms a ranked communication action wi
 
   await expect(page.getByTestId("revenue-action-history")).toContainText("EXECUTED");
   await expect(page.getByTestId("revenue-action-history")).toContainText("CRM activity linked");
+  await expect(page.getByTestId("manual-communication-completion"))
+    .toContainText("Manual completion recorded");
+  await expect(page.getByTestId("manual-communication-completion"))
+    .toContainText("No message was sent by TGE");
   await expect(page.getByTestId("activity-count")).toHaveText(/2/);
 
   const activities = await api("/api/opportunities/e2e-opp-execution/activities");
@@ -338,6 +356,184 @@ test("prepares, approves, and manually confirms a ranked communication action wi
   await expect(rankedAction).toContainText("ADVANCE");
 
   expect(browserErrors).toEqual([]);
+});
+
+test("binds task completion to the current workflow when an older task result exists", async ({ page }) => {
+  const olderExecuted = {
+    id: "older-executed-task",
+    opportunity_id: opportunityId,
+    action_type: "RESEARCH",
+    execution_type: "INTERNAL_TASK",
+    priority: "MEDIUM",
+    title: "Older completed research task",
+    reason: "Historical recommendation",
+    status: "EXECUTED",
+    proposed_execution: {
+      type: "INTERNAL_TASK",
+      title: "Historical task",
+      description: "Already completed",
+      priority: "MEDIUM"
+    },
+    created_at: "2026-08-01T00:00:00.000Z",
+    updated_at: "2026-08-01T02:00:00.000Z",
+    executed_at: "2026-08-01T02:00:00.000Z",
+    resulting_task_id: "historical-task-id",
+    resulting_activity_id: "historical-activity-id",
+    execution_result: {
+      mode: "INTERNAL_TASK",
+      outcome: "TASK_CREATED"
+    }
+  };
+  const currentPrepared = {
+    id: "current-prepared-task",
+    opportunity_id: opportunityId,
+    action_type: "RESEARCH",
+    execution_type: "INTERNAL_TASK",
+    priority: "HIGH",
+    title: "Current prepared research task",
+    reason: "Current recommendation",
+    status: "PREPARED",
+    proposed_execution: {
+      type: "INTERNAL_TASK",
+      title: "Current task",
+      description: "Awaiting approval",
+      priority: "HIGH"
+    },
+    created_at: "2026-09-01T00:00:00.000Z",
+    updated_at: "2026-09-01T01:00:00.000Z",
+    prepared_at: "2026-09-01T01:00:00.000Z"
+  };
+
+  await page.route(`${apiBaseUrl}/api/revenue-actions?*`, route =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        data: [olderExecuted, currentPrepared],
+        count: 2
+      })
+    })
+  );
+
+  await page.goto(`/#opportunities/${opportunityId}?focus=action`);
+
+  const execution = page.getByTestId("revenue-action-execution");
+  await expect(execution.getByTestId("revenue-action-status")).toHaveText("PREPARED");
+  await expect(execution.getByTestId("internal-task-completion")).toHaveCount(0);
+  await expect(execution.getByRole("button", {
+    name: "Prepare another recommended action"
+  })).toHaveCount(0);
+  const history = execution.getByTestId("revenue-action-history");
+  await expect(history).toContainText("Older completed research task");
+  await expect(history).toContainText("2026-08-01T02:00:00.000Z");
+  await expect(history).toContainText("Current prepared research task");
+});
+
+test("keeps originating case known zero separate from current opportunity intelligence", async ({ page }) => {
+  const caseId = "known-zero-origin-case";
+  const actionId = "known-zero-origin-action";
+  const knownZeroCaseBase = buildRevenueLeakCaseDetection({
+      leak_type: "STALLED_OPPORTUNITY",
+      source: {
+        system: "TGE",
+        entity_type: "OPPORTUNITY",
+        entity_id: "e2e-opp-stalled",
+        observed_at: "2026-09-08T08:00:00.000Z",
+        observed_version: "known-zero-source"
+      },
+      detector: { id: "stalled-opportunity", version: "1" },
+      reason_code: "STALE_WITHOUT_NEXT_ACTION",
+      evidence_classification: "MIXED",
+      evidence: {
+        criteria: {
+          stale_after_days: 14,
+          stale_boundary: "AT_OR_AFTER",
+          source_freshness_days: 90,
+          source_freshness_boundary: "AT_OR_BEFORE"
+        },
+        opportunity_stage: "PROPOSAL",
+        activity_baseline: {
+          kind: "ACTIVITY",
+          entity_id: "known-zero-activity",
+          at: "2026-08-15T08:00:00.000Z"
+        },
+        stalled_since: "2026-08-29T08:00:00.000Z",
+        next_action: {
+          present: false,
+          source: "NONE",
+          opportunity_value: null,
+          active_task_ids: []
+        },
+        source_freshness: {
+          observed_at: "2026-09-08T08:00:00.000Z",
+          maximum_age_days: 90
+        },
+        commercial_value_basis: {
+          classification: "KNOWN",
+          amount_source: "opportunity.value",
+          currency_source: "opportunity.currency"
+        }
+      },
+      commercial_value: {
+        classification: "KNOWN",
+        amount: "0.000000",
+        currency: "AUD"
+      },
+      recommended_action_type: "FOLLOW_UP",
+      due_at: null,
+      supersession_condition: {
+        kind: "CANONICAL_EVIDENCE_CHANGED",
+        detector_id: "stalled-opportunity",
+        detector_version: "1"
+      }
+    }, {
+      id: caseId,
+      detectedAt: "2026-09-08T08:00:00.000Z",
+      subjectId: "auth0|pilot-e2e"
+    });
+  const linkedAt = "2026-09-09T07:00:00.000Z";
+  const fingerprint = "d".repeat(64);
+  const knownZeroCase = {
+    ...knownZeroCaseBase,
+    revenue_action_id: actionId,
+    revenue_action_fingerprint: fingerprint,
+    revenue_action_status_at_link: "RECOMMENDED",
+    revenue_action_linked_at: linkedAt,
+    updated_at: linkedAt,
+    audit: [...knownZeroCaseBase.audit, {
+      transition: "REVENUE_ACTION_LINKED",
+      at: linkedAt,
+      subject_id: "auth0|pilot-e2e",
+      revenue_action_id: actionId,
+      revenue_action_fingerprint: fingerprint,
+      revenue_action_status: "RECOMMENDED"
+    }]
+  };
+
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases?opportunity_id=e2e-opp-stalled`,
+    route => route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, data: [knownZeroCase], count: 1 })
+    })
+  );
+  await page.route(`${apiBaseUrl}/api/revenue-actions?*`, route =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, data: [], count: 0 })
+    })
+  );
+
+  await page.goto(
+    `/#opportunities/e2e-opp-stalled?focus=action&case=${caseId}&action=${actionId}`
+  );
+
+  const originatingCase = page.getByTestId("revenue-action-execution")
+    .getByLabel("Originating revenue leak case");
+  await expect(originatingCase).toContainText("Known zero");
+  await expect(originatingCase).toContainText("AUD 0");
+  await expect(originatingCase).toContainText("Current opportunity intelligence");
+  await expect(page.getByTestId("opportunity-value")).toHaveText("Unknown");
 });
 
 test("keeps a prepared draft visible when approval fails without crashing", async ({ page }) => {

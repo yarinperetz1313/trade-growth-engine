@@ -57,9 +57,10 @@
    keep sample/demo and operator diagnostics separate without re-ranking either
    disclosed group.
 4. Make case → RevenueAction continuous through existing deep links and
-   mutations. Carry business value/why context, show Review → Approve → Create
-   internal task, and end with a truthful task-created panel that explicitly
-   says no message was sent and makes no revenue/ROI claim.
+   mutations. Carry authoritative originating-case value/why context separately
+   from current opportunity intelligence, derive the safe sequence from the
+   RevenueAction execution type, and end with a truthful bounded completion
+   panel that makes no outbound, delivery, revenue, attribution, or ROI claim.
 5. Improve desktop and 390px ordinary success, loading, reconciling, empty, and
    error hierarchy. Run progressive focused/affected verification, then one
    near-candidate integration/managed-Chromium/build/harness/migration/diff/
@@ -79,9 +80,11 @@
   server order.
 - Technical IDs/reasons/versions, legacy opportunity guidance, and Pilot
   instrumentation remain inspectable under labelled operator diagnostics.
-- Case/action continuity visibly carries problem, exact value truth, and why-now
-  context through Review → Approve → Create internal task. Completion says no
-  message was sent and claims neither recovered revenue nor ROI.
+- Case/action continuity visibly carries authoritative originating-case problem,
+  exact value truth, and why-now context separately from current intelligence.
+  Internal tasks use Review → Approve → Create internal task; communication
+  drafts use Review → Approve → Mark completed manually. Completion claims no
+  autonomous send, delivery, recovered revenue, attribution, or ROI.
 - Desktop and 390px ordinary success and key loading/empty/error/reconciliation
   states are coherent, with no horizontal overflow.
 - Focused and affected tests, complete integration, complete managed Chromium,
@@ -132,14 +135,59 @@
   deterministic test execution and **3.98 seconds** wall time including managed server/browser
   startup. This is internal harness timing only—not customer, adoption,
   commercial-outcome, or 15-minute pilot evidence.
+- Fresh independent review #1 (`/root/pilot_zero_final_review`) inspected exact
+  candidate `32b331e` and found four deduplicated P2 roots:
+  `PZ-P2-SAMPLE-AGGREGATE`, `PZ-P2-CASE-ACTION-CONTINUITY`,
+  `PZ-P2-EXECUTION-TYPE-SEQUENCE`, and
+  `PZ-P2-CURRENT-WORKFLOW-COMPLETION`. Policy V2 remediation cycle **1/3** is
+  consumed by this bounded browser/tests/docs repair; no duplicate or P3 item
+  consumed a cycle.
+- The first managed RED attempt did not reach test discovery because the
+  isolated worktree had no dependency directory; an ignored link to the main
+  checkout's existing `node_modules` was installed for verification and is not
+  product evidence. The unchanged five-test regression then ran at starting
+  presentation code and was RED **0/5**, with one intended failure per root plus
+  separate known-zero case continuity: the customer-evidence summary did not
+  exist; the URL ended at `?focus=action`; the communication heading remained
+  internal-task-specific; one older `TASK_CREATED` result rendered as current
+  over a newer `PREPARED` action; and the known-zero originating case was absent.
+- Focused GREEN is dependency-free presentation **6/6** and synchronized managed
+  Chromium **5/5**. Exact customer-case evidence now leads while the unchanged
+  server all-case aggregate is a collapsed disclosure when samples exist.
+  Bounded case/action query pointers select no authority: the existing strict,
+  tenant-bound opportunity case-history read confirms the immutable case value,
+  reason, and link, including known zero, before rendering them separately from
+  current opportunity intelligence. Execution-type copy distinguishes internal
+  task creation from human-controlled communication-draft manual completion.
+  Primary completion is tied to the current/focused authoritative workflow and
+  every older result remains dated history. The visible/accessibility CTA name
+  is consistently `Create preview`.
+- The affected Node/API/domain set passes **128/128**. The affected five-spec
+  managed Chromium set initially passed **46/47**; its only failure was the
+  pre-existing route-title test expecting the superseded case-less URL. After
+  aligning that assertion with the intended bounded case pointer, the exact test
+  passed **1/1**, and the complete managed Chromium suite passes **76/76**.
+  Complete integration passes **479/479**. The Vite 8.2.2 production build
+  passes with **34 modules** and only the existing chunk-size warning, and the
+  engineering harness passes.
+- `git diff --check`, generated-artifact inspection, an empty aggregate `src`
+  diff, and migration `001`-`016` byte comparison against exact base
+  `c6cb6a7752fc68361498052b7a884cdb2cb93e74` pass. PostgreSQL was not run because
+  no API, backend, transaction, repository, persistence, tenant/RLS, schema, or
+  migration boundary changed. Refreshed screenshots are retained outside the
+  repository under `artifacts/tge-pilot-zero-cycle1/01-desktop-first-open.png`,
+  `02-mobile-customer-case.png`, and `03-mobile-task-created.png`.
 
 ## Review and handoff
 
-- Implementer self-check: complete on checkpoint `f720a01`; no backend, API,
+- Implementer self-check: cycle-1 remediation complete on the checkpoint commit
+  containing this record; no backend, API,
   persistence, schema, migration, detector, tenant/RLS, case-ordering,
   monetary-calculation, or RevenueAction-authority surface changed.
-- Fresh reviewer findings/resolution: pending after clean implementation
-  checkpoint.
+- Fresh reviewer findings/resolution: review #1 at `32b331e` produced the four
+  P2 roots recorded above; all four have focused regressions and are closed by
+  remediation cycle **1/3**. A fresh independent review of the new pinned head
+  is the next phase.
 - Final-review evidence: coordinator-owned and not part of this mutation pass.
 - Delivery stop: do not push, open/update a PR, mutate GitHub, start CI, merge,
   or begin another milestone. Stop at a clean candidate for independent review.

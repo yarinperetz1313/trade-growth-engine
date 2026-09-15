@@ -21,6 +21,16 @@ test("opportunity exports are the explicit first-run business path", () => {
   assert.match(workspace, /Other supported business data/);
   assert.match(workspace, /Required to continue/);
   assert.match(workspace, /Exact mapping evidence/);
+  assert.match(workspace, />Create preview<\/button>/);
+});
+
+test("sample-inclusive economics lead with one server-projected customer case", () => {
+  const commandCenter = source("web/components/RevenueCommandCenter.jsx");
+
+  assert.match(commandCenter, /Primary customer-case economic evidence/);
+  assert.match(commandCenter, /formatPotentialRevenueAtRisk\(customerHero\.potential_value\)/);
+  assert.match(commandCenter, /All active-case aggregate including sample and demo evidence/);
+  assert.match(commandCenter, /secondary server-authoritative disclosure/);
 });
 
 test("customer and demo cases are partitioned without changing server order", async () => {
@@ -55,12 +65,32 @@ test("readiness leads an explicit calm three-step scan and customer review", () 
   assert.doesNotMatch(commandCenter, /DATA → TRUTH → MONEY → PROBLEM → WHY → ACTION/);
 });
 
-test("the action surface communicates the safe sequence and truthful task result", () => {
+test("the action surface derives the safe sequence and truthful result from execution type", () => {
   const opportunity = source("web/components/OpportunityCommandCenter.jsx");
 
   assert.match(opportunity, /Review → Approve → Create internal task/);
+  assert.match(opportunity, /Review → Approve → Mark completed manually/);
+  assert.match(opportunity, /workflowExecutionType === "COMMUNICATION_DRAFT"/);
   assert.match(opportunity, /data-testid="internal-task-completion"/);
   assert.match(opportunity, /Internal task created/);
   assert.match(opportunity, /No message was sent/);
   assert.match(opportunity, /does not claim recovered revenue, attribution, or return on investment/i);
+  assert.match(opportunity, /data-testid="manual-communication-completion"/);
+  assert.match(opportunity, /No message was sent by TGE/);
+  assert.match(opportunity, /Current workflow/);
+  assert.match(opportunity, /Historical workflow/);
+});
+
+test("case action navigation carries bounded identities but renders authoritative case evidence", () => {
+  const app = source("web/main.jsx");
+  const queue = source("web/components/RevenueCommandCenter.jsx");
+  const opportunity = source("web/components/OpportunityCommandCenter.jsx");
+
+  assert.match(app, /boundedIdentity/);
+  assert.match(queue, /caseId: entry\.case\.id/);
+  assert.match(queue, /actionId: linkedAction\?\.id/);
+  assert.match(opportunity, /focusedCaseId=\{focusRevenueLeakCaseId\}/);
+  assert.match(opportunity, /Originating revenue leak case/);
+  assert.match(opportunity, /formatPotentialRevenueAtRisk\(originatingRevenueLeakCase\.commercial_value\)/);
+  assert.match(opportunity, /Current opportunity intelligence/);
 });

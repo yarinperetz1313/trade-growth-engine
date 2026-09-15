@@ -1572,6 +1572,57 @@
   border-color: rgba(101, 211, 145, .2);
 }
 
+.oc-originating-case {
+  background: rgba(212, 181, 106, .055);
+  border: 1px solid rgba(212, 181, 106, .2);
+  border-radius: 14px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1.4fr) minmax(160px, .7fr);
+  margin: 16px 0;
+  padding: 16px;
+}
+
+.oc-originating-case h3,
+.oc-originating-case p {
+  margin: 6px 0;
+}
+
+.oc-originating-case code,
+.oc-originating-case small,
+.oc-current-intelligence-context span,
+.oc-originating-case-value span,
+.oc-originating-case-value small {
+  color: #8f98a6;
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.oc-originating-case-value,
+.oc-current-intelligence-context {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.oc-originating-case-value strong,
+.oc-current-intelligence-context strong {
+  font-size: 16px;
+}
+
+.oc-current-intelligence-context {
+  border-top: 1px solid rgba(255,255,255,.08);
+  grid-column: 1 / -1;
+  padding-top: 12px;
+}
+
+@media (max-width: 700px) {
+  .oc-originating-case {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .oc-action-sequence {
   display: grid;
   gap: 10px;

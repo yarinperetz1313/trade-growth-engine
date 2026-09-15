@@ -311,6 +311,23 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   await page.route(`${apiBaseUrl}/api/revenue-actions?*`, route =>
     json(route, { ok: true, data: state.linked ? [action] : [], count: state.linked ? 1 : 0 })
   );
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases?opportunity_id=e2e-opp-stalled`,
+    route => {
+      const importedCase = caseContext({
+        id: "case-imported",
+        amount: "2500",
+        origin: "IMPORTED_CUSTOMER",
+        businessName: "Imported Pilot Account",
+        linked: state.linked
+      }).case;
+      return json(route, {
+        ok: true,
+        data: state.linked ? [importedCase] : [],
+        count: state.linked ? 1 : 0
+      });
+    }
+  );
   await page.route(`${apiBaseUrl}/api/revenue-actions/pilot-action-1/prepare`, route => {
     action = {
       ...action,
@@ -439,9 +456,16 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   await refreshedImported.getByRole("button", {
     name: "CONTINUE ACTION"
   }).click();
-  await expect(page).toHaveURL(/#opportunities\/e2e-opp-stalled\?focus=action$/);
+  await expect(page).toHaveURL(
+    /#opportunities\/e2e-opp-stalled\?focus=action&case=case-imported&action=pilot-action-1$/
+  );
   await expect(page.getByTestId("opportunity-command-center")).toBeVisible();
   const execution = page.getByTestId("revenue-action-execution");
+  const originatingCase = execution.getByLabel("Originating revenue leak case");
+  await expect(originatingCase).toContainText("Case case-imported");
+  await expect(originatingCase).toContainText("AUD 2,500");
+  await expect(originatingCase).toContainText("STALE_WITHOUT_NEXT_ACTION");
+  await expect(originatingCase).toContainText("Current opportunity intelligence");
   await expect(execution).toContainText("Review → Approve → Create internal task");
   await expect(execution.getByTestId("revenue-action-status")).toHaveText("RECOMMENDED");
   await execution.getByRole("button", { name: "Prepare action" }).click();
@@ -467,4 +491,39 @@ test("resumes committed Data Health and reconciles the exact first-value journey
     body: document.body.scrollWidth,
     viewport: document.documentElement.clientWidth
   }))).toEqual({ body: 390, viewport: 390 });
+});
+
+test("leads with customer-case money and discloses the server all-case aggregate when samples exist", async ({ page }) => {
+  const state = {
+    scanned: false,
+    surfaced: false,
+    inspected: false,
+    feedback: false,
+    linked: false,
+    approved: false,
+    executed: false
+  };
+
+  await page.route(`${apiBaseUrl}/api/pilot-evidence/status`, route =>
+    json(route, statusResponse(state))
+  );
+  await page.route(`${apiBaseUrl}/api/revenue-leak-cases/operating-queue`, route =>
+    json(route, queueResponse(false))
+  );
+
+  await page.goto("/#opportunities");
+
+  const commandCenter = page.getByTestId("revenue-command-center");
+  const primary = commandCenter.getByLabel("Primary customer-case economic evidence");
+  await expect(primary).toContainText("Imported Pilot Account");
+  await expect(primary).toContainText("AUD 2,500");
+  await expect(primary).not.toContainText("AUD 11,500");
+
+  const allCases = commandCenter.getByRole("group", {
+    name: "All active-case aggregate including sample and demo evidence"
+  });
+  await expect(allCases).not.toHaveAttribute("open", "");
+  await expect(allCases).toContainText("Server all-case aggregate");
+  await expect(allCases).toContainText("AUD 11,500");
+  await expect(allCases).toContainText("2 cases");
 });

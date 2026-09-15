@@ -170,7 +170,12 @@ function AuditHistory({ audit = [] }) {
   );
 }
 
-export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [] }) {
+export default function RevenueLeakCasePanel({
+  opportunityId,
+  revenueActions = [],
+  focusedCaseId = null,
+  onFocusedCaseResolved
+}) {
   const [history, setHistory] = useState([]);
   const [historyState, setHistoryState] = useState("LOADING");
   const [historyError, setHistoryError] = useState(null);
@@ -211,13 +216,18 @@ export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [
         || requestId !== historyRequest.current
       ) return null;
       const cases = Array.isArray(result?.data) ? result.data : [];
+      const focusedCase = focusedCaseId
+        ? cases.find(item => item.id === focusedCaseId) || null
+        : null;
       setHistory(cases);
       setSelectedCaseId(current => {
+        if (focusedCase) return focusedCase.id;
         if (cases.some(item => item.id === current)) return current;
         return cases.find(item => ["OPEN", "SNOOZED"].includes(item.state))?.id
           || cases[0]?.id
           || null;
       });
+      onFocusedCaseResolved?.(focusedCase, "READY");
       setHistoryState("READY");
       return cases;
     } catch (error) {
@@ -227,6 +237,7 @@ export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [
       ) return null;
       setHistoryError(errorCopy(error));
       setHistoryState("ERROR");
+      onFocusedCaseResolved?.(null, "ERROR");
       return null;
     }
   }
@@ -239,12 +250,13 @@ export default function RevenueLeakCasePanel({ opportunityId, revenueActions = [
     setDetectionError(null);
     setMutationError(null);
     setMutationMessage(null);
+    onFocusedCaseResolved?.(null, "LOADING");
     loadHistory(opportunityId, generation);
     return () => {
       opportunityGeneration.current += 1;
       historyRequest.current += 1;
     };
-  }, [opportunityId]);
+  }, [focusedCaseId, opportunityId]);
 
   const selectedCase = useMemo(() =>
     history.find(item => item.id === selectedCaseId)

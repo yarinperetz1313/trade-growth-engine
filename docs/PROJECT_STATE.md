@@ -34,10 +34,49 @@ screenshots are retained outside the repository under
 `artifacts/tge-pilot-zero-after`. A controlled two-test rehearsal took about
 **2.0 seconds** of deterministic test execution (**3.98 seconds** wall time with
 managed startup); this is internal harness timing only and not customer or
-commercial evidence. Independent review of the clean local checkpoint is the
-next gate; external-pilot provider, hosting, backup/restore, privacy/DPA, legal
-retention/deletion, and real-customer validation remain blocked and out of
-scope.
+commercial evidence.
+
+Fresh independent review #1 of exact candidate `32b331e` found four deduplicated
+P2 presentation roots. `PZ-P2-SAMPLE-AGGREGATE` let a server-authoritative
+all-case total lead even when it included sample/demo money;
+`PZ-P2-CASE-ACTION-CONTINUITY` lost immutable originating-case value and why
+context at the RevenueAction handoff; `PZ-P2-EXECUTION-TYPE-SEQUENCE` described
+every action as internal-task creation even though communication drafts complete
+only through an explicit human manual confirmation; and
+`PZ-P2-CURRENT-WORKFLOW-COMPLETION` promoted any historical task-created result
+over a newer active action. Remediation cycle **1/3** is consumed and closes
+those four roots in browser presentation only.
+
+The remediated queue now leads with the first server-ordered customer case's
+exact projected money when sample/demo cases exist. The unchanged server
+all-case aggregate remains a clearly labelled, collapsed secondary disclosure;
+the browser does not calculate another aggregate or reorder customer cases.
+Case navigation carries bounded case/action pointers, but the opportunity page
+resolves immutable case identity, exact value semantics (including known zero),
+reason, and authoritative action link only through the existing tenant-bound
+case-history read. That evidence is presented separately from current
+opportunity intelligence. The current authoritative RevenueAction execution
+type determines internal-task versus communication-draft sequence and completion
+copy, and primary completion is bound to the current/focused workflow; older
+task-created results remain dated history and cannot offer “prepare another”
+while an active action exists. The visible import CTA now matches its accessible
+name (`Create preview`). No browser query value is monetary or action authority.
+
+The five synchronized Chromium regressions were RED **0/5** at `32b331e` for
+the intended defects and are GREEN **5/5**. Dependency-free presentation
+contracts pass **6/6**, affected Node/API/domain contracts pass **128/128**,
+complete integration passes **479/479**, and complete managed Chromium passes
+**76/76**, including desktop and 390px journeys, known-zero handoff, manual
+communication completion, and historical-completion/current-action separation.
+The production build passes with **34 modules** and the existing chunk-size
+warning; the engineering harness, diff hygiene, empty `src` diff, and migration
+`001`-`016` byte comparison against exact base pass. Updated evidence is outside
+the repository under `artifacts/tge-pilot-zero-cycle1`. PostgreSQL was not run
+because no server, persistence, transaction, tenant/RLS, schema, or migration
+boundary changed. Fresh independent review of the clean cycle-1 checkpoint is
+the next phase. External-pilot provider, hosting, backup/restore, privacy/DPA,
+legal retention/deletion, and real-customer validation remain blocked and out
+of scope.
 
 This mission may change browser composition, copy, navigation, progressive
 disclosure, loading/empty/error hierarchy, and desktop/390px presentation only.
