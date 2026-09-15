@@ -13,6 +13,32 @@ strongest server-ordered imported-customer case leads; and the existing
 RevenueAction prepare, approve, and safe internal-task execution mutations
 remain the sole action authority.
 
+The local implementation checkpoint `f720a01` now presents that existing
+authority as a business-first browser journey. Opportunity exports are the
+default intake; required mappings, blockers, and business impact lead while
+raw/canonical evidence remains inspectable; Operational Data Health precedes
+the explicit scan; and the server-ordered imported-customer cases are primary.
+Sample/demo cases, legacy opportunity guidance, technical identifiers/reasons,
+detector versions, and Pilot instrumentation remain available under labelled
+disclosures and do not satisfy customer first-value evidence. Case handoff now
+focuses the existing RevenueAction lifecycle, carries business/value/why
+context, and ends with an internal-task completion panel that explicitly says
+no message was sent and claims no recovered revenue, attribution, or ROI.
+
+Focused presentation TDD was RED **0/4** and GREEN **4/4**; the synchronized
+managed first-value journey was RED **0/1** and GREEN **1/1**. The affected
+Node set passes **77/77**, complete integration passes **477/477**, and complete
+managed Chromium passes **73/73**. The production build and engineering harness
+pass, migrations `001`-`016` remain byte-identical to exact base, and generated
+screenshots are retained outside the repository under
+`artifacts/tge-pilot-zero-after`. A controlled two-test rehearsal took about
+**2.0 seconds** of deterministic test execution (**3.98 seconds** wall time with
+managed startup); this is internal harness timing only and not customer or
+commercial evidence. Independent review of the clean local checkpoint is the
+next gate; external-pilot provider, hosting, backup/restore, privacy/DPA, legal
+retention/deletion, and real-customer validation remain blocked and out of
+scope.
+
 This mission may change browser composition, copy, navigation, progressive
 disclosure, loading/empty/error hierarchy, and desktop/390px presentation only.
 It does not authorize API, persistence, schema, migration, detector, tenant/RLS,

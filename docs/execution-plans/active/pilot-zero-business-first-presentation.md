@@ -108,10 +108,36 @@
 - GitHub confirms PR #38 merged at exact base and post-merge push Verify run
   `34932001831` succeeded. This completes the predecessor milestone alongside
   already recorded successful PR #36/#37 post-merge runs.
+- Focused TDD was RED **0/4** for the new business-first composition contracts
+  and RED **0/1** for the managed-Chromium ordinary first-value journey. GREEN
+  is **4/4** and **1/1** respectively. The affected import, readiness, queue,
+  handoff, Pilot evidence, and money-truth Node set passes **77/77**.
+- Implementation checkpoint `f720a01` changes browser composition only. The
+  opportunity export is the default first-value path; required mapping and
+  Data Health lead while exact evidence remains disclosed; readiness precedes
+  explicit scan; customer and sample/demo cases are partitioned without
+  changing server order; operator diagnostics are collapsed; and the existing
+  case-to-RevenueAction path deep-links to Review → Approve → Create internal
+  task with truthful completion copy.
+- Complete integration passes **477/477** and complete managed Chromium passes
+  **73/73**, including the ordinary desktop intake, 390px customer-case/action
+  journey, failure/reconciliation paths, explicit scan, and all existing
+  RevenueAction mutations. Production build passes with **34 modules** and the
+  existing chunk-size warning; the engineering harness, diff hygiene, and
+  migration `001`-`016` byte comparison against exact base all pass.
+- After screenshots are retained outside the repository at
+  `artifacts/tge-pilot-zero-after/01-desktop-first-open.png`,
+  `02-mobile-customer-case.png`, and `03-mobile-task-created.png`. The controlled
+  exact-HEAD two-test browser rehearsal reported about **2.0 seconds** of
+  deterministic test execution and **3.98 seconds** wall time including managed server/browser
+  startup. This is internal harness timing only—not customer, adoption,
+  commercial-outcome, or 15-minute pilot evidence.
 
 ## Review and handoff
 
-- Implementer self-check: pending.
+- Implementer self-check: complete on checkpoint `f720a01`; no backend, API,
+  persistence, schema, migration, detector, tenant/RLS, case-ordering,
+  monetary-calculation, or RevenueAction-authority surface changed.
 - Fresh reviewer findings/resolution: pending after clean implementation
   checkpoint.
 - Final-review evidence: coordinator-owned and not part of this mutation pass.
