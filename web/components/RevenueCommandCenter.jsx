@@ -744,6 +744,8 @@ export default function RevenueCommandCenter({
   const queueRef = useRef(null);
   const scanSummaryRef = useRef(null);
   const queueTruthGeneration = useRef(0);
+  const queueMutationEpoch = useRef(0);
+  const activeQueueMutation = useRef(null);
   const pendingCaseReconciliationRef = useRef(null);
   const pilotStatusRequest = useRef(0);
   const pilotGuard = useRef(null);
@@ -775,15 +777,29 @@ export default function RevenueCommandCenter({
     }
   }, []);
 
-  const loadQueue = useCallback(async ({ confirmsScan = false } = {}) => {
-    const requestId = ++queueRequest.current;
+  const loadQueue = useCallback(async ({
+    confirmsScan = false,
+    queueMutationToken = null
+  } = {}) => {
+    const mutationEpoch = queueMutationEpoch.current;
+    const activeMutation = activeQueueMutation.current;
+    const ownsMutationBoundary = activeMutation === null
+      || queueMutationToken === activeMutation;
+    const requestId = ownsMutationBoundary ? ++queueRequest.current : null;
     const truthGeneration = queueTruthGeneration.current;
-    if (!queueRef.current) setQueueState("LOADING");
-    else setRefreshing(true);
-    setQueueError(null);
+    if (ownsMutationBoundary) {
+      if (!queueRef.current) setQueueState("LOADING");
+      else setRefreshing(true);
+      setQueueError(null);
+    }
     try {
       const response = await getRevenueLeakOperatingQueue();
-      if (!mounted.current || requestId !== queueRequest.current) return null;
+      if (
+        !mounted.current
+        || !ownsMutationBoundary
+        || requestId !== queueRequest.current
+        || mutationEpoch !== queueMutationEpoch.current
+      ) return null;
       queueRef.current = response.data;
       setQueue(response.data);
       setQueueState("READY");
@@ -801,7 +817,12 @@ export default function RevenueCommandCenter({
       );
       return response.data;
     } catch (requestError) {
-      if (!mounted.current || requestId !== queueRequest.current) return null;
+      if (
+        !mounted.current
+        || !ownsMutationBoundary
+        || requestId !== queueRequest.current
+        || mutationEpoch !== queueMutationEpoch.current
+      ) return null;
       setQueueError(queueErrorCopy(requestError));
       setQueueState(queueRef.current ? "STALE" : "ERROR");
       if (
@@ -813,7 +834,12 @@ export default function RevenueCommandCenter({
       }
       return null;
     } finally {
-      if (mounted.current && requestId === queueRequest.current) setRefreshing(false);
+      if (
+        mounted.current
+        && ownsMutationBoundary
+        && requestId === queueRequest.current
+        && mutationEpoch === queueMutationEpoch.current
+      ) setRefreshing(false);
     }
   }, []);
 
@@ -826,6 +852,22 @@ export default function RevenueCommandCenter({
     if (!scanSummaryRef.current) return;
     queueTruthGeneration.current += 1;
     setScanQueueFreshness(nextState);
+  }
+
+  function beginQueueMutation() {
+    const token = queueMutationEpoch.current + 1;
+    queueMutationEpoch.current = token;
+    activeQueueMutation.current = token;
+    queueRequest.current += 1;
+    setRefreshing(false);
+    invalidateScanQueueTruth();
+    return token;
+  }
+
+  function finishQueueMutation(token) {
+    if (activeQueueMutation.current === token) {
+      activeQueueMutation.current = null;
+    }
   }
 
   async function loadQueueForCurrentScan() {
@@ -1040,7 +1082,7 @@ export default function RevenueCommandCenter({
   }
 
   async function runScan() {
-    invalidateScanQueueTruth();
+    const queueMutationToken = beginQueueMutation();
     setScanState("RUNNING");
     setMutationMessage(null);
     setMutationError(null);
@@ -1050,7 +1092,10 @@ export default function RevenueCommandCenter({
       scanSummaryRef.current = response.summary;
       setScanSummary(response.summary);
       invalidateScanQueueTruth();
-      const durable = await loadQueue({ confirmsScan: true });
+      const durable = await loadQueue({
+        confirmsScan: true,
+        queueMutationToken
+      });
       await Promise.all([loadPilotStatus(), loadReadiness()]);
       if (durable) {
         setMutationMessage(
@@ -1063,7 +1108,10 @@ export default function RevenueCommandCenter({
       if (isAmbiguousRevenueLeakCaseMutationError(scanError)) {
         setReconciliationBlocked(true);
         const [durable] = await Promise.all([
-          loadQueue({ confirmsScan: Boolean(scanSummaryRef.current) }),
+          loadQueue({
+            confirmsScan: Boolean(scanSummaryRef.current),
+            queueMutationToken
+          }),
           loadPilotStatus()
         ]);
         if (durable) setReconciliationBlocked(false);
@@ -1078,24 +1126,26 @@ export default function RevenueCommandCenter({
         setMutationError(queueErrorCopy(scanError));
       }
     } finally {
+      finishQueueMutation(queueMutationToken);
       if (mounted.current) setScanState(null);
     }
   }
 
   async function createRecoveryAction(entry) {
+    const queueMutationToken = beginQueueMutation();
     const caseId = entry.case.id;
     const opportunityId = entry.opportunity.id;
     setMutationCaseId(caseId);
     setMutationKind("TAKE_ACTION");
     setMutationMessage(null);
     setMutationError(null);
-    invalidateScanQueueTruth();
     try {
       await createRevenueActionForLeakCase(caseId, opportunityId);
       if (!mounted.current) return;
       setReconciliationBlocked(true);
       const durable = await loadQueue({
-        confirmsScan: Boolean(scanSummaryRef.current)
+        confirmsScan: Boolean(scanSummaryRef.current),
+        queueMutationToken
       });
       if (durable) setReconciliationBlocked(false);
       const linked = durable?.entries.find(item => item.case.id === caseId)
@@ -1122,7 +1172,8 @@ export default function RevenueCommandCenter({
       if (isAmbiguousRevenueLeakCaseMutationError(handoffError)) {
         setReconciliationBlocked(true);
         const durable = await loadQueue({
-          confirmsScan: Boolean(scanSummaryRef.current)
+          confirmsScan: Boolean(scanSummaryRef.current),
+          queueMutationToken
         });
         if (durable) setReconciliationBlocked(false);
         const linked = durable?.entries.find(item => item.case.id === caseId)
@@ -1154,6 +1205,7 @@ export default function RevenueCommandCenter({
         setMutationError(queueErrorCopy(handoffError));
       }
     } finally {
+      finishQueueMutation(queueMutationToken);
       if (mounted.current) {
         setMutationCaseId(null);
         setMutationKind(null);
@@ -1162,6 +1214,7 @@ export default function RevenueCommandCenter({
   }
 
   async function runCaseDecision(entry, transition, body) {
+    const queueMutationToken = beginQueueMutation();
     const caseId = entry.case.id;
     const opportunityId = entry.historical_opportunity_id;
     const expectedState = transition === "snooze" ? "SNOOZED" : "DISMISSED";
@@ -1169,7 +1222,6 @@ export default function RevenueCommandCenter({
     setMutationKind(expectedState === "SNOOZED" ? "SNOOZE" : "DISMISS");
     setMutationMessage(null);
     setMutationError(null);
-    invalidateScanQueueTruth();
     try {
       const response = await transitionRevenueLeakCase(
         caseId,
@@ -1184,7 +1236,10 @@ export default function RevenueCommandCenter({
           status: null
         });
       }
-      await loadQueue({ confirmsScan: Boolean(scanSummaryRef.current) });
+      await loadQueue({
+        confirmsScan: Boolean(scanSummaryRef.current),
+        queueMutationToken
+      });
       setCaseReconciliation(null);
       setMutationMessage(expectedState === "SNOOZED"
         ? "Case snoozed with a durable human reason and future wake time."
@@ -1196,7 +1251,10 @@ export default function RevenueCommandCenter({
           const history = await getOpportunityRevenueLeakCases(opportunityId);
           if (!mounted.current) return;
           const durableCase = history.data.find(item => item.id === caseId);
-          await loadQueue({ confirmsScan: Boolean(scanSummaryRef.current) });
+          await loadQueue({
+            confirmsScan: Boolean(scanSummaryRef.current),
+            queueMutationToken
+          });
           setReconciliationBlocked(false);
           if (durableCase?.state === expectedState) {
             setCaseReconciliation(null);
@@ -1224,6 +1282,7 @@ export default function RevenueCommandCenter({
         setMutationError(queueErrorCopy(decisionError));
       }
     } finally {
+      finishQueueMutation(queueMutationToken);
       if (mounted.current) {
         setMutationCaseId(null);
         setMutationKind(null);
@@ -1234,14 +1293,17 @@ export default function RevenueCommandCenter({
   async function reconcileCaseDecision() {
     const attempt = pendingCaseReconciliation;
     if (!attempt) return;
+    const queueMutationToken = beginQueueMutation();
     setMutationCaseId(attempt.caseId);
     setMutationKind("RECONCILE");
-    invalidateScanQueueTruth();
     try {
       const history = await getOpportunityRevenueLeakCases(attempt.opportunityId);
       if (!mounted.current) return;
       const durableCase = history.data.find(item => item.id === attempt.caseId);
-      await loadQueue({ confirmsScan: Boolean(scanSummaryRef.current) });
+      await loadQueue({
+        confirmsScan: Boolean(scanSummaryRef.current),
+        queueMutationToken
+      });
       setCaseReconciliation(null);
       setReconciliationBlocked(false);
       if (durableCase?.state === attempt.expectedState) {
@@ -1262,6 +1324,7 @@ export default function RevenueCommandCenter({
         message: "Durable case history remains unavailable. No case or action mutation can be retried yet."
       });
     } finally {
+      finishQueueMutation(queueMutationToken);
       if (mounted.current) {
         setMutationCaseId(null);
         setMutationKind(null);

@@ -785,6 +785,118 @@ test("keeps lifecycle mutations blocked when an earlier queue refresh resolves a
   await expect(item.getByRole("button", { name: "TAKE ACTION" })).toBeEnabled();
 });
 
+test("does not let a refresh during Dismiss certify pre-mutation money as current", async ({ page }) => {
+  const reference = Date.now();
+  const context = caseContext({
+    id: "case-mutation-read-ownership",
+    opportunityId: "e2e-opp-stalled",
+    businessName: "E2E Stalled Roofing",
+    amount: "42000.5",
+    currency: "AUD",
+    reference
+  });
+  let queueReads = 0;
+  let dismissPosts = 0;
+  let releaseStaleRefresh;
+  const staleRefreshGate = new Promise(resolve => { releaseStaleRefresh = resolve; });
+  let staleRefreshReturned;
+  const staleRefreshReturnedGate = new Promise(resolve => { staleRefreshReturned = resolve; });
+  let staleRefreshStarted;
+  const staleRefreshStartedGate = new Promise(resolve => { staleRefreshStarted = resolve; });
+  let releaseDismissResponse;
+  const dismissResponseGate = new Promise(resolve => { releaseDismissResponse = resolve; });
+  let postWriteRefreshStarted;
+  const postWriteRefreshStartedGate = new Promise(resolve => { postWriteRefreshStarted = resolve; });
+  let releasePostWriteRefresh;
+  const postWriteRefreshGate = new Promise(resolve => { releasePostWriteRefresh = resolve; });
+
+  await page.route(`${apiBaseUrl}/api/revenue-leak-cases/operating-queue`, async route => {
+    queueReads += 1;
+    if (queueReads === 3) {
+      staleRefreshStarted();
+      await staleRefreshGate;
+      await json(route, 200, queueResponse([context], reference));
+      staleRefreshReturned();
+      return;
+    }
+    if (queueReads === 4) {
+      postWriteRefreshStarted();
+      await postWriteRefreshGate;
+      return json(route, 200, queueResponse([], reference + 1));
+    }
+    return json(route, 200, queueResponse([context], reference));
+  });
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/scan-stalled-opportunities`,
+    route => json(route, 200, scanStateResponse("CREDIBLE", reference))
+  );
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/case-mutation-read-ownership/dismiss`,
+    async route => {
+      dismissPosts += 1;
+      await staleRefreshStartedGate;
+      releaseStaleRefresh();
+      await dismissResponseGate;
+      const dismissedAt = new Date(reference + 1).toISOString();
+      return json(route, 200, {
+        ok: true,
+        data: {
+          ...context.case,
+          state: "DISMISSED",
+          dismissed_at: dismissedAt,
+          dismissal_reason: "No further follow-up is required.",
+          updated_at: dismissedAt,
+          audit: [...context.case.audit, {
+            transition: "DISMISSED",
+            at: dismissedAt,
+            subject_id: "auth0|e2e-operator",
+            reason: "No further follow-up is required."
+          }]
+        }
+      });
+    }
+  );
+
+  await page.goto("/#opportunities");
+  await page.getByRole("button", { name: "Scan stalled opportunities" }).click();
+  const result = page.getByLabel("Complete explicit scan outcomes");
+  await expect(result).toContainText("Active cases now1");
+  await expect(result).toContainText("AUD 42,000.5");
+
+  const item = page.locator('[data-case-id="case-mutation-read-ownership"]');
+  await item.getByRole("button", { name: /Why TGE surfaced this/i }).click();
+  await item.getByLabel("Reason to dismiss").fill("No further follow-up is required.");
+  await page.evaluate(() => {
+    const caseElement = document.querySelector(
+      '[data-case-id="case-mutation-read-ownership"]'
+    );
+    const dismissButton = [...caseElement.querySelectorAll("button")]
+      .find(button => button.textContent.trim() === "DISMISS");
+    const refreshButton = [...document.querySelectorAll("button")]
+      .find(button => button.textContent.trim() === "Refresh queue");
+    dismissButton.click();
+    refreshButton.click();
+  });
+
+  await staleRefreshReturnedGate;
+  expect(dismissPosts).toBe(1);
+  await expect(result).toContainText("current active-case counts and money unavailable");
+  await expect(result).not.toContainText("Active cases now1");
+  await expect(result).not.toContainText("AUD 42,000.5");
+
+  releaseDismissResponse();
+  await postWriteRefreshStartedGate;
+  await expect(result).toContainText("current active-case counts and money unavailable");
+  await expect(result).not.toContainText("Active cases now1");
+  await expect(result).not.toContainText("AUD 42,000.5");
+
+  releasePostWriteRefresh();
+  await expect(result).toContainText("Active cases now0");
+  await expect(result).not.toContainText("AUD 42,000.5");
+  await expect(page.locator('[data-case-id="case-mutation-read-ownership"]')).toHaveCount(0);
+  expect(queueReads).toBe(4);
+});
+
 test("withholds cached active-case money until the post-scan queue refresh succeeds", async ({ page }) => {
   const reference = Date.now();
   const current = caseContext({

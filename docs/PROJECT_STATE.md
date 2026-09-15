@@ -99,6 +99,32 @@ byte-identical, and no backend, persistence, tenant/RLS, detector, schema, or
 RevenueAction authority changed. Fresh independent review of the resulting
 pinned checkpoint is the next gate.
 
+That fresh review confirmed the preceding freshness and route-title findings
+closed, then reproduced one remaining queue-read ownership race. An ordinary
+queue refresh launched while a consequential case mutation was unresolved
+could share the mutation's freshness generation, return pre-mutation data, and
+temporarily relabel the prior active-case count and exact money as current. The
+bounded repair adds an explicit queue-mutation epoch and owner token. Mutation
+start invalidates reads from every older epoch, and reads launched during the
+mutation cannot publish queue state unless they are the explicitly owned
+post-mutation/reconciliation read. This shared boundary covers explicit scan,
+Snooze/Dismiss, case-history reconciliation, and RevenueAction linkage without
+changing their server authority or allowing a stale response to win browser
+state ownership.
+
+The synchronized Chromium regression was RED **0/1** with the stale case and
+`AUD 42,000.5` presented as exact current truth, then GREEN **1/1** after the
+repair. The complete Revenue Command Center browser specification passes
+**15/15**, including normal refresh, ambiguous lifecycle recovery, scan
+freshness, RevenueAction handoff, and the repaired interleaving. Complete Node
+integration passes **473/473**; the remaining affected managed Chromium journey
+passes **21/21**; and the production build passes with **34 modules** and only
+the existing chunk-size warning. No PostgreSQL/RLS gate was repeated because no
+backend, repository, tenant, persistence, schema, migration, detector, or
+RevenueAction authority changed. Engineering harness, migration byte identity,
+diff hygiene, and artifact cleanup pass; fresh independent review remains the
+final local checkpoint gate.
+
 The merged Slice 2 implementation exposes a tenant-bound,
 read-only stalled-opportunity eligibility projection before scan. It uses the
 same portfolio admission and version-1 detector evaluator as the existing

@@ -500,6 +500,26 @@
   schema, migration, or RevenueAction authority changed, so PostgreSQL was not
   repeated. Fresh independent review of the new pinned checkpoint is the next
   gate.
+- That review confirmed the preceding findings closed and reproduced one
+  remaining P2: an ordinary refresh launched while Dismiss was unresolved could
+  return pre-dismiss queue data and temporarily certify the old active case and
+  `AUD 42,000.5` as current before the owned post-write refresh completed.
+- The new deterministic browser regression was RED **0/1** with exactly that
+  false-current presentation. Queue reads now carry an explicit mutation epoch
+  and only the owning post-mutation/reconciliation read may publish within an
+  active mutation. Mutation start also invalidates every older request, so a
+  technically completing stale response cannot regain queue-state ownership.
+  The shared boundary applies to explicit scan, Snooze/Dismiss, case-history
+  reconciliation, and RevenueAction linkage without changing server authority.
+- The regression is GREEN **1/1** and the complete Revenue Command Center spec
+  passes **15/15**. Complete Node integration passes **473/473**, the remaining
+  affected first-value Chromium set passes **21/21**, and the production build
+  passes with **34 modules** and only the existing chunk-size warning. No
+  PostgreSQL/RLS gate was repeated because the repair changes no backend,
+  repository, tenant, persistence, schema, migration, detector, or
+  RevenueAction authority. Harness, migration byte identity, diff hygiene, and
+  artifact cleanup pass; fresh independent review is the remaining checkpoint
+  gate.
 
 ## Review and handoff
 
