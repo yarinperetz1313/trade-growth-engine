@@ -231,7 +231,11 @@ test("renders the server-ordered truthful operating queue with evidence and auth
   })).toBeVisible();
   await expect(commandCenter).toContainText("STALE_WITHOUT_NEXT_ACTION");
   await expect(commandCenter).toContainText("Meaningful activity baseline");
-  await expect(commandCenter).toContainText("review → approve → create the internal task");
+  const candidate = commandCenter.locator('[data-case-id="case-aud"]');
+  await expect(candidate).toContainText(
+    "review, approve, and complete its supported step in Opportunity Command Center"
+  );
+  await expect(candidate).not.toContainText("create the internal task");
   await expect(commandCenter.getByRole("button", {
     name: "TAKE ACTION"
   })).toBeEnabled();

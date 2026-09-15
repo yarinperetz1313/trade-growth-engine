@@ -22,6 +22,8 @@ test("opportunity exports are the explicit first-run business path", () => {
   assert.match(workspace, /Required to continue/);
   assert.match(workspace, /Exact mapping evidence/);
   assert.match(workspace, />Create preview<\/button>/);
+  assert.match(workspace, /Check fields and data quality/);
+  assert.doesNotMatch(workspace, /aria-label="Review deterministic mapping"/);
 });
 
 test("sample-inclusive economics lead with one server-projected customer case", () => {
@@ -66,8 +68,11 @@ test("readiness leads an explicit calm three-step scan and customer review", () 
 });
 
 test("the action surface derives the safe sequence and truthful result from execution type", () => {
+  const queue = source("web/components/RevenueCommandCenter.jsx");
   const opportunity = source("web/components/OpportunityCommandCenter.jsx");
 
+  assert.match(queue, /complete its supported step in Opportunity Command Center/);
+  assert.doesNotMatch(queue, /review → approve → create the internal task/);
   assert.match(opportunity, /Review → Approve → Create internal task/);
   assert.match(opportunity, /Review → Approve → Mark completed manually/);
   assert.match(opportunity, /workflowExecutionType === "COMMUNICATION_DRAFT"/);
@@ -91,6 +96,8 @@ test("case action navigation carries bounded identities but renders authoritativ
   assert.match(queue, /actionId: linkedAction\?\.id/);
   assert.match(opportunity, /focusedCaseId=\{focusRevenueLeakCaseId\}/);
   assert.match(opportunity, /Originating revenue leak case/);
+  assert.match(opportunity, /ORIGINATING BUSINESS EVIDENCE/);
+  assert.match(opportunity, /Originating case diagnostics/);
   assert.match(opportunity, /formatPotentialRevenueAtRisk\(originatingRevenueLeakCase\.commercial_value\)/);
   assert.match(opportunity, /Current opportunity intelligence/);
 });

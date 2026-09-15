@@ -62,7 +62,7 @@ test("uploads adversarial CSV evidence, changes deterministic mapping, confirms,
   await expect(page.getByTestId("evidence-row-1")).toContainText("Not suppliedMISSING");
   await expect(page.getByTestId("evidence-row-1")).toContainText("=2+2NONNUMERIC");
 
-  await page.getByRole("button", { name: "Review deterministic mapping" }).click();
+  await page.getByRole("button", { name: "Check fields and data quality" }).click();
   await expect(page.getByText(/Suggestions remain drafts until you confirm them/)).toBeVisible();
   await expect(page.getByRole("heading", { name: "This export can support the next review" })).toBeVisible();
   await expect(page.getByText("2 valid rows")).toBeVisible();
@@ -133,7 +133,7 @@ test("keeps empty, unauthorized, and definitive request failures distinct", asyn
   await expect(page.getByText("Preview input is malformed.")).toBeVisible();
   await page.getByRole("button", { name: "Retry preview" }).click();
   await expect(page.getByText("No data rows were found in this CSV.")).toBeVisible();
-  await page.getByRole("button", { name: "Review deterministic mapping" }).click();
+  await page.getByRole("button", { name: "Check fields and data quality" }).click();
   await expect(page.getByText("0 valid rows")).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue to confirmation" })).toBeDisabled();
 
@@ -198,11 +198,11 @@ test("fails closed on semantically invalid preview and analysis responses", asyn
   await expect(page.getByText("No staged preview was found. You may retry the same upload.")).toBeVisible();
   await page.getByRole("button", { name: "Retry preview" }).click();
   await expect(page.getByRole("heading", { name: "Export received" })).toBeVisible();
-  await page.getByRole("button", { name: "Review deterministic mapping" }).click();
+  await page.getByRole("button", { name: "Check fields and data quality" }).click();
   await expect(page.getByText("The import service returned an invalid successful response.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Match the fields needed for a trustworthy review" })).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Review deterministic mapping" }).click();
+  await page.getByRole("button", { name: "Check fields and data quality" }).click();
   await expect(page.getByRole("heading", { name: "Match the fields needed for a trustworthy review" })).toBeVisible();
   expect(operations).toEqual(["POST", "GET", "POST"]);
 });
@@ -461,7 +461,7 @@ test("blocks confirmation when source identity does not cover every staged row",
   await page.goto("/#imports");
   await selectCsv(page, adversarialCsv);
   await page.getByRole("button", { name: "Create preview" }).click();
-  await page.getByRole("button", { name: "Review deterministic mapping" }).click();
+  await page.getByRole("button", { name: "Check fields and data quality" }).click();
 
   await expect(page.getByText("50% coverage")).toBeVisible();
   await expect(page.getByText("Source identity must cover every staged row before confirmation.")).toBeVisible();
@@ -624,7 +624,7 @@ test("invalidates late async work on reset and disables editable request state",
   await page.goto("/#imports");
   await selectCsv(page, adversarialCsv);
   await page.getByRole("button", { name: "Create preview" }).click();
-  await page.getByRole("button", { name: "Review deterministic mapping" }).click();
+  await page.getByRole("button", { name: "Check fields and data quality" }).click();
   await expect(page.getByRole("button", { name: "Start another import" })).toBeEnabled();
   await page.getByRole("button", { name: "Start another import" }).click();
   await expect(page.getByRole("heading", { name: "Start with an opportunity export" })).toBeVisible();
@@ -633,7 +633,7 @@ test("invalidates late async work on reset and disables editable request state",
 
   await selectCsv(page, adversarialCsv);
   await page.getByRole("button", { name: "Create preview" }).click();
-  await page.getByRole("button", { name: "Review deterministic mapping" }).click();
+  await page.getByRole("button", { name: "Check fields and data quality" }).click();
   await expect(page.getByRole("heading", { name: "Match the fields needed for a trustworthy review" })).toBeVisible();
 
   await page.getByText("Optional mappings · improve business context").click();
@@ -782,7 +782,7 @@ async function reachConfirmation(page) {
   await page.goto("/#imports");
   await selectCsv(page, adversarialCsv);
   await page.getByRole("button", { name: "Create preview" }).click();
-  await page.getByRole("button", { name: "Review deterministic mapping" }).click();
+  await page.getByRole("button", { name: "Check fields and data quality" }).click();
   await page.getByRole("button", { name: "Continue to confirmation" }).click();
 }
 

@@ -921,28 +921,29 @@ export default function OpportunityCommandCenter({
             aria-label="Originating revenue leak case"
           >
             <div>
-              <span className="oc-card-label">ORIGINATING CASE EVIDENCE</span>
+              <span className="oc-card-label">ORIGINATING BUSINESS EVIDENCE</span>
               {originatingRevenueLeakCaseState === "LOADING" ? (
                 <>
-                  <h3>Loading originating case evidence…</h3>
-                  <p>Checking tenant-authorized durable opportunity case history.</p>
+                  <h3>Loading recorded case context…</h3>
+                  <p>Checking durable case history.</p>
                 </>
               ) : originatingRevenueLeakCase ? (
                 <>
-                  <h3>Case {originatingRevenueLeakCase.id}</h3>
+                  <h3>
+                    {resolved?.business_name || currentOpportunity.business_name || currentOpportunity.name || "Current opportunity"}
+                  </h3>
                   <p>
-                    Why this case reached the action workflow: {" "}
+                    <strong>Why now:</strong> {" "}
                     {detectorReasonExplanation(originatingRevenueLeakCase.reason_code)}
                   </p>
-                  <code>{originatingRevenueLeakCase.reason_code}</code>
                 </>
               ) : (
                 <>
                   <h3>Originating case evidence unavailable</h3>
                   <p>
                     {originatingRevenueLeakCaseState === "ERROR"
-                      ? `Tenant-authorized durable history for case ${focusRevenueLeakCaseId} could not be loaded.`
-                      : `Case ${focusRevenueLeakCaseId} was not confirmed by the tenant-authorized durable opportunity case history.`}
+                      ? "The recorded case context could not be loaded."
+                      : "The originating case was not confirmed by durable opportunity case history."}
                   </p>
                 </>
               )}
@@ -964,13 +965,36 @@ export default function OpportunityCommandCenter({
               </strong>
               <small>{nextAction?.reason || "No current recommendation reason is available."}</small>
             </div>
-            {focusRevenueActionId && (
-              <small>
-                {originatingRevenueLeakCase?.revenue_action_id === focusRevenueActionId
-                  ? `Authoritative case history links RevenueAction ${focusRevenueActionId}.`
-                  : `RevenueAction ${focusRevenueActionId} was not confirmed by the authoritative case link.`}
-              </small>
-            )}
+            <details
+              className="oc-originating-case-diagnostics"
+              aria-label="Originating case diagnostics"
+            >
+              <summary>Originating case diagnostics</summary>
+              <dl>
+                <div>
+                  <dt>Case ID</dt>
+                  <dd>{focusRevenueLeakCaseId}</dd>
+                </div>
+                <div>
+                  <dt>Reason code</dt>
+                  <dd>{originatingRevenueLeakCase?.reason_code || "Not confirmed"}</dd>
+                </div>
+                <div>
+                  <dt>Evidence authority</dt>
+                  <dd>Tenant-authorized durable opportunity case history</dd>
+                </div>
+                {focusRevenueActionId && (
+                  <div>
+                    <dt>RevenueAction link</dt>
+                    <dd>
+                      {originatingRevenueLeakCase?.revenue_action_id === focusRevenueActionId
+                        ? `Confirmed: ${focusRevenueActionId}`
+                        : `Not confirmed: ${focusRevenueActionId}`}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            </details>
           </section>
         )}
 

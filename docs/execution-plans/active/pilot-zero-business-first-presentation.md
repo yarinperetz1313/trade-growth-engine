@@ -177,17 +177,51 @@
   migration boundary changed. Refreshed screenshots are retained outside the
   repository under `artifacts/tge-pilot-zero-cycle1/01-desktop-first-open.png`,
   `02-mobile-customer-case.png`, and `03-mobile-task-created.png`.
+- Fresh independent review #2 (`/root/pilot_zero_cycle1_final_review`) inspected
+  exact checkpoint `f0f62c27d0320741f3b47712612507309034503d`. It accepted the
+  Opportunity Command Center's type-specific task/draft sequences but found the
+  queue candidate still made the unconditional internal-task promise. This is a
+  residual of original root `PZ-P2-EXECUTION-TYPE-SEQUENCE`, not a new root or
+  remediation cycle. Review count is **2**; remediation remains cycle **1/3**.
+- The smallest domain-backed queue regression uses a RevenueLeakCase detection
+  whose authoritative `recommended_action_type` is `FOLLOW_UP`. At `f0f62c2`
+  it was RED **0/1**, receiving “review → approve → create the internal task”.
+  The queue projection has no execution type, so its browser handoff is now
+  neutral: review, approve, and complete the supported step in Opportunity
+  Command Center; the case review executes and sends nothing. No client-side
+  type inference or server/projection/authority change was added.
+- Focused queue GREEN is **1/1** and presentation contracts pass **6/6**.
+  Affected Node/API/domain contracts pass **81/81**. Affected managed Chromium
+  passes **26/26**: queue plus ambiguous handoff **3/3**; communication/manual
+  completion, current workflow/history, and known-zero origin **3/3**; the
+  desktop/390px first-value path **1/1**; guided desktop intake **1/1**; and the
+  complete changed import workflow **18/18**. Production build passes with
+  **34 modules** and the existing chunk warning; engineering harness passes.
+- Optional P3 dispositions: the preview-stage import CTA now has one visible and
+  accessible name, `Check fields and data quality`, with semantic browser and
+  source assertions. Originating-case presentation now leads with business,
+  exact case money, and explained why; technical case/action IDs, raw reason
+  code, link confirmation, and tenant-authority provenance remain inspectable
+  under a closed diagnostics disclosure. These bounded changes consume no
+  remediation cycle. Existing external screenshots were not updated.
+- The follow-up is browser/tests/docs only. No complete integration/browser
+  rerun or PostgreSQL run was warranted after the prior checkpoint's **479/479**
+  integration and **76/76** complete Chromium evidence; affected tests above
+  cover the changed boundary. Final diff, `src`, migration byte identity, and
+  ignored-aware artifact hygiene are checked before the follow-up commit.
 
 ## Review and handoff
 
-- Implementer self-check: cycle-1 remediation complete on the checkpoint commit
-  containing this record; no backend, API,
+- Implementer self-check: cycle-1 remediation and its same-cycle residual repair
+  are complete on the checkpoint commit containing this record; no backend, API,
   persistence, schema, migration, detector, tenant/RLS, case-ordering,
   monetary-calculation, or RevenueAction-authority surface changed.
 - Fresh reviewer findings/resolution: review #1 at `32b331e` produced the four
-  P2 roots recorded above; all four have focused regressions and are closed by
-  remediation cycle **1/3**. A fresh independent review of the new pinned head
-  is the next phase.
+  P2 roots recorded above. Review #2 at `f0f62c2` confirmed three roots and most
+  of execution-type presentation closed, then reproduced the queue residual of
+  `PZ-P2-EXECUTION-TYPE-SEQUENCE`. The domain-backed regression and neutral
+  queue handoff close that residual within remediation cycle **1/3**. A fresh
+  independent review of the new pinned head is the next phase.
 - Final-review evidence: coordinator-owned and not part of this mutation pass.
 - Delivery stop: do not push, open/update a PR, mutate GitHub, start CI, merge,
   or begin another milestone. Stop at a clean candidate for independent review.

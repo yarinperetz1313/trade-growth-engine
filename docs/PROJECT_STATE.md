@@ -44,8 +44,8 @@ context at the RevenueAction handoff; `PZ-P2-EXECUTION-TYPE-SEQUENCE` described
 every action as internal-task creation even though communication drafts complete
 only through an explicit human manual confirmation; and
 `PZ-P2-CURRENT-WORKFLOW-COMPLETION` promoted any historical task-created result
-over a newer active action. Remediation cycle **1/3** is consumed and closes
-those four roots in browser presentation only.
+over a newer active action. Remediation cycle **1/3** is consumed for those four
+roots in browser presentation only.
 
 The remediated queue now leads with the first server-ordered customer case's
 exact projected money when sample/demo cases exist. The unchanged server
@@ -73,10 +73,45 @@ warning; the engineering harness, diff hygiene, empty `src` diff, and migration
 `001`-`016` byte comparison against exact base pass. Updated evidence is outside
 the repository under `artifacts/tge-pilot-zero-cycle1`. PostgreSQL was not run
 because no server, persistence, transaction, tenant/RLS, schema, or migration
-boundary changed. Fresh independent review of the clean cycle-1 checkpoint is
-the next phase. External-pilot provider, hosting, backup/restore, privacy/DPA,
-legal retention/deletion, and real-customer validation remain blocked and out
-of scope.
+boundary changed.
+
+Fresh independent review #2 (`/root/pilot_zero_cycle1_final_review`) of exact
+cycle-1 checkpoint `f0f62c27d0320741f3b47712612507309034503d` confirmed the
+Opportunity Command Center's type-specific sequence, but found one residual of
+the original `PZ-P2-EXECUTION-TYPE-SEQUENCE` root: a queue case still promised
+“review → approve → create the internal task” even though the queue projection
+does not expose execution type and a `FOLLOW_UP` may authoritatively materialize
+as a `COMMUNICATION_DRAFT`. This is incomplete closure of the same root, not a
+new root or remediation cycle; review count is **2** and remediation remains
+cycle **1/3**.
+
+The follow-up queue contract is built from the real RevenueLeakCase domain with
+`recommended_action_type: FOLLOW_UP`. At `f0f62c2` it was RED **0/1** because
+the rendered candidate contained the internal-task promise. The queue now says
+only that the operator will review, approve, and complete the action's supported
+step in Opportunity Command Center, and explicitly says the case review neither
+executes nor sends anything. It does not infer execution type or change the
+server projection. Focused queue GREEN is **1/1**; dependency-free presentation
+contracts pass **6/6**; affected Node/API/domain contracts pass **81/81**; and
+affected managed Chromium passes **26/26** across queue and ambiguous handoff,
+communication/manual completion, current-versus-historical workflow, known-zero
+originating value, the desktop and 390px first-value path, guided intake, and
+the complete changed import-workflow specification. Production build and the
+engineering harness pass; the existing build chunk-size warning remains.
+
+Two direct P3 presentation items were also closed without consuming a cycle.
+The import CTA's visible and accessible name is now consistently `Check fields
+and data quality`, with semantic selectors updated. The originating-case panel
+now leads with business context, exact authoritative case value, and explained
+why-now evidence; case/action IDs, reason code, link confirmation, and tenant-
+authority provenance remain inspectable under a closed diagnostics disclosure.
+No full integration or complete browser suite was repeated because the change
+is browser-only and the affected gates above cover its contracts; the prior
+cycle-1 checkpoint retains complete integration **479/479** and complete
+managed Chromium **76/76** evidence. PostgreSQL remains inapplicable. Fresh
+independent review of the new clean follow-up checkpoint is the next phase.
+External-pilot provider, hosting, backup/restore, privacy/DPA, legal retention/
+deletion, and real-customer validation remain blocked and out of scope.
 
 This mission may change browser composition, copy, navigation, progressive
 disclosure, loading/empty/error hierarchy, and desktop/390px presentation only.

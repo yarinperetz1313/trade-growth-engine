@@ -868,7 +868,7 @@ function PreviewStep({ error, loading, notice, onReview, preview }) {
             <h3>Export received</h3>
             <p>{summary.rowCount} rows and {summary.columnCount} columns are ready for mapping review.</p>
           </div>
-          <button aria-label="Review deterministic mapping" className="primary" disabled={loading} onClick={onReview}>
+          <button className="primary" disabled={loading} onClick={onReview}>
             {loading ? "Checking mappings..." : "Check fields and data quality"}
           </button>
         </div>

@@ -462,10 +462,18 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   await expect(page.getByTestId("opportunity-command-center")).toBeVisible();
   const execution = page.getByTestId("revenue-action-execution");
   const originatingCase = execution.getByLabel("Originating revenue leak case");
-  await expect(originatingCase).toContainText("Case case-imported");
+  await expect(originatingCase.getByRole("heading", { name: "E2E Stalled Roofing" })).toBeVisible();
   await expect(originatingCase).toContainText("AUD 2,500");
-  await expect(originatingCase).toContainText("STALE_WITHOUT_NEXT_ACTION");
+  await expect(originatingCase).toContainText(
+    "The opportunity reached the stalled threshold without a meaningful next action."
+  );
   await expect(originatingCase).toContainText("Current opportunity intelligence");
+  const originatingDiagnostics = originatingCase.getByRole("group", {
+    name: "Originating case diagnostics"
+  });
+  await expect(originatingDiagnostics).not.toHaveAttribute("open", "");
+  await expect(originatingDiagnostics).toContainText("case-imported");
+  await expect(originatingDiagnostics).toContainText("STALE_WITHOUT_NEXT_ACTION");
   await expect(execution).toContainText("Review → Approve → Create internal task");
   await expect(execution.getByTestId("revenue-action-status")).toHaveText("RECOMMENDED");
   await execution.getByRole("button", { name: "Prepare action" }).click();

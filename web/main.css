@@ -1617,6 +1617,41 @@
   padding-top: 12px;
 }
 
+.oc-originating-case-diagnostics {
+  border-top: 1px solid rgba(255,255,255,.08);
+  color: #8f98a6;
+  font-size: 11px;
+  grid-column: 1 / -1;
+  padding-top: 10px;
+}
+
+.oc-originating-case-diagnostics summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.oc-originating-case-diagnostics dl {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+}
+
+.oc-originating-case-diagnostics dl > div {
+  display: grid;
+  gap: 4px;
+  grid-template-columns: minmax(110px, .35fr) minmax(0, 1fr);
+}
+
+.oc-originating-case-diagnostics dt {
+  color: #c7cbd3;
+  font-weight: 700;
+}
+
+.oc-originating-case-diagnostics dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 700px) {
   .oc-originating-case {
     grid-template-columns: minmax(0, 1fr);

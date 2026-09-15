@@ -85,7 +85,7 @@ test("guides a desktop CSV intake with truthful capabilities and inert templates
   });
   await page.getByRole("button", { name: "Create preview" }).click();
   await expect(page.getByRole("heading", { name: "Export received" })).toBeVisible();
-  await page.getByRole("button", { name: "Review deterministic mapping" }).click();
+  await page.getByRole("button", { name: "Check fields and data quality" }).click();
   await expect(page.getByRole("heading", { name: "Match the fields needed for a trustworthy review" })).toBeVisible();
   expect(previewPosts).toBe(1);
   expect(resumeReads).toBe(0);

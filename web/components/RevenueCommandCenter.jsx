@@ -665,7 +665,7 @@ function QueueCase({
               <h5>Continue to a safe action</h5>
               <p>
                 {canNavigate
-                  ? "Create one linked action, then review → approve → create the internal task. Nothing is sent from this case review."
+                  ? "Create one linked action, then review, approve, and complete its supported step in Opportunity Command Center. This case review does not execute or send anything."
                   : "Current opportunity context unavailable. Recovery action and navigation are unavailable; the historical source identity remains visible for review."}
               </p>
               {linkedAction && (
