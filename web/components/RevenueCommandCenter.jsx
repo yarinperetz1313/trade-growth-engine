@@ -1,13 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createRevenueActionForLeakCase,
+  getOpportunityRevenueLeakCases,
   getPilotEvidenceStatus,
   getRevenueLeakOperatingQueue,
   getStalledOpportunityEligibility,
   recordPilotCaseFeedback,
   recordPilotCaseInspected,
   recordPilotCaseSurfaced,
-  scanStalledOpportunities
+  scanStalledOpportunities,
+  transitionRevenueLeakCase
 } from "../lib/api";
 import {
   formatCommercialValue,
@@ -26,6 +28,10 @@ import {
   createPilotEvidenceOperationGuard,
   requiresPilotEvidenceReconciliation
 } from "../lib/pilotEvidenceContracts.mjs";
+import {
+  buildFirstValueScanResult,
+  selectCredibleHero
+} from "../lib/firstValueJourney.mjs";
 import { EvidenceDetails } from "./RevenueLeakCasePanel.jsx";
 
 function countLabel(summary) {
@@ -129,49 +135,91 @@ function dataOriginCopy(origin) {
   return "Existing customer";
 }
 
-function ScanSummary({ summary }) {
-  const detected = summary.outcomes.ELIGIBLE_LEAK_DETECTED.count;
+function ScanSummary({ summary, queue, queueFreshness }) {
+  const queueCurrent = queueFreshness === "CURRENT";
+  const result = buildFirstValueScanResult(summary, queueCurrent ? queue : null);
+  const detected = result.credible_case_count;
   return (
     <section className="rcc2-scan-summary" role="status" aria-label="Complete explicit scan outcomes">
-      <div className="rcc2-scan-heading">
-        <strong>Complete explicit scan</strong>
-        <span>Evaluated {summary.evaluated_count}</span>
-        <span>Excluded {summary.excluded_count}</span>
-        <span>Unevaluated {summary.unevaluated_count}</span>
+      <div className="rcc2-result-heading">
+        <span className="eyebrow">WHAT TGE FOUND</span>
+        <h4>{detected > 0
+          ? `${detected} credible revenue ${detected === 1 ? "case" : "cases"} found`
+          : summary.evaluated_count === 0
+            ? "No opportunity evidence was available to scan"
+            : "No credible stalled-opportunity case found"}</h4>
+        <p>{detected > 0
+          ? queueCurrent
+            ? "The durable queue below contains the current active cases after this explicit scan. Open the highest-priority customer case to inspect why it matters and choose the next human-controlled step."
+            : "The explicit scan confirmed credible cases. Current active-case counts and economic value remain withheld until durable queue truth refreshes."
+          : summary.evaluated_count === 0
+            ? "No canonical opportunities were available. Import or create opportunity evidence, review Operational Data Health, then explicitly scan again."
+          : result.limitation_count > 0
+            ? `TGE found no leak in ${result.assessed_no_leak_count} assessable records; ${result.limitation_count} could not support a decision. Review the exact limitations before improving evidence and scanning again.`
+            : `TGE found no stalled leak in ${result.assessed_no_leak_count} assessable records. This result covers only the current tenant-visible opportunity dataset.`}</p>
       </div>
-      {summary.evaluated_count === 0 && (
-        <p>No canonical opportunities were available. Import or create opportunity evidence, then explicitly scan again.</p>
-      )}
-      {summary.evaluated_count > 0 && detected === 0 && (
-        <p>No eligible stalled-opportunity leak was detected. Review every closed outcome below before deciding whether to improve evidence or scan again.</p>
-      )}
-      <div className="rcc2-scan-outcomes">
-        {SCAN_OUTCOMES.map(outcome => {
-          const result = summary.outcomes[outcome];
-          const title = detectorOutcomePresentation(outcome, null).title;
-          const reasons = Object.entries(result.reasons);
-          return (
-            <article key={outcome}>
-              <strong>{title}</strong>
-              <span>{result.count}</span>
-              {reasons.length === 0 ? (
-                <small>No closed reasons returned.</small>
-              ) : (
-                <ul>
-                  {reasons.map(([reason, count]) => (
-                    <li key={reason}>
-                      <code>{reason}</code> · {count} — {detectorReasonExplanation(reason)}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </article>
-          );
-        })}
+      <div className="rcc2-result-counts" aria-label="Credible scan result counts">
+        <div><span>Credible cases</span><strong>{result.credible_case_count}</strong></div>
+        <div><span>Assessed · no leak</span><strong>{result.assessed_no_leak_count}</strong></div>
+        <div><span>Evidence limitations</span><strong>{result.limitation_count}</strong></div>
+        {queueCurrent ? (
+          <div><span>Active cases now</span><strong>{result.active_case_count}</strong></div>
+        ) : (
+          <div>
+            <span>Current case truth</span>
+            <strong>{queueFreshness === "REFRESHING"
+              ? "Refreshing durable queue truth"
+              : "Unavailable"}</strong>
+          </div>
+        )}
       </div>
-      <small>
-        Suppressed {summary.outcomes.DATA_HEALTH_SUPPRESSED.count}. Detector thresholds and queue order are unchanged.
-      </small>
+      <QueueSummary summary={queue?.value_summary} freshness={queueFreshness} />
+      {queueCurrent ? (
+        <small className="rcc2-result-truth">
+          Known amounts are exact current active-case values grouped by authoritative currency.
+          No cross-currency total is calculated. Unknown is not zero. Sample/demo cases stay labelled
+          and never satisfy first-value evidence. Created {result.created_case_count},
+          replayed {result.replayed_case_count}, and reconciled as superseded {result.superseded_case_count}.
+        </small>
+      ) : (
+        <small className="rcc2-result-truth">
+          Confirmed scan outcomes remain available, but current active-case counts and money unavailable
+          until a durable queue refresh succeeds. Created {result.created_case_count}, replayed {result.replayed_case_count},
+          and reconciled as superseded {result.superseded_case_count} are scan outcomes, not current queue totals.
+        </small>
+      )}
+      <details className="rcc2-scan-details">
+        <summary>Inspect complete detector outcomes and reason codes</summary>
+        <div className="rcc2-scan-heading">
+          <span>Evaluated {summary.evaluated_count}</span>
+          <span>Excluded {summary.excluded_count}</span>
+          <span>Unevaluated {summary.unevaluated_count}</span>
+        </div>
+        <div className="rcc2-scan-outcomes">
+          {SCAN_OUTCOMES.map(outcome => {
+            const outcomeResult = summary.outcomes[outcome];
+            const title = detectorOutcomePresentation(outcome, null).title;
+            const reasons = Object.entries(outcomeResult.reasons);
+            return (
+              <article key={outcome}>
+                <strong>{title}</strong>
+                <span>{outcomeResult.count}</span>
+                {reasons.length === 0 ? (
+                  <small>No closed reasons returned.</small>
+                ) : (
+                  <ul>
+                    {reasons.map(([reason, count]) => (
+                      <li key={reason}>
+                        <code>{reason}</code> · {count} — {detectorReasonExplanation(reason)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      </details>
     </section>
   );
 }
@@ -246,10 +294,10 @@ function OperationalDataHealth({ readiness, state, error, onRetry }) {
         <p>Import or create opportunity evidence before running the detector.</p>
       )}
       {summary.readiness === "READY" && (
-        <p>The server can decide leak or no-leak for every current tenant-visible opportunity. Run the explicit scan when you are ready.</p>
+        <p>TGE received {summary.total_opportunities} current tenant-visible opportunities and can assess all {summary.detector_assessable_count}. Review the value coverage, then explicitly scan when you choose.</p>
       )}
       {summary.readiness === "PARTIAL" && (
-        <p>The explicit scan will evaluate all {summary.scan_evaluated_count} records, but can decide leak or no-leak for only {summary.detector_assessable_count}. Review the limitations below before proceeding with that safe subset.</p>
+        <p>TGE received {summary.total_opportunities} current tenant-visible opportunities. It can assess {summary.detector_assessable_count}; {summary.detector_unassessable_count} have limitations. Review those limitations before explicitly scanning the supported subset.</p>
       )}
       {summary.readiness === "NOT_READY" && (
         <p>The explicit scan would return only evidence limitations. Resolve the supported issues below, then refresh readiness.</p>
@@ -314,6 +362,20 @@ function OperationalDataHealth({ readiness, state, error, onRetry }) {
   );
 }
 
+function RevenueJourneyPath() {
+  return (
+    <section className="rcc2-path" aria-label="First credible revenue journey">
+      <strong>DATA → TRUTH → MONEY → PROBLEM → WHY → ACTION</strong>
+      <span>Committed evidence</span>
+      <span>Server readiness</span>
+      <span>Exact value truth</span>
+      <span>Credible case</span>
+      <span>Inspectable evidence</span>
+      <span>Human-controlled work</span>
+    </section>
+  );
+}
+
 function PilotJourney({ status }) {
   if (!status?.milestones.import_committed) return null;
   const milestones = [
@@ -328,8 +390,9 @@ function PilotJourney({ status }) {
   return (
     <section className="rcc2-pilot-journey" aria-label="First-value pilot journey">
       <div>
-        <span className="eyebrow">FIRST-VALUE JOURNEY</span>
-        <strong>Privacy-minimized durable milestones</strong>
+        <span className="eyebrow">PILOT SESSION RESULT</span>
+        <strong>Privacy-minimized durable product evidence</strong>
+        <small>These milestones are product evidence, not customer adoption and not commercial-outcome evidence.</small>
       </div>
       <ol>
         {milestones.map(([label, complete]) => (
@@ -342,7 +405,20 @@ function PilotJourney({ status }) {
   );
 }
 
-function QueueSummary({ summary }) {
+function QueueSummary({ summary, freshness }) {
+  if (freshness !== "CURRENT") {
+    return (
+      <div className="rcc2-state" role="status" aria-label="Current queue economic truth">
+        <strong>{freshness === "REFRESHING"
+          ? "Refreshing current queue economics…"
+          : "Current queue economics unavailable"}</strong>
+        <small>
+          Exact active-case counts and money are withheld until an authorized
+          durable queue refresh succeeds. Unknown is not zero.
+        </small>
+      </div>
+    );
+  }
   const totals = summary?.known_positive?.totals_by_currency || [];
   return (
     <div className="rcc2-summary" aria-label="Potential revenue at risk summary">
@@ -382,12 +458,14 @@ function QueueCase({
   expanded,
   disabled,
   mutating,
+  hero,
   firstImported,
   inspected,
   feedback,
   feedbackCode,
   onToggle,
   onCreateAction,
+  onDecision,
   onOpenOpportunity,
   onFeedbackCode,
   onSubmitFeedback,
@@ -395,12 +473,15 @@ function QueueCase({
   pilotDisabled,
   retryInspection
 }) {
+  const [snoozeReason, setSnoozeReason] = useState("");
+  const [snoozeDays, setSnoozeDays] = useState("3");
+  const [dismissReason, setDismissReason] = useState("");
   const businessName = identityCopy(entry);
   const potential = formatPotentialRevenueAtRisk(entry.potential_value);
   const linkedAction = entry.linked_revenue_action;
   const canNavigate = Boolean(entry.opportunity?.id);
   return (
-    <article className="rcc2-case" data-case-id={entry.case.id}>
+    <article className={`rcc2-case${hero ? " hero" : ""}`} data-case-id={entry.case.id}>
       <button
         type="button"
         className="rcc2-case-toggle"
@@ -417,6 +498,9 @@ function QueueCase({
             </span>
             {firstImported && (
               <span className="rcc2-first-value">First credible imported-customer case</span>
+            )}
+            {hero && (
+              <span className="rcc2-hero-case">Highest-priority credible customer case</span>
             )}
           <strong>{businessName}</strong>
           <small>
@@ -515,8 +599,11 @@ function QueueCase({
               </p>
               {linkedAction && (
                 <strong data-testid={`rcc2-action-state-${entry.case.id}`}>
-                  {actionStateCopy(linkedAction.current.status)}
+                  Action already exists · {actionStateCopy(linkedAction.current.status)}
                 </strong>
+              )}
+              {!canNavigate && (
+                <strong>TAKE ACTION cannot proceed — current opportunity context is unavailable.</strong>
               )}
             </div>
             <div className="rcc2-case-buttons">
@@ -527,7 +614,7 @@ function QueueCase({
                   disabled={disabled}
                   onClick={() => onCreateAction(entry)}
                 >
-                  {mutating ? "Reconciling durable truth…" : "Create recovery action"}
+                  {mutating === "TAKE_ACTION" ? "Reconciling durable truth…" : "TAKE ACTION"}
                 </button>
               )}
               {canNavigate && (
@@ -538,12 +625,82 @@ function QueueCase({
                   onClick={() => onOpenOpportunity(entry.opportunity.id)}
                 >
                   {linkedAction
-                    ? "Continue in Opportunity Command Center"
+                    ? "CONTINUE ACTION"
                     : "Open opportunity"}
                 </button>
               )}
             </div>
           </div>
+          <section className="rcc2-decisions" aria-label={`Human decisions for ${businessName}`}>
+            <div>
+              <h5>SNOOZE</h5>
+              <p>Keep the case active, record why, and set a future wake time.</p>
+              {entry.case.lifecycle_state === "OPEN" ? (
+                <>
+                  <label>
+                    <span>Reason to snooze</span>
+                    <input
+                      value={snoozeReason}
+                      maxLength={512}
+                      disabled={disabled}
+                      onChange={event => setSnoozeReason(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Wake time</span>
+                    <select
+                      value={snoozeDays}
+                      disabled={disabled}
+                      onChange={event => setSnoozeDays(event.target.value)}
+                    >
+                      <option value="1">In 1 day</option>
+                      <option value="3">In 3 days</option>
+                      <option value="7">In 7 days</option>
+                      <option value="14">In 14 days</option>
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="oc-secondary-button"
+                    disabled={disabled || !snoozeReason.trim()}
+                    onClick={() => onDecision(entry, "snooze", {
+                      reason: snoozeReason.trim(),
+                      wake_at: new Date(
+                        Date.now() + Number(snoozeDays) * 24 * 60 * 60 * 1000
+                      ).toISOString()
+                    })}
+                  >
+                    {mutating === "SNOOZE" ? "Snoozing…" : "SNOOZE"}
+                  </button>
+                </>
+              ) : (
+                <strong>Already snoozed · use the opportunity history to resume.</strong>
+              )}
+            </div>
+            <div>
+              <h5>DISMISS</h5>
+              <p>Close this case with a durable human reason. This does not rewrite its evidence.</p>
+              <label>
+                <span>Reason to dismiss</span>
+                <input
+                  value={dismissReason}
+                  maxLength={512}
+                  disabled={disabled}
+                  onChange={event => setDismissReason(event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="oc-secondary-button"
+                disabled={disabled || !dismissReason.trim()}
+                onClick={() => onDecision(entry, "dismiss", {
+                  reason: dismissReason.trim()
+                })}
+              >
+                {mutating === "DISMISS" ? "Dismissing…" : "DISMISS"}
+              </button>
+            </div>
+          </section>
         </div>
       )}
     </article>
@@ -579,10 +736,13 @@ export default function RevenueCommandCenter({
   const [sourceFilter, setSourceFilter] = useState("ALL");
   const [scanState, setScanState] = useState(null);
   const [scanSummary, setScanSummary] = useState(null);
+  const [queueEconomicFreshness, setQueueEconomicFreshness] = useState(null);
   const [mutationCaseId, setMutationCaseId] = useState(null);
+  const [mutationKind, setMutationKind] = useState(null);
   const [mutationMessage, setMutationMessage] = useState(null);
   const [mutationError, setMutationError] = useState(null);
   const [reconciliationBlocked, setReconciliationBlocked] = useState(false);
+  const [pendingCaseReconciliation, setPendingCaseReconciliation] = useState(null);
   const [pilotStatus, setPilotStatus] = useState(null);
   const [pilotStatusState, setPilotStatusState] = useState("LOADING");
   const [pilotMessage, setPilotMessage] = useState(null);
@@ -595,6 +755,11 @@ export default function RevenueCommandCenter({
   const queueRequest = useRef(0);
   const readinessRequest = useRef(0);
   const queueRef = useRef(null);
+  const scanSummaryRef = useRef(null);
+  const queueTruthGeneration = useRef(0);
+  const queueMutationEpoch = useRef(0);
+  const activeQueueMutation = useRef(null);
+  const pendingCaseReconciliationRef = useRef(null);
   const pilotStatusRequest = useRef(0);
   const pilotGuard = useRef(null);
   const surfacedAttempt = useRef(null);
@@ -625,18 +790,32 @@ export default function RevenueCommandCenter({
     }
   }, []);
 
-  const loadQueue = useCallback(async () => {
-    const requestId = ++queueRequest.current;
-    if (!queueRef.current) setQueueState("LOADING");
-    else setRefreshing(true);
-    setQueueError(null);
+  const loadQueue = useCallback(async ({ queueMutationToken = null } = {}) => {
+    const mutationEpoch = queueMutationEpoch.current;
+    const activeMutation = activeQueueMutation.current;
+    const ownsMutationBoundary = activeMutation === null
+      || queueMutationToken === activeMutation;
+    const requestId = ownsMutationBoundary ? ++queueRequest.current : null;
+    const truthGeneration = queueTruthGeneration.current;
+    if (ownsMutationBoundary) {
+      if (!queueRef.current) setQueueState("LOADING");
+      else setRefreshing(true);
+      setQueueError(null);
+    }
     try {
       const response = await getRevenueLeakOperatingQueue();
-      if (!mounted.current || requestId !== queueRequest.current) return null;
+      if (
+        !mounted.current
+        || !ownsMutationBoundary
+        || requestId !== queueRequest.current
+        || mutationEpoch !== queueMutationEpoch.current
+      ) return null;
       queueRef.current = response.data;
       setQueue(response.data);
       setQueueState("READY");
-      setReconciliationBlocked(false);
+      if (truthGeneration === queueTruthGeneration.current) {
+        setQueueEconomicFreshness("CURRENT");
+      }
       setSelectedCaseId(current =>
         response.data.entries.some(entry => entry.case.id === current)
           ? current
@@ -644,14 +823,70 @@ export default function RevenueCommandCenter({
       );
       return response.data;
     } catch (requestError) {
-      if (!mounted.current || requestId !== queueRequest.current) return null;
+      if (
+        !mounted.current
+        || !ownsMutationBoundary
+        || requestId !== queueRequest.current
+        || mutationEpoch !== queueMutationEpoch.current
+      ) return null;
       setQueueError(queueErrorCopy(requestError));
       setQueueState(queueRef.current ? "STALE" : "ERROR");
+      if (truthGeneration === queueTruthGeneration.current) {
+        setQueueEconomicFreshness("UNAVAILABLE");
+      }
       return null;
     } finally {
-      if (mounted.current && requestId === queueRequest.current) setRefreshing(false);
+      if (
+        mounted.current
+        && ownsMutationBoundary
+        && requestId === queueRequest.current
+        && mutationEpoch === queueMutationEpoch.current
+      ) setRefreshing(false);
     }
   }, []);
+
+  function setCaseReconciliation(attempt) {
+    pendingCaseReconciliationRef.current = attempt;
+    setPendingCaseReconciliation(attempt);
+  }
+
+  function invalidateQueueEconomicTruth(nextState = "REFRESHING") {
+    queueTruthGeneration.current += 1;
+    setQueueEconomicFreshness(nextState);
+  }
+
+  function restoreQueueEconomicTruthAfterDefinitiveFailure(queueMutationToken) {
+    if (
+      activeQueueMutation.current === queueMutationToken
+      && queueRef.current
+    ) {
+      setQueueEconomicFreshness("CURRENT");
+    }
+  }
+
+  function beginQueueMutation() {
+    const token = queueMutationEpoch.current + 1;
+    queueMutationEpoch.current = token;
+    activeQueueMutation.current = token;
+    queueRequest.current += 1;
+    setRefreshing(false);
+    invalidateQueueEconomicTruth();
+    return token;
+  }
+
+  function finishQueueMutation(token) {
+    if (activeQueueMutation.current === token) {
+      activeQueueMutation.current = null;
+    }
+  }
+
+  async function loadCurrentQueueTruth() {
+    const durable = await loadQueue();
+    if (durable && pendingCaseReconciliationRef.current === null) {
+      setReconciliationBlocked(false);
+    }
+    return durable;
+  }
 
   const loadReadiness = useCallback(async () => {
     const requestId = ++readinessRequest.current;
@@ -721,7 +956,7 @@ export default function RevenueCommandCenter({
     setMutationMessage(null);
     setMutationError(null);
     await Promise.all([
-      loadQueue(),
+      loadCurrentQueueTruth(),
       loadPilotStatus(),
       loadReadiness(),
       onRefresh?.()
@@ -855,23 +1090,33 @@ export default function RevenueCommandCenter({
   }
 
   async function runScan() {
+    const queueMutationToken = beginQueueMutation();
     setScanState("RUNNING");
     setMutationMessage(null);
     setMutationError(null);
     try {
       const response = await scanStalledOpportunities();
       if (!mounted.current) return;
+      scanSummaryRef.current = response.summary;
       setScanSummary(response.summary);
-      const durable = await loadQueue();
+      invalidateQueueEconomicTruth();
+      const durable = await loadQueue({ queueMutationToken });
       await Promise.all([loadPilotStatus(), loadReadiness()]);
-      if (durable) setMutationMessage(
-        "Scan complete. The durable operating queue was refreshed."
-      );
+      if (durable) {
+        setMutationMessage(
+          "Scan complete. The durable operating queue was refreshed."
+        );
+      }
     } catch (scanError) {
       if (!mounted.current) return;
       if (isAmbiguousRevenueLeakCaseMutationError(scanError)) {
+        invalidateQueueEconomicTruth("UNAVAILABLE");
         setReconciliationBlocked(true);
-        const [durable] = await Promise.all([loadQueue(), loadPilotStatus()]);
+        const [durable] = await Promise.all([
+          loadQueue({ queueMutationToken }),
+          loadPilotStatus()
+        ]);
+        if (durable) setReconciliationBlocked(false);
         setMutationError(durable ? {
           title: "Scan outcome reconciled",
           message: "The scan response was not confirmed. Durable queue truth was reloaded; run another scan only by explicit choice."
@@ -880,24 +1125,29 @@ export default function RevenueCommandCenter({
           message: "Durable queue truth must reload before another mutation is allowed."
         });
       } else {
+        restoreQueueEconomicTruthAfterDefinitiveFailure(queueMutationToken);
         setMutationError(queueErrorCopy(scanError));
       }
     } finally {
+      finishQueueMutation(queueMutationToken);
       if (mounted.current) setScanState(null);
     }
   }
 
   async function createRecoveryAction(entry) {
+    const queueMutationToken = beginQueueMutation();
     const caseId = entry.case.id;
     const opportunityId = entry.opportunity.id;
     setMutationCaseId(caseId);
+    setMutationKind("TAKE_ACTION");
     setMutationMessage(null);
     setMutationError(null);
     try {
       await createRevenueActionForLeakCase(caseId, opportunityId);
       if (!mounted.current) return;
       setReconciliationBlocked(true);
-      const durable = await loadQueue();
+      const durable = await loadQueue({ queueMutationToken });
+      if (durable) setReconciliationBlocked(false);
       const linked = durable?.entries.find(item => item.case.id === caseId)
         ?.linked_revenue_action;
       if (linked) {
@@ -921,7 +1171,8 @@ export default function RevenueCommandCenter({
       if (!mounted.current) return;
       if (isAmbiguousRevenueLeakCaseMutationError(handoffError)) {
         setReconciliationBlocked(true);
-        const durable = await loadQueue();
+        const durable = await loadQueue({ queueMutationToken });
+        if (durable) setReconciliationBlocked(false);
         const linked = durable?.entries.find(item => item.case.id === caseId)
           ?.linked_revenue_action;
         if (linked) {
@@ -947,10 +1198,125 @@ export default function RevenueCommandCenter({
           });
         }
       } else {
+        restoreQueueEconomicTruthAfterDefinitiveFailure(queueMutationToken);
         setMutationError(queueErrorCopy(handoffError));
       }
     } finally {
-      if (mounted.current) setMutationCaseId(null);
+      finishQueueMutation(queueMutationToken);
+      if (mounted.current) {
+        setMutationCaseId(null);
+        setMutationKind(null);
+      }
+    }
+  }
+
+  async function runCaseDecision(entry, transition, body) {
+    const queueMutationToken = beginQueueMutation();
+    const caseId = entry.case.id;
+    const opportunityId = entry.historical_opportunity_id;
+    const expectedState = transition === "snooze" ? "SNOOZED" : "DISMISSED";
+    setMutationCaseId(caseId);
+    setMutationKind(expectedState === "SNOOZED" ? "SNOOZE" : "DISMISS");
+    setMutationMessage(null);
+    setMutationError(null);
+    try {
+      const response = await transitionRevenueLeakCase(
+        caseId,
+        transition,
+        body,
+        opportunityId
+      );
+      if (!mounted.current) return;
+      if (response.data.state !== expectedState) {
+        throw Object.assign(new Error("The case response did not confirm the requested lifecycle state."), {
+          code: "REVENUE_LEAK_BROWSER_RESPONSE_INVALID",
+          status: null
+        });
+      }
+      await loadQueue({ queueMutationToken });
+      setCaseReconciliation(null);
+      setMutationMessage(expectedState === "SNOOZED"
+        ? "Case snoozed with a durable human reason and future wake time."
+        : "Case dismissed with a durable human reason. Its evidence and audit history remain inspectable in the opportunity.");
+    } catch (decisionError) {
+      if (!mounted.current) return;
+      if (isAmbiguousRevenueLeakCaseMutationError(decisionError)) {
+        try {
+          const history = await getOpportunityRevenueLeakCases(opportunityId);
+          if (!mounted.current) return;
+          const durableCase = history.data.find(item => item.id === caseId);
+          await loadQueue({ queueMutationToken });
+          setReconciliationBlocked(false);
+          if (durableCase?.state === expectedState) {
+            setCaseReconciliation(null);
+            setMutationMessage(
+              `Durable case history confirms ${expectedState}. No duplicate mutation was attempted.`
+            );
+          } else {
+            setCaseReconciliation(null);
+            setMutationError({
+              title: "Case decision not confirmed",
+              message: "Durable case history does not show the requested state. Review current truth before explicitly trying again."
+            });
+          }
+        } catch (historyError) {
+          invalidateQueueEconomicTruth("UNAVAILABLE");
+          setReconciliationBlocked(true);
+          setCaseReconciliation({ caseId, opportunityId, expectedState });
+          setMutationError({
+            title: "Case decision outcome unknown",
+            message: "Durable case history must reload before another case or action mutation is allowed. Open the opportunity to reconcile its full history."
+          });
+        }
+      } else {
+        restoreQueueEconomicTruthAfterDefinitiveFailure(queueMutationToken);
+        setMutationError(queueErrorCopy(decisionError));
+      }
+    } finally {
+      finishQueueMutation(queueMutationToken);
+      if (mounted.current) {
+        setMutationCaseId(null);
+        setMutationKind(null);
+      }
+    }
+  }
+
+  async function reconcileCaseDecision() {
+    const attempt = pendingCaseReconciliation;
+    if (!attempt) return;
+    const queueMutationToken = beginQueueMutation();
+    setMutationCaseId(attempt.caseId);
+    setMutationKind("RECONCILE");
+    try {
+      const history = await getOpportunityRevenueLeakCases(attempt.opportunityId);
+      if (!mounted.current) return;
+      const durableCase = history.data.find(item => item.id === attempt.caseId);
+      await loadQueue({ queueMutationToken });
+      setCaseReconciliation(null);
+      setReconciliationBlocked(false);
+      if (durableCase?.state === attempt.expectedState) {
+        setMutationError(null);
+        setMutationMessage(
+          `Durable case history confirms ${attempt.expectedState}. No duplicate mutation was attempted.`
+        );
+      } else {
+        setMutationError({
+          title: "Case decision not confirmed",
+          message: "Durable case history does not show the requested state. Review current truth before explicitly trying again."
+        });
+      }
+    } catch (historyError) {
+      invalidateQueueEconomicTruth("UNAVAILABLE");
+      setMutationError({
+        title: "Case decision outcome still unknown",
+        message: "Durable case history remains unavailable. No case or action mutation can be retried yet."
+      });
+    } finally {
+      finishQueueMutation(queueMutationToken);
+      if (mounted.current) {
+        setMutationCaseId(null);
+        setMutationKind(null);
+      }
     }
   }
 
@@ -963,10 +1329,17 @@ export default function RevenueCommandCenter({
     || mutationCaseId
     || refreshing
     || reconciliationBlocked
+    || pendingCaseReconciliation
     || queueState !== "READY"
   );
   const scanCredible = readinessState === "READY"
     && ["READY", "PARTIAL"].includes(readiness?.summary?.readiness);
+  const credibleHero = selectCredibleHero(queue?.entries || []);
+  const presentedQueueFreshness = queueState === "READY"
+    ? queueEconomicFreshness
+    : queueEconomicFreshness === null
+      ? null
+      : "UNAVAILABLE";
 
   return (
     <section
@@ -976,11 +1349,11 @@ export default function RevenueCommandCenter({
     >
       <div className="rcc2-hero">
         <div>
-          <span className="eyebrow">REVENUE COMMAND CENTER V2</span>
-          <h3 id="revenue-command-center-title">What revenue needs attention?</h3>
+          <span className="eyebrow">REVENUE LEAK QUEUE</span>
+          <h3 id="revenue-command-center-title">Find the first credible revenue problem</h3>
           <p>
-            Deterministic RevenueLeakCases ordered by the server from recorded,
-            tenant-visible CRM evidence.
+            See what TGE received, what the server can assess, exact known money,
+            why a case matters, and the next human-controlled action.
           </p>
         </div>
         <div className="rcc2-hero-actions">
@@ -995,13 +1368,14 @@ export default function RevenueCommandCenter({
           <button
             type="button"
             className="text-button"
-            disabled={refreshing || reconciliationBlocked}
+            disabled={refreshing || reconciliationBlocked || Boolean(pendingCaseReconciliation)}
             onClick={refreshQueue}
           >
             {refreshing ? "Refreshing…" : "Refresh queue"}
           </button>
         </div>
       </div>
+      <RevenueJourneyPath />
 
       {queueState === "LOADING" && !queue && (
         <div className="rcc2-state" role="status">Loading revenue leak operating queue…</div>
@@ -1014,7 +1388,7 @@ export default function RevenueCommandCenter({
             <small>Showing the last validated queue while refresh is unavailable.</small>
           )}
           {queueError.kind !== "UNAUTHORIZED" && (
-            <button type="button" className="oc-secondary-button" onClick={loadQueue}>
+            <button type="button" className="oc-secondary-button" onClick={loadCurrentQueueTruth}>
               Retry queue
             </button>
           )}
@@ -1024,6 +1398,16 @@ export default function RevenueCommandCenter({
       {mutationError && (
         <div className="rcc2-alert" role="alert">
           <strong>{mutationError.title}</strong><span>{mutationError.message}</span>
+          {pendingCaseReconciliation && (
+            <button
+              type="button"
+              className="oc-secondary-button"
+              disabled={mutationKind === "RECONCILE"}
+              onClick={reconcileCaseDecision}
+            >
+              {mutationKind === "RECONCILE" ? "Reconciling…" : "Reconcile case history"}
+            </button>
+          )}
         </div>
       )}
       {pilotMessage && <div className="rcc2-success" role="status">{pilotMessage}</div>}
@@ -1064,11 +1448,22 @@ export default function RevenueCommandCenter({
         error={readinessError}
         onRetry={loadReadiness}
       />
-      {scanSummary && <ScanSummary summary={scanSummary} />}
+      {scanSummary && (
+        <ScanSummary
+          summary={scanSummary}
+          queue={queue}
+          queueFreshness={presentedQueueFreshness}
+        />
+      )}
 
       {queue && (
         <>
-          <QueueSummary summary={queue.value_summary} />
+          {!scanSummary && (
+            <QueueSummary
+              summary={queue.value_summary}
+              freshness={presentedQueueFreshness}
+            />
+          )}
           <fieldset className="rcc2-filters">
             <legend>Filter authoritative case fields</legend>
             <div className="rcc2-filter">
@@ -1108,15 +1503,17 @@ export default function RevenueCommandCenter({
                   entry={entry}
                   expanded={selectedCaseId === entry.case.id}
                   disabled={controlsDisabled || actionsUnavailable}
+                  hero={entry.case.id === credibleHero?.case.id}
                   firstImported={entry.case.id === firstImportedCase?.case.id}
                   inspected={pilotStatus?.inspected_case_ids.includes(entry.case.id)}
                   feedback={pilotStatus?.case_feedback.find(item =>
                     item.case_id === entry.case.id
                   )?.feedback_code || null}
                   feedbackCode={feedbackCode}
-                  mutating={mutationCaseId === entry.case.id}
+                  mutating={mutationCaseId === entry.case.id ? mutationKind : null}
                   onToggle={() => toggleCase(entry)}
                   onCreateAction={createRecoveryAction}
+                  onDecision={runCaseDecision}
                   onFeedbackCode={setFeedbackCode}
                   onRetryInspection={() => inspectFirstImported(entry, {
                     explicitRetry: true

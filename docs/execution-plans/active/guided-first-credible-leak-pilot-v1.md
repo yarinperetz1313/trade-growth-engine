@@ -22,16 +22,19 @@
 
 - GitHub Issue #14 was approved by the repository owner on 2026-09-14 as this
   exact three-slice milestone. Slice 2 depends on merged Slice 1; Slice 3 depends on merged Slice 2.
+  Both prerequisite merges are now complete, satisfying Slice 3's dependency
+  gate.
 - Slice 1 merged through PR #36 as `0666e974ac0e007b8c0ead3ebef3b101f4688017`.
-  Post-merge Verify run `34830965722` succeeded. Slice 2 starts from that exact
-  clean `origin/main` on isolated branch
-  `feat/operational-data-health-eligibility` and worktree
-  `operational-data-health-eligibility`; preflight was clean, including ignored
+  Post-merge Verify run `34830965722` succeeded. Slice 2 merged through PR #37
+  as `3c1a3423c7ac03def96047783ca0f3f4b1f68f74`; post-merge Verify run
+  `34836937086` succeeded. Slice 3 starts from that exact clean `origin/main` on
+  isolated branch `feat/first-credible-revenue-moment-v1` and worktree
+  `first-credible-revenue-moment-v1`; preflight was clean, including ignored
   files, and the branch was 0 behind / 0 ahead.
 - The completed Pilot Readiness record moved to
   `../completed/pilot-readiness.md`; its evidence is preserved and is not active
   authorization for additional infrastructure, retention, or provider work.
-- Migrations `001`-`016` are the immutable Slice 1 baseline. Their SHA-256
+- Migrations `001`-`016` are the immutable Slice 3 baseline. Their SHA-256
   values are recorded below; no schema or migration is authorized unless
   existing durable server truth is first shown insufficient and an independent
   architecture review establishes the need.
@@ -44,7 +47,7 @@
 | Ingestion | CSV is the only supported pilot ingestion mechanism; templates are inert downloads and never auto-upload or import. | Issue #14 owner approval |
 | Tenant/business context | Use authenticated membership/tenant context and persisted import/source facts. The browser never invents a business name or supplies tenant authority. | Secure Pilot and import contracts |
 | Resume authority | Derive the current step from existing server-returned batch/import/Pilot evidence truth. Browser-only progress cannot authorize or imply a completed step. | Import and Pilot evidence APIs |
-| Detection | Stalled-opportunity execution remains an explicit user action. Slice 1 does not invoke, change, or schedule it. | Issue #14 owner approval |
+| Detection | Stalled-opportunity execution remains an explicit user action. Slice 3 composes but does not invoke, change, or schedule it automatically. | Issue #14 owner approval |
 | Product truth | Preserve known/zero/unknown and authoritative currency distinctions, immutable import/case evidence, sample exclusion, and explicit insufficient-evidence states. | Repository architecture and Issue #14 |
 | Recovery | Existing request generations and ambiguous-outcome reconciliation remain authoritative. Stale, malformed, or unknown durable state fails visibly with a useful retry/restart action. | Browser import contracts |
 | Compatibility | Preserve existing upload, preview, mapping, Data Health, confirmation, and commit APIs. No connector abstraction or new persistence. | Slice 1 scope |
@@ -56,16 +59,60 @@
   commit-supported versus preview-only collection capabilities; and server-
   truth-derived resumability. No detector, case/action, operational eligibility,
   session-result, persistence, schema, or migration changes.
-- [ ] **Slice 2 — Operational Data Health and eligibility.** After Slice 1 is
+- [x] **Slice 2 — Operational Data Health and eligibility.** After Slice 1 is
   merged, add post-commit operational Data Health, inspectable stalled-
   opportunity eligibility, exact missing/stale/invalid/suppressed reasons,
   actionable remediation, and truthful dataset coverage. No additional
   detectors.
-- [ ] **Slice 3 — First-value operating journey.** After Slice 2 is merged, make
+- [x] **Slice 3 — First-value operating journey (local implementation candidate;
+  independent review pending).** With Slice 2 merged, make
   explicit scan the clear post-commit continuation, provide a credible case or
   actionable no-case explanation, cohere inspection/feedback/RevenueAction
   handoff, make the case queue the effective operating home, complete 390px
   journey usability, and expose a privacy-minimized pilot-session result.
+
+## Slice 3 bounded implementation plan
+
+1. Characterize the committed-import continuation, strict readiness and scan
+   envelopes, deterministic operating queue, case evidence/lifecycle, Pilot
+   status, and RevenueAction command-center contracts. Reuse them without new
+   persistence, tenant authority, detector decisions, or monetary inference.
+2. Add focused RED browser-contract and composition tests for the absent
+   DATA → TRUTH → MONEY → PROBLEM → WHY → ACTION journey, including credible,
+   no-case, partial, unknown-money, multiple-currency, stale/reconciled, and
+   action-existing/cannot-proceed states.
+3. Implement the smallest business-first browser composition: post-commit
+   readiness continuation; explicit scan; truthful result summary and
+   deterministic hero; inspectable evidence/limitations; Take Action, Snooze,
+   and Dismiss continuity; and bounded queue navigation clarity.
+4. Derive any displayed pilot-session result only from the existing strict,
+   privacy-minimized Pilot status. Treat missing or unavailable evidence as
+   unknown, never as adoption or customer proof.
+5. Verify focused contracts, the affected integration set, managed desktop and
+   390px journeys, then harness/build/migration/diff/artifact hygiene near the
+   clean implementation checkpoint. Stop before independent review or GitHub
+   delivery.
+
+## Acceptance evidence required for Slice 3
+
+- A committed supported import continues directly to Operational Data Health;
+  no scan occurs until the operator explicitly invokes it.
+- Scan results reconcile credible, no-case, partial, stale/suppressed,
+  unavailable, and reconciled states without promoting unassessable records.
+- Exact known monetary significance is grouped by authoritative currency;
+  unknown and known-zero remain distinct and currencies are never converted or
+  summed together.
+- The strongest server-ranked active case is visually primary, while immutable
+  evidence, provenance, reason codes, timestamps, source lineage, lifecycle,
+  and limitations remain inspectable.
+- Take Action enters the existing RevenueAction materialization and command-
+  center lifecycle; Snooze and Dismiss use existing audited case transitions.
+  Ambiguous writes reconcile through existing read authorities, and no outbound
+  or bulk autonomous execution occurs.
+- A first-time authorized operator can complete the supported journey at desktop
+  and 390px, including action preparation, required approval, and safe internal
+  or manual execution, or receives an exact useful next step when progression is
+  unsupported.
 
 ## Slice 2 bounded implementation plan
 
@@ -145,11 +192,12 @@
 
 | Level | Command or inspection | Expected evidence |
 | --- | --- | --- |
-| Preflight | branch/HEAD/origin/merge-base/status/worktrees; instructions; Issue #14; current plans/code/tests | Exact `ea22ce9`; clean; authoritative scope available |
-| RED | Focused browser/import contract tests added before product edits | Deterministic failures for the absent guidance/capability/resume behavior |
-| GREEN | Same focused tests, then affected import/API/browser-contract tests | New behavior and preserved contracts pass |
-| Visible smoke | `npm run test:e2e -- <focused managed spec>` when needed | Desktop and 390px guided/resume flow passes without developer data |
-| Proportional gate | `npm run test:harness`; migration byte comparison; `git diff --check`; artifact scan | Harness and hygiene pass; migrations `001`-`016` unchanged |
+| Preflight | branch/HEAD/origin/merge-base/status/worktrees; instructions; Issue #14; current plans/code/tests | Exact `3c1a342`; clean; Slice 1/2 merged; authoritative scope available |
+| RED | `node --test test/first-credible-revenue-moment.test.js` before product edits | **0/4**: absent journey composition and result authority |
+| GREEN | Same focused file, then affected import/readiness/queue/Pilot browser contracts | **4/4**, then **43/43** |
+| Integration | `npm run test:integration` | **472/472** without backend or persistence changes |
+| Visible journey | `npm run test:e2e` through the managed wrapper | **65/65**, including desktop and 390px first-value paths without developer data |
+| Proportional gate | `npm run build`; `npm run test:harness`; migration byte comparison; `git diff --check`; artifact scan | Build/harness/hygiene pass; migrations `001`-`016` unchanged |
 
 ## Migration baseline
 
@@ -353,6 +401,147 @@
   diff hygiene, and artifact cleanup pass. PostgreSQL was not repeated because
   the existing exact-head tenant/RLS contract is **1/1** and this remediation
   changes no repository, tenant, schema, migration, or mutation boundary.
+- Slice 3 planning preflight confirmed `HEAD`, `origin/main`, and merge-base at
+  exact `3c1a3423c7ac03def96047783ca0f3f4b1f68f74`, with the isolated branch and
+  worktree clean and 0 ahead / 0 behind. Live Issue #14, merged PR #37, its
+  successful post-merge Verify run `34836937086`, repository/scoped
+  instructions, architecture, existing worktrees, and active task ownership
+  were inspected. Clean planning checkpoint `118c315` activated this contract.
+- Slice 3 TDD RED was **0/4** before the result-composition helper and journey
+  controls existed; the identical focused command is GREEN **4/4**. The
+  affected guided import, readiness, queue, case, Pilot evidence, and browser
+  contracts pass **43/43**. Complete integration passes **472/472**.
+- The browser now makes committed import continue to server-assessed
+  Operational Data Health with no automatic scan; presents the explicit scan
+  as the operator-owned next step; separates credible/no-leak/evidence-
+  limitation/reconciled outcomes; and shows exact active-case money grouped by
+  authoritative currency while preserving known zero, unknown, and not-
+  applicable states. The first server-ordered non-sample customer case is the
+  visual hero; technical provenance, immutable evidence, reason codes,
+  timestamps, source lineage, and limitations remain inspectable.
+- TAKE ACTION composes the existing idempotent case-to-RevenueAction handoff
+  and continues only in Opportunity Command Center. SNOOZE and DISMISS use the
+  existing audited RevenueLeakCase transitions; unconfirmed responses reconcile
+  exact durable opportunity case history before another mutation is allowed.
+  Missing live opportunity context blocks action creation/navigation but does
+  not hide the immutable historical case identity or supported case decisions.
+  No bulk/autonomous mutation or outbound execution was added.
+- Complete managed Chromium passes **65/65**. It covers resumed committed
+  import, readiness, explicit scan, credible and no-credible results, partial
+  eligibility, unknown money, multiple currencies, stale/suppressed reasons,
+  superseded scan reconciliation, existing/cannot-proceed action states,
+  ambiguous case lifecycle recovery, TAKE ACTION through prepare/required
+  approval/safe internal execution, and no horizontal overflow at 390px.
+  Production build succeeds with **34 modules** and only the existing >500 kB
+  chunk warning; the engineering harness passes. Migrations `001`-`016` match
+  the recorded SHA-256 baseline. No database, repository, tenant, RLS, schema,
+  migration, detector, or server authority changed, so the merged Slice 2
+  PostgreSQL **1/1** evidence was not repeated.
+- The first independent Slice 3 review returned two P2 browser-state findings.
+  A delayed ordinary queue refresh could clear the shared reconciliation block
+  after an ambiguous Snooze/Dismiss response and failed durable case-history
+  read. Separately, a successful scan followed by a pending or failed queue
+  refresh could label cached pre-scan active-case counts and money as current.
+- Both synchronized regressions were added before product changes. The focused
+  scan-result contract was RED **4/5**, failing only because current queue truth
+  could not be withheld. Managed Chromium was RED **0/2**: the delayed refresh
+  re-enabled TAKE ACTION, and the pending refresh displayed cached zero current
+  cases and an empty monetary summary.
+- The lifecycle repair makes unresolved case-history reconciliation a separate
+  ref-backed mutation gate. Generic queue reads no longer release the shared
+  reconciliation block; an already-running refresh checks the authoritative
+  pending-case ref before clearing anything. TAKE ACTION, SNOOZE, DISMISS,
+  explicit scan, and queue refresh remain disabled until a successful exact
+  opportunity case-history reconciliation resolves the attempt.
+- Scan outcomes and queue freshness are now distinct. Confirmed detector counts
+  and reconciliation dispositions remain visible while the post-scan queue read
+  is pending or unavailable, but current active-case counts and every monetary
+  summary are `null`/withheld. A successful corresponding or explicit recovery
+  queue read marks them current and restores exact currency-grouped values.
+  GREEN is **5/5** focused and **2/2** synchronized Chromium. The affected
+  detector/readiness/queue/Pilot/monetary browser contracts pass **49/49** and
+  affected managed Chromium passes **23/23** across the complete first-value,
+  Operational Data Health, product-truth, and Revenue Command Center journeys.
+  The engineering harness and production build pass. Migrations `001`-`016`
+  remain unchanged; no PostgreSQL gate was repeated because no server,
+  persistence, tenant/RLS, schema, migration, or mutation authority changed.
+- The fresh post-remediation review confirmed the original lifecycle lock and
+  initial post-scan refresh findings closed, then found two remaining browser
+  composition defects. Later successful lifecycle writes or ambiguous scans
+  could fail their durable queue read while retaining `CURRENT` on the prior
+  active-case counts and exact money. Queue-to-opportunity and back hash
+  navigation could also retain the prior page title because the parent `page`
+  state remained `opportunities` throughout.
+- The additionally authorized remediation added three deterministic managed-
+  browser regressions before production edits. In the combined RED run, the
+  route-title and successful-lifecycle scenarios failed their intended
+  assertions. The ambiguous-scan scenario first exposed an ambiguous test
+  selector; after narrowing it to the exact mutation alert, it failed the
+  intended stale-money assertion. All three product regressions are GREEN
+  **3/3**.
+- Queue freshness now has an independent generation. Scan, handoff, and case
+  lifecycle mutations invalidate current presentation before mutation; only a
+  matching-generation durable queue read restores `CURRENT`. A reconciliation
+  failure advances that generation, so a read begun earlier cannot republish
+  stale counts or money. `queueState !== READY` is an additional fail-closed
+  rendering boundary. Confirmed scan outcomes remain visible while current
+  active-case counts and every monetary summary are withheld, and explicit
+  recovery restores exact currency-grouped truth.
+- The application tracks the exact hash route as reactive state in addition to
+  the bounded top-level page. The title therefore follows queue → Opportunity
+  Action → queue/back navigation, including at 390px, without changing the
+  existing route or Opportunity Command Center authority.
+- The affected Node contracts pass **54/54**. Managed Chromium passes **35/35**
+  across the first-value, Operational Data Health, Opportunity Command Center,
+  product-truth, and Revenue Command Center journeys. The production build
+  passes with **34 modules** and only the existing chunk-size warning; the
+  engineering harness, syntax, migration byte identity, aggregate diff hygiene,
+  and artifact cleanup pass. No backend, persistence, tenant/RLS, detector,
+  schema, migration, or RevenueAction authority changed, so PostgreSQL was not
+  repeated. Fresh independent review of the new pinned checkpoint is the next
+  gate.
+- That review confirmed the preceding findings closed and reproduced one
+  remaining P2: an ordinary refresh launched while Dismiss was unresolved could
+  return pre-dismiss queue data and temporarily certify the old active case and
+  `AUD 42,000.5` as current before the owned post-write refresh completed.
+- The new deterministic browser regression was RED **0/1** with exactly that
+  false-current presentation. Queue reads now carry an explicit mutation epoch
+  and only the owning post-mutation/reconciliation read may publish within an
+  active mutation. Mutation start also invalidates every older request, so a
+  technically completing stale response cannot regain queue-state ownership.
+  The shared boundary applies to explicit scan, Snooze/Dismiss, case-history
+  reconciliation, and RevenueAction linkage without changing server authority.
+- The regression is GREEN **1/1** and the complete Revenue Command Center spec
+  passes **15/15**. Complete Node integration passes **473/473**, the remaining
+  affected first-value Chromium set passes **21/21**, and the production build
+  passes with **34 modules** and only the existing chunk-size warning. No
+  PostgreSQL/RLS gate was repeated because the repair changes no backend,
+  repository, tenant, persistence, schema, migration, detector, or
+  RevenueAction authority. Harness, migration byte identity, diff hygiene, and
+  artifact cleanup pass; fresh independent review is the remaining checkpoint
+  gate.
+- That review confirmed the shared mutation epoch across scan, Snooze/Dismiss,
+  reconciliation, and RevenueAction handoff, then found one no-scan presentation
+  bypass: a revisited queue rendered its cached monetary aggregate while a
+  confirmed Dismiss awaited or failed its owned post-write refresh. The exact
+  deterministic Chromium regression was RED **0/1**, retaining `AUD 42,000.5 / 1
+  case` as current during the pending refresh.
+- Queue economic freshness is now independent of local scan-summary existence.
+  Mutation start invalidates the prior economic snapshot unconditionally, and
+  both aggregate-rendering paths use one `CURRENT` gate. Pending, failed, or
+  ambiguous reconciliation withholds counts and money without inferring zero;
+  only an authorized successful durable queue read restores exact current
+  aggregates. A definitive 409 mutation rejection restores the unchanged
+  authoritative pre-write snapshot and has its own regression.
+- The no-scan regression is GREEN **1/1** and the definitive-rejection companion
+  is GREEN **1/1**. The complete Revenue Command Center Chromium specification
+  passes **17/17**, including scan/no-scan freshness, normal refresh,
+  known-zero/unknown/multiple-currency presentation, stale-read ownership,
+  ambiguous recovery, Snooze/Dismiss, and RevenueAction handoff. Focused
+  first-value/browser/queue/money contracts pass **31/31**; complete Node
+  integration passes **473/473**; complete managed Chromium passes **73/73**;
+  the production build and engineering harness pass. Migrations `001`-`016`
+  remain byte-identical, and no backend or PostgreSQL/RLS boundary changed.
 
 ## Review and handoff
 
@@ -381,5 +570,25 @@
   overflow, and schema drift. Focused, affected, PostgreSQL, browser, harness,
   build, migration, and artifact evidence is recorded above. Fresh independent
   review remains the next gate.
-- Debt/follow-up: Slice 3 remains dependency-gated; all explicit milestone
-  non-goals remain out of scope.
+- Slice 3 implementer self-check: the complete diff was reread defect-first for
+  client re-ranking, sample proof, implicit scan, false no-leak completeness,
+  FX/cross-currency or unknown-to-zero inference, stale/malformed authority,
+  duplicate ambiguous writes, action-lifecycle ownership, unavailable current
+  opportunity context, autonomous outbound, mobile overflow, and schema drift.
+  One edge case was corrected before checkpoint: historical cases now reconcile
+  Snooze/Dismiss through their immutable historical opportunity identity even
+  when current action/navigation context is absent. No remaining in-scope
+  defect was found. Fresh independent review of the pinned checkpoint is the
+  next gate.
+- Slice 3 first-review findings are remediated at the browser lifecycle and
+  queue-freshness boundaries. The exact delayed-refresh lifecycle interleaving
+  remains blocked until successful history reconciliation, and delayed/failed/
+  recovered post-scan reads prove cached money is never promoted to current.
+  The following fresh review found the later-mutation freshness and reactive
+  title gaps described above; both are now covered by RED-first browser
+  regressions and the generation-aware/reactive-route remediation. Fresh
+  independent review of the new pinned checkpoint is the next gate.
+- Debt/follow-up: no new product debt was introduced. The existing production
+  bundle-size warning remains visible; broad information architecture,
+  connectors, additional detectors, attribution/ROI, recovered-revenue claims,
+  autonomous execution, and the next milestone remain out of scope.

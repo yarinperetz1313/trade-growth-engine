@@ -14,18 +14,137 @@ scheduling, and broad CRM replacement are out of scope. The 15-minute, 2/3
 completion, and 4/5 trust targets are measurement hypotheses, not customer
 evidence or shipped claims.
 
-Slice 1 merged through PR #36 as exact `origin/main`
-`0666e974ac0e007b8c0ead3ebef3b101f4688017`; its post-merge Verify run
-`34830965722` succeeded. Slice 2 now starts from that exact clean base on
-`feat/operational-data-health-eligibility`. It may derive a read-only,
-tenant-scoped `STALLED_OPPORTUNITY` readiness projection from the existing
-canonical opportunity/activity/task truth and detector version 1, but it may
-not add persistence or a migration without a separate insufficiency finding and
-independent architecture review. Explicit scan remains the only operation that
-may reconcile RevenueLeakCases. Slice 3 remains dependency-gated. The completed
-Pilot Readiness plan remains historical evidence and is not active authority.
+Slice 1 merged through PR #36 as
+`0666e974ac0e007b8c0ead3ebef3b101f4688017`; post-merge Verify run
+`34830965722` succeeded. Slice 2 merged through PR #37 as exact `origin/main`
+`3c1a3423c7ac03def96047783ca0f3f4b1f68f74`; post-merge Verify run
+`34836937086` succeeded. Slice 3 is now active from that exact clean base on
+`feat/first-credible-revenue-moment-v1`. It may compose the existing guided
+import/resume, server-authoritative readiness, explicit detector scan,
+RevenueLeakCase queue/lifecycle/evidence, Pilot evidence, and RevenueAction
+handoff into one first-value operating journey. Explicit operator action remains
+the only operation that may run the detector and reconcile RevenueLeakCases.
+Existing authoritative truth is sufficient; no schema, migration, new detector,
+autonomous outbound, or unsupported commercial-result persistence is authorized.
+The completed Pilot Readiness plan remains historical evidence and is not active
+authority.
 
-The local Slice 2 implementation candidate now exposes a tenant-bound,
+The local Slice 3 implementation candidate now composes the supported committed-
+import continuation, server-authoritative Operational Data Health, explicit
+tenant-wide detector scan, deterministic RevenueLeakCase queue, immutable case
+evidence and human lifecycle decisions, privacy-minimized Pilot evidence, and
+the existing RevenueAction workflow into one DATA → TRUTH → MONEY → PROBLEM →
+WHY → ACTION journey. Revenue leaks is the bounded portfolio destination; the
+strongest server-ordered non-sample customer case is visually primary without
+client re-ranking. Exact known amounts remain grouped by authoritative currency,
+known zero and unknown remain distinct, and no FX, attribution, recovered-
+revenue, causality, autonomous scan, outbound, schema, or persistence claim was
+added. Focused TDD was RED **0/4** and GREEN **4/4**; the affected browser
+contracts pass **43/43**, complete integration passes **472/472**, and complete
+managed Chromium passes **65/65**, including the 390px first-value and
+RevenueAction lifecycle journey. The production build and engineering harness
+pass with only the existing chunk-size warning. Migrations `001`-`016` remain
+byte-identical; no PostgreSQL/RLS boundary changed, so the merged Slice 2
+PostgreSQL **1/1** evidence was not repeated. Independent review and GitHub
+delivery remain coordinator-owned next gates.
+
+The first Slice 3 review identified two browser freshness races, now corrected
+without changing server, detector, persistence, tenancy, or RevenueAction
+authority. An unresolved Snooze/Dismiss outcome owns an independent,
+ref-backed mutation gate; an ordinary queue read that began earlier cannot
+release it, and only tenant-authorized opportunity case-history reconciliation
+can do so. Confirmed scan outcomes are separated from current active-case
+truth: while the corresponding durable queue read is pending or unavailable,
+the browser withholds active-case counts and all monetary summaries rather than
+presenting cached pre-scan values as current. A later successful queue read
+restores exact currency-grouped money and current counts. Focused RED was
+**4/5** for the missing withheld-result contract and synchronized Chromium was
+RED **0/2** for both races; GREEN is **5/5** and **2/2**. The affected Node
+contracts pass **49/49**, affected managed Chromium passes **23/23**, and the
+engineering harness and production build pass. Migrations `001`-`016` remain
+unchanged.
+
+The subsequent fresh Slice 3 review confirmed those two findings closed and
+identified one remaining P2 current-truth gap plus one P3 route-title gap. A
+successful lifecycle mutation followed by a failed queue refresh, or an
+ambiguous later scan followed by failed queue reconciliation, could leave a
+previously current active-case count and exact monetary summary labelled as
+current. In-place queue-to-opportunity hash navigation could also leave the
+top-bar title on the prior route because the parent page identifier did not
+change.
+
+The additional bounded remediation makes queue truth generation-aware across
+scan, RevenueAction handoff, and case lifecycle mutations. Those operations
+invalidate current-case presentation before mutation; only a corresponding
+successful durable queue read can restore `CURRENT`, and an older read cannot
+restore it after a later reconciliation failure. `queueState` independently
+prevents stale queue data from reaching the exact-money result summary.
+Confirmed detector outcomes remain visible while current counts and every
+monetary summary are withheld, and an explicit successful retry restores them.
+The app now also tracks the exact hash route reactively, so queue, opportunity
+action, and back navigation update the title without changing route authority.
+
+Deterministic browser RED evidence reproduced all three product defects: the
+title and successful-lifecycle scenarios failed their intended assertions in
+the combined run; after correcting an initially ambiguous alert selector, the
+ambiguous-scan scenario separately failed its intended stale-money assertion.
+The same three scenarios are GREEN **3/3**. The affected first-value,
+queue/case, handoff, monetary, Operational Data Health, and Pilot browser
+contracts pass **54/54**. Managed Chromium passes **35/35** across the complete
+first-value, readiness, Opportunity Command Center, product-truth, and Revenue
+Command Center journeys, including recovery and 390px title navigation. The
+production build passes with **34 modules** and the existing chunk-size warning;
+the engineering harness and diff hygiene pass. Migrations `001`-`016` remain
+byte-identical, and no backend, persistence, tenant/RLS, detector, schema, or
+RevenueAction authority changed. Fresh independent review of the resulting
+pinned checkpoint is the next gate.
+
+That fresh review confirmed the preceding freshness and route-title findings
+closed, then reproduced one remaining queue-read ownership race. An ordinary
+queue refresh launched while a consequential case mutation was unresolved
+could share the mutation's freshness generation, return pre-mutation data, and
+temporarily relabel the prior active-case count and exact money as current. The
+bounded repair adds an explicit queue-mutation epoch and owner token. Mutation
+start invalidates reads from every older epoch, and reads launched during the
+mutation cannot publish queue state unless they are the explicitly owned
+post-mutation/reconciliation read. This shared boundary covers explicit scan,
+Snooze/Dismiss, case-history reconciliation, and RevenueAction linkage without
+changing their server authority or allowing a stale response to win browser
+state ownership.
+
+The synchronized Chromium regression was RED **0/1** with the stale case and
+`AUD 42,000.5` presented as exact current truth, then GREEN **1/1** after the
+repair. The complete Revenue Command Center browser specification passes
+**15/15**, including normal refresh, ambiguous lifecycle recovery, scan
+freshness, RevenueAction handoff, and the repaired interleaving. Complete Node
+integration passes **473/473**; the remaining affected managed Chromium journey
+passes **21/21**; and the production build passes with **34 modules** and only
+the existing chunk-size warning. No PostgreSQL/RLS gate was repeated because no
+backend, repository, tenant, persistence, schema, migration, detector, or
+RevenueAction authority changed. Engineering harness, migration byte identity,
+diff hygiene, and artifact cleanup pass; fresh independent review remains the
+final local checkpoint gate.
+
+That review confirmed the mutation epoch and stale-read rejection, then found
+one presentation path that still bypassed the same truth boundary: a revisited
+queue with no scan summary rendered its monetary aggregate unconditionally
+after a confirmed Dismiss while the authoritative post-write read was pending
+or unavailable. Queue economic freshness is now independent of scan-session
+state. Every consequential queue mutation invalidates the prior aggregate;
+both scan and no-scan summaries consume the same `CURRENT` gate; and only an
+authorized successful durable queue read restores counts and exact
+currency-grouped money. A definitive rejected mutation restores the unchanged
+pre-write snapshot, while confirmed or ambiguous outcomes continue to require
+durable reconciliation. The exact no-scan regression was RED **0/1** because
+`AUD 42,000.5 / 1 case` remained visible, then GREEN **1/1**; a companion
+definitive-rejection regression is also green. The complete Revenue Command
+Center Chromium file passes **17/17**, complete managed Chromium passes
+**73/73**, focused cross-layer contracts pass **31/31**, complete integration
+passes **473/473**, and the production build and engineering harness pass.
+Migrations `001`-`016` remain unchanged; no server or PostgreSQL/RLS boundary
+changed. Fresh independent review remains the next gate.
+
+The merged Slice 2 implementation exposes a tenant-bound,
 read-only stalled-opportunity eligibility projection before scan. It uses the
 same portfolio admission and version-1 detector evaluator as the existing
 explicit scan, but it does not reconcile cases or append Pilot evidence. The
@@ -912,7 +1031,9 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 
 ## Milestone status
 - Active plan: [**Guided First Credible Leak Pilot V1**](execution-plans/active/guided-first-credible-leak-pilot-v1.md).
-  Only Slice 1 is authorized for current implementation. The completed
+  Slices 1 and 2 are merged; Slice 3 has reached a clean local implementation
+  candidate, completed the explicitly authorized bounded freshness
+  remediations, and awaits fresh independent review. The completed
   [**Pilot Readiness**](execution-plans/completed/pilot-readiness.md) record is
   historical evidence, not an active backlog.
   The [**RevenueLeakCase foundation**](execution-plans/completed/revenue-leak-case-foundation.md)

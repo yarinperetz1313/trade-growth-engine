@@ -2,7 +2,7 @@
 
 ## Active plan
 
-- [`active/guided-first-credible-leak-pilot-v1.md`](active/guided-first-credible-leak-pilot-v1.md) — **Issue #14's approved three-slice milestone is active. Slice 1 (guided CSV intake and server-truth resumability) is in implementation; Slice 2 and Slice 3 remain sequentially merge-gated and unstarted.**
+- [`active/guided-first-credible-leak-pilot-v1.md`](active/guided-first-credible-leak-pilot-v1.md) — **Issue #14's approved three-slice milestone is active. Slice 1 and Slice 2 are merged; Slice 3 has reached a local coherent implementation candidate from exact `origin/main` `3c1a342` and awaits independent review.**
 
 ## Completed plans
 

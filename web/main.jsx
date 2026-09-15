@@ -41,7 +41,7 @@ import {
 const nav = [
   ["dashboard", "Dashboard"],
   ["prospects", "Prospects"],
-  ["opportunities", "Opportunities"],
+  ["opportunities", "Revenue leaks"],
   ["pipeline", "Pipeline"],
   ["imports", "Imports"]
 ];
@@ -84,6 +84,20 @@ function importRouteFromHash() {
   return hash.startsWith("imports?batch=") ? hash : "imports";
 }
 
+function routeFromHash() {
+  return window.location.hash.replace(/^#\/?/, "").split("?", 1)[0];
+}
+
+function pageTitle(page, route) {
+  if (page === "dashboard") return "Command Center";
+  if (page === "opportunities") {
+    return route.startsWith("opportunities/")
+      ? "Opportunity Action"
+      : "Revenue Leak Queue";
+  }
+  return nav.find(item => item[0] === page)?.[1] || page;
+}
+
 function App() {
   const [
     page,
@@ -98,10 +112,12 @@ function App() {
   ] = useState("");
   const [importRoute, setImportRoute] = useState(importRouteFromHash);
   const [importRouteVersion, setImportRouteVersion] = useState(0);
+  const [route, setRoute] = useState(routeFromHash);
 
   useEffect(() => {
     const syncPageFromHash = () => {
       const nextPage = pageFromHash();
+      setRoute(routeFromHash());
       setPage(nextPage);
       if (nextPage === "imports") {
         setImportRoute(importRouteFromHash());
@@ -187,12 +203,7 @@ function App() {
             </div>
 
             <h1>
-              {page === "dashboard"
-                ? "Command Center"
-                : nav.find(
-                    item =>
-                      item[0] === page
-                  )?.[1] || page}
+              {pageTitle(page, route)}
             </h1>
           </div>
 

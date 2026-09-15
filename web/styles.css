@@ -1155,6 +1155,27 @@ p {
   justify-content: flex-end;
 }
 
+.rcc2-path {
+  background: rgba(212, 181, 106, 0.055);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: grid;
+  gap: 7px 12px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  padding: 14px 20px;
+}
+
+.rcc2-path strong {
+  color: #d4b56a;
+  font-size: 10px;
+  grid-column: 1 / -1;
+  letter-spacing: 0.05em;
+}
+
+.rcc2-path span {
+  color: #8f99aa;
+  font-size: 9px;
+}
+
 .rcc2-summary {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   border-top: 1px solid rgba(255, 255, 255, 0.06);
@@ -1249,6 +1270,11 @@ p {
   overflow: hidden;
 }
 
+.rcc2-case.hero {
+  border-color: rgba(212, 181, 106, 0.48);
+  box-shadow: 0 0 0 1px rgba(212, 181, 106, 0.08);
+}
+
 .rcc2-case-toggle {
   align-items: center;
   background: transparent;
@@ -1311,7 +1337,8 @@ p {
 }
 
 .rcc2-origin,
-.rcc2-first-value {
+.rcc2-first-value,
+.rcc2-hero-case {
   font-size: 9px;
   letter-spacing: 0.04em;
 }
@@ -1321,7 +1348,8 @@ p {
 }
 
 .rcc2-origin.imported_customer,
-.rcc2-first-value {
+.rcc2-first-value,
+.rcc2-hero-case {
   color: #b8d8c0;
 }
 
@@ -1368,6 +1396,54 @@ p {
   display: block;
   font-size: 11px;
   margin-top: 8px;
+}
+
+.rcc2-decisions {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
+.rcc2-decisions > div {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 9px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.rcc2-decisions h5,
+.rcc2-decisions p {
+  margin: 0;
+}
+
+.rcc2-decisions p,
+.rcc2-decisions label span,
+.rcc2-decisions > div > strong {
+  color: #8f99aa;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.rcc2-decisions label {
+  display: grid;
+  gap: 5px;
+}
+
+.rcc2-decisions input,
+.rcc2-decisions select {
+  background: #17191d;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #eef2f8;
+  min-width: 0;
+  padding: 9px 10px;
+  width: 100%;
 }
 
 .rcc2-pilot-feedback {
@@ -1478,6 +1554,67 @@ p {
 
 .rcc2-scan-summary {
   display: block;
+}
+
+.rcc2-result-heading {
+  display: grid;
+  gap: 7px;
+}
+
+.rcc2-result-heading h4,
+.rcc2-result-heading p {
+  margin: 0;
+}
+
+.rcc2-result-heading h4 {
+  color: #eef2f8;
+  font-size: 20px;
+}
+
+.rcc2-result-heading p,
+.rcc2-result-truth {
+  color: #a9c6b0;
+  line-height: 1.55;
+}
+
+.rcc2-result-counts {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 14px 0;
+}
+
+.rcc2-result-counts > div {
+  background: rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+}
+
+.rcc2-result-counts span {
+  color: #a9c6b0;
+  font-size: 9px;
+}
+
+.rcc2-result-counts strong {
+  color: #eef2f8;
+  font-size: 18px;
+}
+
+.rcc2-scan-details {
+  margin-top: 12px;
+}
+
+.rcc2-scan-details > summary {
+  color: #d9e8dd;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.rcc2-scan-details .rcc2-scan-heading {
+  margin-top: 10px;
 }
 
 .rcc2-scan-heading {
@@ -1754,6 +1891,16 @@ p {
   .rcc2-feedback-controls {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .rcc2-path,
+  .rcc2-result-counts,
+  .rcc2-decisions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rcc2-path strong {
+    grid-column: auto;
   }
 }
 
