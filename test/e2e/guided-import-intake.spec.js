@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import path from "node:path";
 
 import {
   adversarialCsv,
@@ -30,10 +31,19 @@ test("guides a desktop CSV intake with truthful capabilities and inert templates
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/#imports");
 
-  const context = page.getByRole("region", { name: "Business and source context" });
+  if (process.env.TGE_EVIDENCE_DIR) {
+    await page.screenshot({
+      fullPage: true,
+      path: path.join(process.env.TGE_EVIDENCE_DIR, "01-desktop-first-open.png")
+    });
+  }
+
+  await expect(page.getByRole("heading", { name: "Find a revenue problem in your sales pipeline" })).toBeVisible();
+  const context = page.locator(".import-source-settings");
+  await context.getByText("Import settings and source identity").click();
   await expect(context).toContainText("TGE import workspace");
   await expect(context).not.toContainText("Authenticated TGE workspace");
-  await expect(context).toContainText("membership and tenant authority are resolved by the server");
+  await expect(context).toContainText("Business membership and tenant authority are resolved by the server");
   const sourceSystem = context.getByLabel("Source system namespace");
   await sourceSystem.fill("Quarterly CRM export");
   await expect(sourceSystem).toHaveAttribute("aria-invalid", "true");
@@ -47,8 +57,13 @@ test("guides a desktop CSV intake with truthful capabilities and inert templates
   await expect(sourceSystem).toHaveAttribute("aria-invalid", "false");
 
   const capability = page.getByRole("region", { name: "Selected collection capability" });
-  await expect(capability).toContainText("Prospects");
+  await expect(capability).toContainText("Opportunities");
   await expect(capability).toContainText("Canonical commit supported");
+  const opportunityTemplate = capability.getByRole("link", { name: "Download blank CSV template" });
+  await expect(opportunityTemplate).toHaveAttribute("download", "tge-opportunities-blank-template.csv");
+
+  await page.getByLabel("Source collection").selectOption("prospects");
+  await expect(capability).toContainText("Prospects");
   const prospectTemplate = capability.getByRole("link", { name: "Download blank CSV template" });
   await expect(prospectTemplate).toHaveAttribute("download", "tge-prospects-blank-template.csv");
   const prospectHref = await prospectTemplate.getAttribute("href");
@@ -69,9 +84,9 @@ test("guides a desktop CSV intake with truthful capabilities and inert templates
     buffer: Buffer.from(adversarialCsv, "utf8")
   });
   await page.getByRole("button", { name: "Create preview" }).click();
-  await expect(page.getByRole("heading", { name: "Raw evidence preview" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Export received" })).toBeVisible();
   await page.getByRole("button", { name: "Review deterministic mapping" }).click();
-  await expect(page.getByRole("heading", { name: "Deterministic mapping review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Match the fields needed for a trustworthy review" })).toBeVisible();
   expect(previewPosts).toBe(1);
   expect(resumeReads).toBe(0);
 
@@ -117,18 +132,18 @@ test("restores a staged import from server truth across 390px reload and navigat
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/#imports?batch=browser-batch-1");
-  await expect(page.getByRole("heading", { name: "Deterministic mapping review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Match the fields needed for a trustworthy review" })).toBeVisible();
   await expect(page.getByText(/Durable preview restored/)).toBeVisible();
   await expect(page.getByText(/unconfirmed browser edits were not persisted/)).toBeVisible();
   expect(previewWrites).toBe(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Deterministic mapping review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Match the fields needed for a trustworthy review" })).toBeVisible();
   await page.getByRole("button", { name: "Prospects" }).click();
   await page.getByRole("button", { name: "Imports" }).click();
   await expect(page).toHaveURL(/#imports\?batch=browser-batch-1$/);
-  await expect(page.getByRole("heading", { name: "Deterministic mapping review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Match the fields needed for a trustworthy review" })).toBeVisible();
   expect(commitReads).toBe(3);
   expect(previewReads).toBe(3);
   expect(analysisReads).toBe(3);
@@ -182,7 +197,7 @@ test("keeps an acknowledged batch pointer through interrupted preview recovery",
   expect(previewPosts).toBe(1);
 
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Deterministic mapping review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Match the fields needed for a trustworthy review" })).toBeVisible();
   await expect(page.getByText(/Durable preview restored/)).toBeVisible();
   expect(previewPosts).toBe(1);
 });
@@ -297,7 +312,7 @@ test("does not claim workspace authentication when import access is unavailable"
   }));
 
   await page.goto("/#imports");
-  const context = page.getByRole("region", { name: "Business and source context" });
+  const context = page.locator(".import-source-settings");
   await expect(context).toContainText("TGE import workspace");
   await expect(context).not.toContainText("Authenticated TGE workspace");
   await page.getByLabel("CSV file").setInputFiles({

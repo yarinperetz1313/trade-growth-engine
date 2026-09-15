@@ -1333,15 +1333,17 @@ function Opportunities() {
 
   const [selected, setSelected] =
     useState(null);
+  const [focusRevenueAction, setFocusRevenueAction] = useState(false);
 
   useEffect(() => {
     const selectFromHash = () => {
       const match = window.location.hash
         .replace(/^#\/?/, "")
-        .match(/^opportunities\/([^/]+)$/);
+        .match(/^opportunities\/([^/?]+)(?:\?focus=(action))?$/);
 
       if (!match) {
         setSelected(null);
+        setFocusRevenueAction(false);
         return;
       }
 
@@ -1351,6 +1353,7 @@ function Opportunities() {
 
       if (opportunity) {
         setSelected(opportunity);
+        setFocusRevenueAction(match[2] === "action");
       }
     };
 
@@ -1369,14 +1372,16 @@ function Opportunities() {
     };
   }, [opportunities]);
 
-  const openOpportunity = opportunity => {
+  const openOpportunity = (opportunity, { focusAction = false } = {}) => {
     setSelected(opportunity);
-    window.location.hash = `opportunities/${opportunity.id}`;
+    setFocusRevenueAction(focusAction);
+    window.location.hash = `opportunities/${opportunity.id}${focusAction ? "?focus=action" : ""}`;
   };
 
   const closeOpportunity = () => {
     window.location.hash = "opportunities";
     setSelected(null);
+    setFocusRevenueAction(false);
   };
 
   /*
@@ -1389,6 +1394,7 @@ function Opportunities() {
     return (
       <OpportunityCommandCenter
         opportunity={selected}
+        focusRevenueAction={focusRevenueAction}
         onBack={closeOpportunity}
         onOpportunityUpdated={async updated => {
           setSelected(updated);
@@ -1418,13 +1424,13 @@ function Opportunities() {
           loading || Boolean(error)
         }
         onRefresh={refreshRevenue}
-        onOpenOpportunity={opportunityId => {
+        onOpenOpportunity={(opportunityId, options) => {
           const opportunity = opportunities.find(
             item => item.id === opportunityId
           );
 
           if (opportunity) {
-            openOpportunity(opportunity);
+            openOpportunity(opportunity, options);
           }
         }}
       />

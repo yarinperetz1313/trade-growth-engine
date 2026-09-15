@@ -8,6 +8,17 @@ export function selectCredibleHero(entries) {
   return entries.find(entry => CUSTOMER_ORIGINS.has(entry?.data_origin)) || null;
 }
 
+export function partitionCredibleCases(entries) {
+  const customerEntries = [];
+  const demoEntries = [];
+  if (!Array.isArray(entries)) return { customerEntries, demoEntries };
+  for (const entry of entries) {
+    if (entry?.data_origin === "SAMPLE_DEMO") demoEntries.push(entry);
+    else customerEntries.push(entry);
+  }
+  return { customerEntries, demoEntries };
+}
+
 export function buildFirstValueScanResult(summary, queue) {
   const outcomes = summary.outcomes;
   const credibleCaseCount = outcomes.ELIGIBLE_LEAK_DETECTED.count;

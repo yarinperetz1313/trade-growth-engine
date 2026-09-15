@@ -105,7 +105,8 @@ function ActionCard({
 export default function OpportunityCommandCenter({
   opportunity,
   onBack,
-  onOpportunityUpdated
+  onOpportunityUpdated,
+  focusRevenueAction = false
 }) {
   const [payload, setPayload] =
     useState(null);
@@ -345,6 +346,26 @@ export default function OpportunityCommandCenter({
 
   const canPrepareRevenueAction =
     SUPPORTED_REVENUE_ACTION_TYPES.has(nextAction?.type);
+
+  const completedInternalTaskAction = [...revenueActions]
+    .filter(action =>
+      action.opportunity_id === opportunity.id
+      && action.status === "EXECUTED"
+      && action.execution_type === "INTERNAL_TASK"
+      && action.execution_result?.outcome === "TASK_CREATED"
+    )
+    .sort((left, right) =>
+      String(right.executed_at || right.updated_at || "").localeCompare(
+        String(left.executed_at || left.updated_at || "")
+      ) || String(right.id).localeCompare(String(left.id))
+    )[0] || null;
+
+  useEffect(() => {
+    if (!focusRevenueAction || loading) return;
+    const target = document.getElementById("revenue-action-workflow");
+    target?.scrollIntoView({ block: "start" });
+    target?.focus({ preventScroll: true });
+  }, [focusRevenueAction, loading, opportunity.id]);
 
   async function applyRevenueActionResult(result, requestIdentity) {
     if (!isCurrentRevenueActionMutation(requestIdentity)) return false;
@@ -612,12 +633,10 @@ export default function OpportunityCommandCenter({
         <div className="oc-loading">
           <div className="oc-loading-pulse" />
           <strong>
-            Building opportunity intelligence…
+            Loading the recorded opportunity…
           </strong>
           <span>
-            Analysing CRM evidence,
-            activity, tasks and prospect
-            context.
+            Keeping the case, value, and action context together.
           </span>
         </div>
       </div>
@@ -849,16 +868,21 @@ export default function OpportunityCommandCenter({
         id="revenue-action-workflow"
         tabIndex="-1"
       >
-        <div className="oc-card-label">
-          OPPORTUNITY EXECUTION
-        </div>
+        <div className="oc-card-label">SAFE NEXT ACTION</div>
 
-        <h2>Human-controlled action lifecycle</h2>
+        <h2>Review → Approve → Create internal task</h2>
 
         <p className="oc-section-description">
-          TGE prepares the work. External communication is never sent by TGE
-          in this phase and requires explicit human approval and confirmation.
+          Review the recommendation for {resolved?.business_name || currentOpportunity.business_name || currentOpportunity.name || "this opportunity"}
+          {hasValue ? ` (${formatCommercialValue(currentOpportunity.value, currentOpportunity.currency)})` : " (value unknown)"}.
+          {nextAction?.reason ? ` Why now: ${nextAction.reason}` : ""} TGE prepares the work; a human approves it before any internal task is created.
         </p>
+
+        <ol className="oc-action-sequence" aria-label="Human-controlled action steps">
+          <li><span>1</span><strong>Review</strong><small>Check the recommendation and prepared task.</small></li>
+          <li><span>2</span><strong>Approve</strong><small>Record the human decision explicitly.</small></li>
+          <li><span>3</span><strong>Create internal task</strong><small>No external message is sent.</small></li>
+        </ol>
 
         {executionError && (
           <div className="oc-error" data-testid="revenue-action-error">
@@ -873,7 +897,28 @@ export default function OpportunityCommandCenter({
           </div>
         )}
 
+        {completedInternalTaskAction && (
+          <section className="oc-task-completion" data-testid="internal-task-completion" aria-label="Internal task completion">
+            <span className="oc-status-badge">COMPLETE</span>
+            <h3>Internal task created</h3>
+            <p>The approved task is recorded in the CRM and linked to this opportunity.</p>
+            <strong>No message was sent.</strong>
+            <small>This confirms task creation only. It does not claim recovered revenue, attribution, or return on investment.</small>
+            {canPrepareRevenueAction && (
+              <button
+                className="oc-secondary-button"
+                data-testid="prepare-revenue-action"
+                disabled={executionLoading === "prepare"}
+                onClick={prepareCurrentRevenueAction}
+              >
+                {executionLoading === "prepare" ? "Preparing…" : "Prepare another recommended action"}
+              </button>
+            )}
+          </section>
+        )}
+
         {!activeRevenueAction ? (
+          completedInternalTaskAction ? null : (
           <div className="oc-execution-recommendation">
             <div>
               <span className="oc-status-badge">RECOMMENDED</span>
@@ -892,6 +937,7 @@ export default function OpportunityCommandCenter({
               </button>
             )}
           </div>
+          )
         ) : (
           <div className="oc-execution-current">
             <div className="oc-execution-heading">

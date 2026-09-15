@@ -172,6 +172,7 @@ test("keeps opportunity data available when only revenue intelligence is unavail
 
   await page.goto("/#opportunities");
 
+  await page.getByText("Operator diagnostics · Legacy opportunity guidance").click();
   await expect(page.getByText("Unable to load revenue intelligence.")).toBeVisible();
   await expect(page.getByTestId(`opportunity-row-${opportunityId}`)).toContainText(businessName);
 
@@ -284,6 +285,7 @@ test("opens a ranked portfolio action, applies a safe Command Center mutation, a
 
   await page.goto("/#opportunities");
 
+  await page.getByText("Operator diagnostics · Legacy opportunity guidance").click();
   const action = page.getByTestId("revenue-action-e2e-opp-revenue");
   await expect(action).toContainText("Identify the decision maker");
   await action.click();
@@ -308,6 +310,7 @@ test("prepares, approves, and manually confirms a ranked communication action wi
 
   await page.goto("/#opportunities");
 
+  await page.getByText("Operator diagnostics · Legacy opportunity guidance").click();
   const rankedAction = page.getByTestId("revenue-action-e2e-opp-execution");
   await expect(rankedAction).toContainText("FOLLOW_UP");
   await rankedAction.click();

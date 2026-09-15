@@ -282,7 +282,7 @@ test("the browser composes guidance and server reads without local authority or 
   const app = fs.readFileSync(path.join(repositoryRoot, "web/main.jsx"), "utf8");
   const combined = `${workspace}\n${app}`;
 
-  assert.match(workspace, /TGE import workspace/);
+  assert.match(workspace, /business membership and tenant authority are resolved by the server/i);
   assert.doesNotMatch(workspace, /Authenticated TGE workspace/);
   assert.match(workspace, /Canonical commit supported/);
   assert.match(workspace, /Preview only/);

@@ -148,7 +148,9 @@ test("journey composition exposes explicit scan and continuous human case decisi
   );
   const main = fs.readFileSync(path.join(repositoryRoot, "web/main.jsx"), "utf8");
 
-  assert.match(commandCenter, /DATA → TRUTH → MONEY → PROBLEM → WHY → ACTION/);
+  assert.match(commandCenter, /Check your data/);
+  assert.match(commandCenter, /Scan when ready/);
+  assert.match(commandCenter, /Review the strongest case/);
   assert.match(commandCenter, /TAKE ACTION/);
   assert.match(commandCenter, /SNOOZE/);
   assert.match(commandCenter, /DISMISS/);

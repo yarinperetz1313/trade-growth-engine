@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import path from "node:path";
 import { expect, test } from "@playwright/test";
 
 const require = createRequire(`${process.cwd()}/package.json`);
@@ -368,14 +369,32 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   await expect(page).toHaveURL(/#opportunities$/);
 
   const commandCenter = page.getByTestId("revenue-command-center");
-  await expect(commandCenter.locator("[data-case-id]").first()).toHaveAttribute(
+  const safeActionPath = commandCenter.getByRole("region", {
+    name: "How TGE gets to a safe action"
+  });
+  await expect(safeActionPath).toContainText("Check your data");
+  await expect(safeActionPath).toContainText("Scan when ready");
+  await expect(safeActionPath).toContainText("Review the strongest case");
+  await expect(commandCenter.getByRole("region", {
+    name: "Priority customer review"
+  }).locator("[data-case-id]").first()).toHaveAttribute(
     "data-case-id",
-    "case-sample"
+    "case-imported"
   );
-  await expect(commandCenter).toContainText(
+  const demoCases = commandCenter.getByRole("group", {
+    name: "Demo and sample cases"
+  });
+  await expect(demoCases).not.toHaveAttribute("open", "");
+  await expect(demoCases).toContainText(
     "Sample / demo — excluded from first-value evidence"
   );
   await expect(commandCenter).toContainText("First credible imported-customer case");
+  if (process.env.TGE_EVIDENCE_DIR) {
+    await page.screenshot({
+      fullPage: true,
+      path: path.join(process.env.TGE_EVIDENCE_DIR, "02-mobile-customer-case.png")
+    });
+  }
   expect(writes.surface).toBe(0);
 
   await commandCenter.getByRole("button", { name: "Scan stalled opportunities" }).click();
@@ -392,7 +411,7 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   }).focus();
   await page.keyboard.press("Enter");
   await expect(importedCase.getByLabel("First-value case feedback"))
-    .toContainText("exact imported-customer case inspection is recorded");
+    .toContainText("review of this imported-customer case is recorded");
   expect(writes.inspect).toBe(1);
 
   await importedCase.getByLabel("Bounded feedback").selectOption("MISSING_CONTEXT");
@@ -420,9 +439,10 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   await refreshedImported.getByRole("button", {
     name: "CONTINUE ACTION"
   }).click();
-  await expect(page).toHaveURL(/#opportunities\/e2e-opp-stalled$/);
+  await expect(page).toHaveURL(/#opportunities\/e2e-opp-stalled\?focus=action$/);
   await expect(page.getByTestId("opportunity-command-center")).toBeVisible();
   const execution = page.getByTestId("revenue-action-execution");
+  await expect(execution).toContainText("Review → Approve → Create internal task");
   await expect(execution.getByTestId("revenue-action-status")).toHaveText("RECOMMENDED");
   await execution.getByRole("button", { name: "Prepare action" }).click();
   await expect(execution.getByTestId("internal-task-proposal"))
@@ -430,9 +450,19 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   await execution.getByTestId("approve-revenue-action").click();
   await expect(execution.getByTestId("revenue-action-status")).toHaveText("APPROVED");
   await execution.getByTestId("execute-revenue-action").click();
+  await expect(execution.getByTestId("internal-task-completion"))
+    .toContainText("Internal task created");
+  await expect(execution.getByTestId("internal-task-completion"))
+    .toContainText("No message was sent");
   await expect(execution.getByTestId("revenue-action-history")).toContainText("EXECUTED");
   await expect(execution.getByTestId("revenue-action-history")).toContainText("CRM task linked");
   await expect(execution.getByTestId("revenue-action-history")).toContainText("CRM activity linked");
+  if (process.env.TGE_EVIDENCE_DIR) {
+    await page.screenshot({
+      fullPage: true,
+      path: path.join(process.env.TGE_EVIDENCE_DIR, "03-mobile-task-created.png")
+    });
+  }
   await expect.poll(() => page.evaluate(() => ({
     body: document.body.scrollWidth,
     viewport: document.documentElement.clientWidth

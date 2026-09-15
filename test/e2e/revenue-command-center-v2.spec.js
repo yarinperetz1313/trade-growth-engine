@@ -231,7 +231,7 @@ test("renders the server-ordered truthful operating queue with evidence and auth
   })).toBeVisible();
   await expect(commandCenter).toContainText("STALE_WITHOUT_NEXT_ACTION");
   await expect(commandCenter).toContainText("Meaningful activity baseline");
-  await expect(commandCenter).toContainText("approval required");
+  await expect(commandCenter).toContainText("review → approve → create the internal task");
   await expect(commandCenter.getByRole("button", {
     name: "TAKE ACTION"
   })).toBeEnabled();
@@ -249,9 +249,10 @@ test("renders the server-ordered truthful operating queue with evidence and auth
   await commandCenter.getByRole("button", {
     name: /Why TGE surfaced this.*Business identity unavailable/i
   }).click();
-  await expect(commandCenter).toContainText(
-    "Historical opportunity e2e-opp-execution-failure"
-  );
+  await commandCenter.locator('[data-case-id="case-na"]')
+    .getByText("Operator diagnostics", { exact: true }).click();
+  await expect(commandCenter.locator('[data-case-id="case-na"]'))
+    .toContainText("Opportunity IDe2e-opp-execution-failure");
   await expect(commandCenter).toContainText("Current opportunity context unavailable");
   await expect(commandCenter.getByRole("button", {
     name: "TAKE ACTION"

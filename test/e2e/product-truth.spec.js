@@ -415,6 +415,7 @@ test("keeps initial core request failures distinct from empty and known-zero sta
   await page.getByRole("button", { name: "Revenue leaks" }).click();
   await expect(page.getByText("Opportunity data unavailable.")).toBeVisible();
   await expect(page.getByText("No opportunities found.")).toHaveCount(0);
+  await page.getByText("Operator diagnostics · Legacy opportunity guidance").click();
   await expect(page.getByText("Opportunity actions are unavailable until opportunity data can be loaded.")).toBeVisible();
   await expect(page.locator('[data-testid^="revenue-action-"]')).toHaveCount(0);
 
