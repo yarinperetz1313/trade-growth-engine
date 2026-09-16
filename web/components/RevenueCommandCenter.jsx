@@ -30,6 +30,7 @@ import {
 } from "../lib/pilotEvidenceContracts.mjs";
 import {
   buildFirstValueScanResult,
+  partitionCredibleCases,
   selectCredibleHero
 } from "../lib/firstValueJourney.mjs";
 import { EvidenceDetails } from "./RevenueLeakCasePanel.jsx";
@@ -173,7 +174,11 @@ function ScanSummary({ summary, queue, queueFreshness }) {
           </div>
         )}
       </div>
-      <QueueSummary summary={queue?.value_summary} freshness={queueFreshness} />
+      <QueueSummary
+        summary={queue?.value_summary}
+        freshness={queueFreshness}
+        entries={queue?.entries}
+      />
       {queueCurrent ? (
         <small className="rcc2-result-truth">
           Known amounts are exact current active-case values grouped by authoritative currency.
@@ -255,7 +260,7 @@ function OperationalDataHealth({ readiness, state, error, onRetry }) {
   if (state === "LOADING" && !readiness) {
     return (
       <section className="rcc2-readiness rcc2-state" role="status">
-        Loading server-authoritative Operational Data Health…
+        Checking whether your opportunity data is ready…
       </section>
     );
   }
@@ -263,7 +268,7 @@ function OperationalDataHealth({ readiness, state, error, onRetry }) {
     return (
       <section className="rcc2-readiness rcc2-alert" role="alert">
         <strong>{error?.title || "Operational Data Health unavailable"}</strong>
-        <span>{error?.message || "No scan-readiness conclusion was inferred."}</span>
+        <span>{error?.message || "TGE could not confirm whether this data is ready, so scanning remains unavailable."}</span>
         {error?.kind !== "UNAUTHORIZED" && (
           <button type="button" className="oc-secondary-button" onClick={onRetry}>
             Retry readiness
@@ -284,7 +289,7 @@ function OperationalDataHealth({ readiness, state, error, onRetry }) {
     >
       <div className="rcc2-readiness-heading">
         <div>
-          <span className="eyebrow">BEFORE YOU SCAN</span>
+          <span className="eyebrow">STEP 1 · CHECK YOUR DATA</span>
           <h4 id="operational-data-health-title">Operational Data Health</h4>
           <strong>{readinessHeading(summary)}</strong>
         </div>
@@ -321,13 +326,13 @@ function OperationalDataHealth({ readiness, state, error, onRetry }) {
       </small>
       {Object.keys(summary.reason_counts).length > 0 && (
         <div className="rcc2-readiness-reasons" aria-label="Reasons opportunities cannot be assessed">
-          <strong>Why records cannot be assessed now</strong>
+          <strong>Blockers to resolve before these records can be assessed</strong>
           <ul>
             {Object.entries(summary.reason_counts).map(([reasonCode, count]) => (
               <li key={reasonCode}>
                 <span>{detectorReasonExplanation(reasonCode)}</span>
                 <strong>{count}</strong>
-                <code>{reasonCode}</code>
+                <details><summary>Diagnostic code</summary><code>{reasonCode}</code></details>
               </li>
             ))}
           </ul>
@@ -347,11 +352,11 @@ function OperationalDataHealth({ readiness, state, error, onRetry }) {
               <article key={record.opportunity_id} data-readiness-record={record.opportunity_id}>
                 <div>
                   <strong>{record.opportunity_name || "Unnamed opportunity"}</strong>
-                  <small>Opportunity {record.opportunity_id}</small>
+                <small>Opportunity needs attention before scanning</small>
                 </div>
                 <span>{detectorOutcomePresentation(record.detector_outcome, record.reason_code).title}</span>
                 <p>{detectorReasonExplanation(record.reason_code)}</p>
-                <code>{record.reason_code}</code>
+                <details><summary>Operator diagnostics</summary><code>{record.reason_code} · {record.opportunity_id}</code></details>
                 <p><strong>Next useful action:</strong> {NEXT_STEP_COPY[record.next_step]}</p>
               </article>
             ))}
@@ -364,14 +369,10 @@ function OperationalDataHealth({ readiness, state, error, onRetry }) {
 
 function RevenueJourneyPath() {
   return (
-    <section className="rcc2-path" aria-label="First credible revenue journey">
-      <strong>DATA → TRUTH → MONEY → PROBLEM → WHY → ACTION</strong>
-      <span>Committed evidence</span>
-      <span>Server readiness</span>
-      <span>Exact value truth</span>
-      <span>Credible case</span>
-      <span>Inspectable evidence</span>
-      <span>Human-controlled work</span>
+    <section className="rcc2-path" aria-label="How TGE gets to a safe action">
+      <div><span>1</span><strong>Check your data</strong><small>See what can support a trustworthy review.</small></div>
+      <div><span>2</span><strong>Scan when ready</strong><small>You choose when TGE checks for stalled opportunities.</small></div>
+      <div><span>3</span><strong>Review the strongest case</strong><small>Approve any resulting work before it is created.</small></div>
     </section>
   );
 }
@@ -388,12 +389,9 @@ function PilotJourney({ status }) {
     ["Action executed", status.milestones.action_executed]
   ];
   return (
-    <section className="rcc2-pilot-journey" aria-label="First-value pilot journey">
-      <div>
-        <span className="eyebrow">PILOT SESSION RESULT</span>
-        <strong>Privacy-minimized durable product evidence</strong>
-        <small>These milestones are product evidence, not customer adoption and not commercial-outcome evidence.</small>
-      </div>
+    <details className="rcc2-pilot-journey" aria-label="First-value pilot journey">
+      <summary>Operator diagnostics · Pilot milestone evidence</summary>
+      <p>Privacy-minimized product evidence only—not customer adoption or commercial-outcome evidence.</p>
       <ol>
         {milestones.map(([label, complete]) => (
           <li className={complete ? "complete" : "pending"} key={label}>
@@ -401,24 +399,31 @@ function PilotJourney({ status }) {
           </li>
         ))}
       </ol>
+    </details>
+  );
+}
+
+function ScanAction({ disabled, disabledRefresh, running, onScan, onRefresh, refreshing }) {
+  return (
+    <section className="rcc2-scan-action" aria-label="Explicit opportunity scan">
+      <div>
+        <span className="eyebrow">STEP 2 · SCAN WHEN READY</span>
+        <h4>Check ready opportunities for a credible stall</h4>
+        <p>This runs only when you choose it. It reviews recorded evidence and refreshes the durable case queue.</p>
+      </div>
+      <div className="rcc2-hero-actions">
+        <button type="button" className="oc-primary-button" disabled={disabled} onClick={onScan}>
+          {running ? "Scanning…" : "Scan stalled opportunities"}
+        </button>
+        <button type="button" className="text-button" disabled={disabledRefresh} onClick={onRefresh}>
+          {refreshing ? "Refreshing…" : "Refresh queue"}
+        </button>
+      </div>
     </section>
   );
 }
 
-function QueueSummary({ summary, freshness }) {
-  if (freshness !== "CURRENT") {
-    return (
-      <div className="rcc2-state" role="status" aria-label="Current queue economic truth">
-        <strong>{freshness === "REFRESHING"
-          ? "Refreshing current queue economics…"
-          : "Current queue economics unavailable"}</strong>
-        <small>
-          Exact active-case counts and money are withheld until an authorized
-          durable queue refresh succeeds. Unknown is not zero.
-        </small>
-      </div>
-    );
-  }
+function AllCaseQueueSummary({ summary }) {
   const totals = summary?.known_positive?.totals_by_currency || [];
   return (
     <div className="rcc2-summary" aria-label="Potential revenue at risk summary">
@@ -450,6 +455,64 @@ function QueueSummary({ summary, freshness }) {
         <small>Excluded from monetary totals</small>
       </div>
     </div>
+  );
+}
+
+function QueueSummary({ summary, freshness, entries = [] }) {
+  if (freshness !== "CURRENT") {
+    return (
+      <div className="rcc2-state" role="status" aria-label="Current queue economic truth">
+        <strong>{freshness === "REFRESHING"
+          ? "Refreshing current queue economics…"
+          : "Current queue economics unavailable"}</strong>
+        <small>
+          Exact active-case counts and money are withheld until an authorized
+          durable queue refresh succeeds. Unknown is not zero.
+        </small>
+      </div>
+    );
+  }
+
+  const { demoEntries } = partitionCredibleCases(entries);
+  const customerHero = selectCredibleHero(entries);
+  if (demoEntries.length > 0) {
+    const potential = customerHero
+      ? formatPotentialRevenueAtRisk(customerHero.potential_value)
+      : null;
+    const businessName = customerHero ? identityCopy(customerHero) : null;
+    return (
+      <div className="rcc2-economic-evidence">
+        <section
+          className="rcc2-primary-economic-evidence"
+          aria-label="Primary customer-case economic evidence"
+        >
+          <span className="eyebrow">CUSTOMER-CASE EVIDENCE</span>
+          <h4>{businessName || "No active customer case"}</h4>
+          <strong>{potential?.value || "No customer-case amount"}</strong>
+          <small>{potential
+            ? `${potential.detail} · exact server-projected case evidence`
+            : "Sample/demo evidence is excluded from customer first-value evidence."}</small>
+        </section>
+        <details
+          className="rcc2-all-case-aggregate"
+          aria-label="All active-case aggregate including sample and demo evidence"
+        >
+          <summary>
+            Server all-case aggregate · includes {demoEntries.length} sample/demo
+            {demoEntries.length === 1 ? " case" : " cases"}
+          </summary>
+          <p>
+            This secondary server-authoritative disclosure includes customer and
+            sample/demo cases. It is not customer first-value evidence.
+          </p>
+          <AllCaseQueueSummary summary={summary} />
+        </details>
+      </div>
+    );
+  }
+
+  return (
+    <AllCaseQueueSummary summary={summary} />
   );
 }
 
@@ -503,10 +566,7 @@ function QueueCase({
               <span className="rcc2-hero-case">Highest-priority credible customer case</span>
             )}
           <strong>{businessName}</strong>
-          <small>
-            {canNavigate ? "Opportunity" : "Historical opportunity"}{" "}
-            {entry.historical_opportunity_id} · Case {entry.case.id}
-          </small>
+          <small>{canNavigate ? "Customer opportunity" : "Historical opportunity"} · {entry.case.lifecycle_state.replaceAll("_", " ")}</small>
         </span>
         <span className="rcc2-case-value">
           <span>Potential revenue at risk</span>
@@ -523,7 +583,6 @@ function QueueCase({
           <div className="rcc2-detail-heading">
             <div>
               <h4>Why TGE surfaced this</h4>
-              <code>{entry.case.reason_code}</code>
               <p>
                 The recorded opportunity reached the stalled threshold without a
                 meaningful next action.
@@ -532,23 +591,34 @@ function QueueCase({
             <dl>
               <div><dt>Lifecycle</dt><dd>{entry.case.lifecycle_state}</dd></div>
               <div><dt>Leak age</dt><dd>{ageCopy(entry.leak_age)}</dd></div>
-              <div><dt>Source</dt><dd>{entry.case.source.system}</dd></div>
-              <div><dt>Detector</dt><dd>{entry.case.detector.id} v{entry.case.detector.version}</dd></div>
+              <div><dt>Recorded source</dt><dd>{entry.case.source.system}</dd></div>
             </dl>
           </div>
-          <EvidenceDetails
-            source={entry.case.source}
-            evidence={entry.case.evidence_snapshot.facts}
-            evidenceClassification={entry.case.evidence_classification}
-            evidenceState="AVAILABLE"
-          />
+          <details className="rcc2-business-evidence">
+            <summary>Review supporting business evidence</summary>
+            <EvidenceDetails
+              source={entry.case.source}
+              evidence={entry.case.evidence_snapshot.facts}
+              evidenceClassification={entry.case.evidence_classification}
+              evidenceState="AVAILABLE"
+            />
+          </details>
+          <details className="rcc2-operator-diagnostics">
+            <summary>Operator diagnostics</summary>
+            <dl>
+              <div><dt>Case ID</dt><dd>{entry.case.id}</dd></div>
+              <div><dt>Opportunity ID</dt><dd>{entry.historical_opportunity_id}</dd></div>
+              <div><dt>Reason code</dt><dd>{entry.case.reason_code}</dd></div>
+              <div><dt>Detector</dt><dd>{entry.case.detector.id} v{entry.case.detector.version}</dd></div>
+            </dl>
+          </details>
           {firstImported && (
             <section className="rcc2-pilot-feedback" aria-label="First-value case feedback">
               <div>
-                <h5>First-value evidence</h5>
+                <h5>Was this case useful?</h5>
                 <p>{inspected
-                  ? "This exact imported-customer case inspection is recorded."
-                  : "Recording this inspection is pending or unavailable."}</p>
+                  ? "Your review of this imported-customer case is recorded."
+                  : "Case review confirmation is pending or unavailable."}</p>
               </div>
               {retryInspection && (
                 <button
@@ -565,8 +635,9 @@ function QueueCase({
               ) : (
                 <div className="rcc2-feedback-controls">
                   <label>
-                    <span>Bounded feedback</span>
+                    <span>Case feedback</span>
                     <select
+                      aria-label="Bounded feedback"
                       value={feedbackCode}
                       disabled={pilotDisabled || !inspected}
                       onChange={event => onFeedbackCode(event.target.value)}
@@ -591,10 +662,10 @@ function QueueCase({
           )}
           <div className="rcc2-next-action">
             <div>
-              <h5>What should I do?</h5>
+              <h5>Continue to a safe action</h5>
               <p>
                 {canNavigate
-                  ? "Create one durable recovery action, then review and prepare it in Opportunity Command Center. Human approval required; nothing is sent from this portfolio view."
+                  ? "Create one linked action, then review, approve, and complete its supported step in Opportunity Command Center. This case review does not execute or send anything."
                   : "Current opportunity context unavailable. Recovery action and navigation are unavailable; the historical source identity remains visible for review."}
               </p>
               {linkedAction && (
@@ -622,7 +693,11 @@ function QueueCase({
                   type="button"
                   className="oc-secondary-button"
                   disabled={disabled}
-                  onClick={() => onOpenOpportunity(entry.opportunity.id)}
+                  onClick={() => onOpenOpportunity(entry.opportunity.id, {
+                    focusAction: Boolean(linkedAction),
+                    caseId: entry.case.id,
+                    actionId: linkedAction?.id || null
+                  })}
                 >
                   {linkedAction
                     ? "CONTINUE ACTION"
@@ -1335,6 +1410,7 @@ export default function RevenueCommandCenter({
   const scanCredible = readinessState === "READY"
     && ["READY", "PARTIAL"].includes(readiness?.summary?.readiness);
   const credibleHero = selectCredibleHero(queue?.entries || []);
+  const { customerEntries, demoEntries } = partitionCredibleCases(visibleEntries);
   const presentedQueueFreshness = queueState === "READY"
     ? queueEconomicFreshness
     : queueEconomicFreshness === null
@@ -1355,24 +1431,6 @@ export default function RevenueCommandCenter({
             See what TGE received, what the server can assess, exact known money,
             why a case matters, and the next human-controlled action.
           </p>
-        </div>
-        <div className="rcc2-hero-actions">
-          <button
-            type="button"
-            className="oc-primary-button"
-            disabled={controlsDisabled || !scanCredible || queueError?.kind === "UNAUTHORIZED"}
-            onClick={runScan}
-          >
-            {scanState === "RUNNING" ? "Scanning…" : "Scan stalled opportunities"}
-          </button>
-          <button
-            type="button"
-            className="text-button"
-            disabled={refreshing || reconciliationBlocked || Boolean(pendingCaseReconciliation)}
-            onClick={refreshQueue}
-          >
-            {refreshing ? "Refreshing…" : "Refresh queue"}
-          </button>
         </div>
       </div>
       <RevenueJourneyPath />
@@ -1441,12 +1499,19 @@ export default function RevenueCommandCenter({
           )}
         </div>
       )}
-      <PilotJourney status={pilotStatus} />
       <OperationalDataHealth
         readiness={readiness}
         state={readinessState}
         error={readinessError}
         onRetry={loadReadiness}
+      />
+      <ScanAction
+        disabled={controlsDisabled || !scanCredible || queueError?.kind === "UNAUTHORIZED"}
+        disabledRefresh={refreshing || reconciliationBlocked || Boolean(pendingCaseReconciliation)}
+        running={scanState === "RUNNING"}
+        onScan={runScan}
+        onRefresh={refreshQueue}
+        refreshing={refreshing}
       />
       {scanSummary && (
         <ScanSummary
@@ -1462,6 +1527,7 @@ export default function RevenueCommandCenter({
             <QueueSummary
               summary={queue.value_summary}
               freshness={presentedQueueFreshness}
+              entries={queue.entries}
             />
           )}
           <fieldset className="rcc2-filters">
@@ -1496,8 +1562,16 @@ export default function RevenueCommandCenter({
           ) : visibleEntries.length === 0 ? (
             <div className="rcc2-state">No cases match these authoritative filters.</div>
           ) : (
-            <div className="rcc2-cases" aria-label="Revenue leak operating queue">
-              {visibleEntries.map(entry => (
+            <>
+            {customerEntries.length > 0 && (
+            <section className="rcc2-case-group" aria-label="Priority customer review">
+              <div className="rcc2-case-group-heading">
+                <span className="eyebrow">STEP 3 · REVIEW THE STRONGEST CASE</span>
+                <h4>Priority customer review</h4>
+                <p>The first case follows the server's order. TGE has not re-ranked these customer cases in the browser.</p>
+              </div>
+            <div className="rcc2-cases">
+              {customerEntries.map(entry => (
                 <QueueCase
                   key={entry.case.id}
                   entry={entry}
@@ -1530,12 +1604,46 @@ export default function RevenueCommandCenter({
                 />
               ))}
             </div>
+            </section>
+            )}
+            {demoEntries.length > 0 && (
+              <details className="rcc2-demo-cases" aria-label="Demo and sample cases">
+                <summary>Demo and sample cases · {demoEntries.length} excluded from customer first-value evidence</summary>
+                <p>These entries are useful for rehearsal only. Their order is preserved within this section.</p>
+                <div className="rcc2-cases">
+                  {demoEntries.map(entry => (
+                    <QueueCase
+                      key={entry.case.id}
+                      entry={entry}
+                      expanded={selectedCaseId === entry.case.id}
+                      disabled={controlsDisabled || actionsUnavailable}
+                      hero={false}
+                      firstImported={false}
+                      inspected={false}
+                      feedback={null}
+                      feedbackCode={feedbackCode}
+                      mutating={mutationCaseId === entry.case.id ? mutationKind : null}
+                      onToggle={() => toggleCase(entry)}
+                      onCreateAction={createRecoveryAction}
+                      onDecision={runCaseDecision}
+                      onFeedbackCode={setFeedbackCode}
+                      onRetryInspection={() => {}}
+                      onSubmitFeedback={submitPilotFeedback}
+                      onOpenOpportunity={onOpenOpportunity}
+                      pilotDisabled
+                      retryInspection={false}
+                    />
+                  ))}
+                </div>
+              </details>
+            )}
+            </>
           )}
         </>
       )}
 
-      <div className="rcc2-secondary" aria-label="Legacy active-pipeline guidance">
-        <h4>Opportunity guidance</h4>
+      <details className="rcc2-secondary" aria-label="Legacy active-pipeline guidance">
+        <summary>Operator diagnostics · Legacy opportunity guidance</summary>
         {loading && !revenue ? (
           <div className="pipeline-loading">Loading revenue intelligence…</div>
         ) : error && !revenue ? (
@@ -1559,7 +1667,8 @@ export default function RevenueCommandCenter({
             </div>
           </>
         )}
-      </div>
+      </details>
+      <PilotJourney status={pilotStatus} />
     </section>
   );
 }

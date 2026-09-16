@@ -41,7 +41,7 @@ export default function ImportWorkspace({
   onResumeRouteChange
 }) {
   const [phase, setPhase] = useState("upload");
-  const [sourceCollection, setSourceCollection] = useState("prospects");
+  const [sourceCollection, setSourceCollection] = useState("opportunities");
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [analysis, setAnalysis] = useState(null);
@@ -523,8 +523,9 @@ export default function ImportWorkspace({
     <div className="page import-workspace" data-testid="import-workspace">
       <div className="page-actions import-heading">
         <div>
-          <h2>Import CRM data</h2>
-          <p>Review exact CSV evidence before any canonical record is committed.</p>
+          <span className="eyebrow">BRING YOUR EXISTING BUSINESS DATA</span>
+          <h2>Find a revenue problem in your sales pipeline</h2>
+          <p>Start with an opportunity export. TGE checks the evidence before anything is committed or scanned.</p>
         </div>
         {phase !== "upload" && phase !== "result" && (
           <button className="text-button" onClick={reset}>Start another import</button>
@@ -704,40 +705,20 @@ function UploadStep({
     <section className="card import-panel">
       <div className="card-head">
         <div>
-          <h3>{unauthorized ? "Import access unavailable" : "Choose source and upload CSV"}</h3>
+          <h3>{unauthorized ? "Import access unavailable" : "Start with an opportunity export"}</h3>
           <p>{unauthorized
             ? "Only an OWNER or ADMIN can run imports."
-            : "CSV only. The browser does not evaluate formulas or infer tenant authority."}</p>
+            : "Upload the deals already in your CRM or spreadsheet. TGE will show what can support a trustworthy revenue review."}</p>
         </div>
       </div>
       <div className="import-panel-body">
-        <section className="import-source-context" aria-label="Business and source context">
-          <div>
-            <span className="eyebrow">BUSINESS WORKSPACE</span>
-            <strong>TGE import workspace</strong>
-            <p>When access is available, membership and tenant authority are resolved by the server. This screen never asks you to choose or invent a tenant.</p>
-          </div>
-          <label>
-            <span>Source system namespace</span>
-            <input
-              aria-describedby="import-source-system-help"
-              aria-invalid={sourceSystem.length > 0 && !sourceSystemValidation.valid}
-              disabled={loading || Boolean(unknownOutcome)}
-              maxLength={128}
-              onChange={event => setSourceSystem(event.target.value)}
-              placeholder="quarterly-crm-export"
-              value={sourceSystem}
-            />
-            <small
-              className={sourceSystem.length > 0 && !sourceSystemValidation.valid ? "field-validation-error" : ""}
-              id="import-source-system-help"
-            >
-              {sourceSystem.length > 0 && !sourceSystemValidation.valid
-                ? sourceSystemValidation.message
-                : "Use a stable source namespace for audit evidence, such as quarterly-crm-export. Spaces are not accepted. You can confirm or change it before commit."}
-            </small>
-          </label>
-        </section>
+        {sourceCollection === "opportunities" && (
+          <section className="import-first-value-guide" aria-label="Opportunity export guidance">
+            <strong>What makes a useful first export</strong>
+            <span>One row per opportunity, with a stable record ID, business name, stage, and the latest recorded update.</span>
+            <span>Commercial value and currency are optional. Missing value stays unknown; it is never treated as zero.</span>
+          </section>
+        )}
         {unknownOutcome?.kind === "preview" && (
           <StatusPanel title="Preview outcome unknown" message="Reconcile the attempted batch before retrying this upload.">
             {unknownOutcome.batchId ? (
@@ -763,8 +744,8 @@ function UploadStep({
         )}
         <div className="import-form-grid">
           <label>
-            <span>Source collection</span>
-            <select value={sourceCollection} onChange={event => setSourceCollection(event.target.value)} disabled={loading || Boolean(unknownOutcome)}>
+            <span>{sourceCollection === "opportunities" ? "Opportunity export selected" : "Other supported business data"}</span>
+            <select aria-label="Source collection" value={sourceCollection} onChange={event => setSourceCollection(event.target.value)} disabled={loading || Boolean(unknownOutcome)}>
               {SOURCE_COLLECTIONS.map(item => (
                 <option key={item.collection} value={item.collection}>
                   {item.label} — {item.capabilityLabel}
@@ -783,6 +764,30 @@ function UploadStep({
           </label>
         </div>
         <CollectionCapability capability={capability} template={template} />
+        <details className="import-source-settings" aria-label="Business and source context">
+          <summary>Import settings and source identity</summary>
+          <p>TGE import workspace. Business membership and tenant authority are resolved by the server. This screen never asks you to choose a tenant.</p>
+          <label>
+            <span>Source system namespace</span>
+            <input
+              aria-describedby="import-source-system-help"
+              aria-invalid={sourceSystem.length > 0 && !sourceSystemValidation.valid}
+              disabled={loading || Boolean(unknownOutcome)}
+              maxLength={128}
+              onChange={event => setSourceSystem(event.target.value)}
+              placeholder="quarterly-crm-export"
+              value={sourceSystem}
+            />
+            <small
+              className={sourceSystem.length > 0 && !sourceSystemValidation.valid ? "field-validation-error" : ""}
+              id="import-source-system-help"
+            >
+              {sourceSystem.length > 0 && !sourceSystemValidation.valid
+                ? sourceSystemValidation.message
+                : "Optional now. Confirm the exact stable namespace before commit; spaces are not accepted."}
+            </small>
+          </label>
+        </details>
         <p className="import-empty-copy">{file ? `${file.name} · ${formatBytes(file.size)}` : "No CSV selected yet."}</p>
         {loading ? (
           <div className="import-loading" role="status">Reading immutable CSV evidence…</div>
@@ -860,17 +865,21 @@ function PreviewStep({ error, loading, notice, onReview, preview }) {
       <section className="card import-panel">
         <div className="card-head">
           <div>
-            <h3>Raw evidence preview</h3>
-            <p>{summary.rowCount} rows · {summary.columnCount} columns · {formatBytes(summary.byteCount)}</p>
+            <h3>Export received</h3>
+            <p>{summary.rowCount} rows and {summary.columnCount} columns are ready for mapping review.</p>
           </div>
           <button className="primary" disabled={loading} onClick={onReview}>
-            {loading ? "Analyzing..." : "Review deterministic mapping"}
+            {loading ? "Checking mappings..." : "Check fields and data quality"}
           </button>
         </div>
         {summary.rowCount === 0 ? (
           <div className="import-empty">No data rows were found in this CSV.</div>
         ) : (
-          <EvidenceTable preview={preview} />
+          <details className="import-raw-evidence">
+            <summary>Inspect exact raw CSV evidence · {formatBytes(summary.byteCount)}</summary>
+            <p>Exact staged cells remain available for verification. Nothing below is inferred or committed.</p>
+            <EvidenceTable preview={preview} />
+          </details>
         )}
       </section>
     </>
@@ -933,8 +942,8 @@ function MappingStep({
       <section className="card import-panel">
         <div className="card-head">
           <div>
-            <h3>Deterministic mapping review</h3>
-            <p>Suggestions are deterministic, draft, and not accepted automatically.</p>
+            <h3>Match the fields needed for a trustworthy review</h3>
+            <p>Required mappings and blocking issues come first. Suggestions remain drafts until you confirm them.</p>
           </div>
         </div>
         <div className="import-panel-body">
@@ -945,23 +954,28 @@ function MappingStep({
             />
           ) : (
             <>
+              <section className="mapping-priority" aria-label="Required to continue">
+                <div className="mapping-priority-heading">
+                  <span className="eyebrow">REQUIRED TO CONTINUE</span>
+                  <strong>{selections.filter(item => item.required && !item.sourceColumn).length + (sourceIdentityColumn ? 0 : 1)} mappings need attention</strong>
+                </div>
               <div className="mapping-identity">
+                <label>
+                  <span>Stable source record ID</span>
+                  <select disabled={loading} value={sourceIdentityColumn || ""} onChange={event => onSourceIdentity(event.target.value)}>
+                    <option value="">Unmapped</option>
+                    {headers.map(header => <option key={header} value={header}>{header}</option>)}
+                  </select>
+                  <small>This keeps future imports tied to the same business record.</small>
+                </label>
                 <MappingEvidence
                   ariaLabel="Source identity evidence"
                   mapping={analysis.mapping.sourceIdentity}
                   title="Source identity"
                 />
-                <label>
-                  <span>Source identity</span>
-                  <select disabled={loading} value={sourceIdentityColumn || ""} onChange={event => onSourceIdentity(event.target.value)}>
-                    <option value="">Unmapped</option>
-                    {headers.map(header => <option key={header} value={header}>{header}</option>)}
-                  </select>
-                  <small>Separate from the canonical target ID; never uses the synthetic staging locator.</small>
-                </label>
               </div>
               <div className="mapping-list">
-                {selections.map(selection => {
+                {selections.filter(selection => selection.required).map(selection => {
                   const evidence = analysis.mapping.fields.find(field => (
                     field.targetField === selection.targetField
                   ));
@@ -994,6 +1008,46 @@ function MappingStep({
                   );
                 })}
               </div>
+              </section>
+              {selections.some(selection => !selection.required) && (
+                <details className="mapping-optional">
+                  <summary>Optional mappings · improve business context</summary>
+                  <div className="mapping-list">
+                    {selections.filter(selection => !selection.required).map(selection => {
+                      const evidence = analysis.mapping.fields.find(field => (
+                        field.targetField === selection.targetField
+                      ));
+                      return (
+                        <div className="mapping-row" key={selection.targetField}>
+                          <MappingEvidence
+                            ariaLabel={`Mapping evidence for ${selection.targetField}`}
+                            mapping={evidence}
+                            title={selection.targetField}
+                          />
+                          <label>
+                            <span>Source column</span>
+                            <select
+                              aria-label={`Map ${selection.targetField}`}
+                              disabled={loading}
+                              value={selection.sourceColumn || ""}
+                              onChange={event => onSelection(selection.targetField, event.target.value)}
+                            >
+                              <option value="">Unmapped</option>
+                              {headers.map(header => (
+                                <option
+                                  disabled={usedColumns.has(header) && usedColumns.get(header) !== selection.targetField}
+                                  key={header}
+                                  value={header}
+                                >{header}</option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </details>
+              )}
               <button className="primary" disabled={loading || !sourceIdentityColumn} onClick={onRecalculate}>
                 {loading ? "Recalculating..." : "Recalculate Data Health"}
               </button>
@@ -1050,8 +1104,9 @@ function MappingEvidence({ ariaLabel, mapping, title }) {
   const samples = Array.isArray(mapping?.sampleValues) ? mapping.sampleValues : [];
   const issues = Array.isArray(mapping?.validationIssues) ? mapping.validationIssues : [];
   return (
-    <section aria-label={ariaLabel} className="mapping-evidence">
-      <h4>{title}</h4>
+    <details aria-label={ariaLabel} className="mapping-evidence" role="region">
+      <summary>Exact mapping evidence · {title}</summary>
+      <div className="mapping-evidence-body">
       <dl>
         <div><dt>Source column</dt><dd>{mapping?.sourceColumn || "Unmapped"}</dd></div>
         <div><dt>Target field</dt><dd>{mapping?.targetField || mapping?.sourceField || "Source identity"}</dd></div>
@@ -1088,7 +1143,8 @@ function MappingEvidence({ ariaLabel, mapping, title }) {
           </ul>
         )}
       </div>
-    </section>
+      </div>
+    </details>
   );
 }
 
@@ -1102,8 +1158,9 @@ function DataHealth({ health, rows = [], stale }) {
     <section className={`card import-panel data-health ${stale ? "stale" : ""}`}>
       <div className="card-head">
         <div>
-          <h3>Data Health</h3>
-          <p>{stale ? "Mapping changed; these metrics need recalculation." : `All ${health.totalRows} staged rows analyzed.`}</p>
+          <span className="eyebrow">BUSINESS IMPACT</span>
+          <h3>{health.rowsWithBlockingErrors > 0 ? "Resolve data blockers before import" : "This export can support the next review"}</h3>
+          <p>{stale ? "Mapping changed; recalculate before relying on this result." : `${health.validRows} of ${health.totalRows} rows can continue; ${health.rowsWithBlockingErrors} are blocked.`}</p>
         </div>
       </div>
       <div className="data-health-grid">
@@ -1116,7 +1173,9 @@ function DataHealth({ health, rows = [], stale }) {
           <HealthMetric label="Contactability" value={`${health.contactabilityCoverage.percentage}% coverage`} />
         )}
       </div>
-      <div className="data-health-details">
+      <details className="data-health-details">
+        <summary>Inspect complete Data Health and preserved evidence</summary>
+        <div>
         <p><strong>Unmapped source columns:</strong> {listOrNone(health.unknownUnmappedStatuses?.unmappedSourceColumns)}</p>
         <p><strong>Unmapped target fields:</strong> {listOrNone(health.unknownUnmappedStatuses?.unmappedTargetFields)}</p>
         <p><strong>Commercially important missing values:</strong> {formatCounts(health.missingValueCounts)}</p>
@@ -1132,7 +1191,7 @@ function DataHealth({ health, rows = [], stale }) {
             </ul>
           )}
         </div>
-      </div>
+        </div>
       {sampledIssues.length > 0 && (
         <div className="data-health-issues">
           <h4>Sampled row evidence</h4>
@@ -1147,6 +1206,7 @@ function DataHealth({ health, rows = [], stale }) {
           ))}
         </div>
       )}
+      </details>
     </section>
   );
 }

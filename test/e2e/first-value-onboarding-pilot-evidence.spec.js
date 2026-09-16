@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import path from "node:path";
 import { expect, test } from "@playwright/test";
 
 const require = createRequire(`${process.cwd()}/package.json`);
@@ -310,6 +311,23 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   await page.route(`${apiBaseUrl}/api/revenue-actions?*`, route =>
     json(route, { ok: true, data: state.linked ? [action] : [], count: state.linked ? 1 : 0 })
   );
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases?opportunity_id=e2e-opp-stalled`,
+    route => {
+      const importedCase = caseContext({
+        id: "case-imported",
+        amount: "2500",
+        origin: "IMPORTED_CUSTOMER",
+        businessName: "Imported Pilot Account",
+        linked: state.linked
+      }).case;
+      return json(route, {
+        ok: true,
+        data: state.linked ? [importedCase] : [],
+        count: state.linked ? 1 : 0
+      });
+    }
+  );
   await page.route(`${apiBaseUrl}/api/revenue-actions/pilot-action-1/prepare`, route => {
     action = {
       ...action,
@@ -368,14 +386,32 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   await expect(page).toHaveURL(/#opportunities$/);
 
   const commandCenter = page.getByTestId("revenue-command-center");
-  await expect(commandCenter.locator("[data-case-id]").first()).toHaveAttribute(
+  const safeActionPath = commandCenter.getByRole("region", {
+    name: "How TGE gets to a safe action"
+  });
+  await expect(safeActionPath).toContainText("Check your data");
+  await expect(safeActionPath).toContainText("Scan when ready");
+  await expect(safeActionPath).toContainText("Review the strongest case");
+  await expect(commandCenter.getByRole("region", {
+    name: "Priority customer review"
+  }).locator("[data-case-id]").first()).toHaveAttribute(
     "data-case-id",
-    "case-sample"
+    "case-imported"
   );
-  await expect(commandCenter).toContainText(
+  const demoCases = commandCenter.getByRole("group", {
+    name: "Demo and sample cases"
+  });
+  await expect(demoCases).not.toHaveAttribute("open", "");
+  await expect(demoCases).toContainText(
     "Sample / demo — excluded from first-value evidence"
   );
   await expect(commandCenter).toContainText("First credible imported-customer case");
+  if (process.env.TGE_EVIDENCE_DIR) {
+    await page.screenshot({
+      fullPage: true,
+      path: path.join(process.env.TGE_EVIDENCE_DIR, "02-mobile-customer-case.png")
+    });
+  }
   expect(writes.surface).toBe(0);
 
   await commandCenter.getByRole("button", { name: "Scan stalled opportunities" }).click();
@@ -392,7 +428,7 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   }).focus();
   await page.keyboard.press("Enter");
   await expect(importedCase.getByLabel("First-value case feedback"))
-    .toContainText("exact imported-customer case inspection is recorded");
+    .toContainText("review of this imported-customer case is recorded");
   expect(writes.inspect).toBe(1);
 
   await importedCase.getByLabel("Bounded feedback").selectOption("MISSING_CONTEXT");
@@ -420,9 +456,25 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   await refreshedImported.getByRole("button", {
     name: "CONTINUE ACTION"
   }).click();
-  await expect(page).toHaveURL(/#opportunities\/e2e-opp-stalled$/);
+  await expect(page).toHaveURL(
+    /#opportunities\/e2e-opp-stalled\?focus=action&case=case-imported&action=pilot-action-1$/
+  );
   await expect(page.getByTestId("opportunity-command-center")).toBeVisible();
   const execution = page.getByTestId("revenue-action-execution");
+  const originatingCase = execution.getByLabel("Originating revenue leak case");
+  await expect(originatingCase.getByRole("heading", { name: "E2E Stalled Roofing" })).toBeVisible();
+  await expect(originatingCase).toContainText("AUD 2,500");
+  await expect(originatingCase).toContainText(
+    "The opportunity reached the stalled threshold without a meaningful next action."
+  );
+  await expect(originatingCase).toContainText("Current opportunity intelligence");
+  const originatingDiagnostics = originatingCase.getByRole("group", {
+    name: "Originating case diagnostics"
+  });
+  await expect(originatingDiagnostics).not.toHaveAttribute("open", "");
+  await expect(originatingDiagnostics).toContainText("case-imported");
+  await expect(originatingDiagnostics).toContainText("STALE_WITHOUT_NEXT_ACTION");
+  await expect(execution).toContainText("Review → Approve → Create internal task");
   await expect(execution.getByTestId("revenue-action-status")).toHaveText("RECOMMENDED");
   await execution.getByRole("button", { name: "Prepare action" }).click();
   await expect(execution.getByTestId("internal-task-proposal"))
@@ -430,11 +482,56 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   await execution.getByTestId("approve-revenue-action").click();
   await expect(execution.getByTestId("revenue-action-status")).toHaveText("APPROVED");
   await execution.getByTestId("execute-revenue-action").click();
+  await expect(execution.getByTestId("internal-task-completion"))
+    .toContainText("Internal task created");
+  await expect(execution.getByTestId("internal-task-completion"))
+    .toContainText("No message was sent");
   await expect(execution.getByTestId("revenue-action-history")).toContainText("EXECUTED");
   await expect(execution.getByTestId("revenue-action-history")).toContainText("CRM task linked");
   await expect(execution.getByTestId("revenue-action-history")).toContainText("CRM activity linked");
+  if (process.env.TGE_EVIDENCE_DIR) {
+    await page.screenshot({
+      fullPage: true,
+      path: path.join(process.env.TGE_EVIDENCE_DIR, "03-mobile-task-created.png")
+    });
+  }
   await expect.poll(() => page.evaluate(() => ({
     body: document.body.scrollWidth,
     viewport: document.documentElement.clientWidth
   }))).toEqual({ body: 390, viewport: 390 });
+});
+
+test("leads with customer-case money and discloses the server all-case aggregate when samples exist", async ({ page }) => {
+  const state = {
+    scanned: false,
+    surfaced: false,
+    inspected: false,
+    feedback: false,
+    linked: false,
+    approved: false,
+    executed: false
+  };
+
+  await page.route(`${apiBaseUrl}/api/pilot-evidence/status`, route =>
+    json(route, statusResponse(state))
+  );
+  await page.route(`${apiBaseUrl}/api/revenue-leak-cases/operating-queue`, route =>
+    json(route, queueResponse(false))
+  );
+
+  await page.goto("/#opportunities");
+
+  const commandCenter = page.getByTestId("revenue-command-center");
+  const primary = commandCenter.getByLabel("Primary customer-case economic evidence");
+  await expect(primary).toContainText("Imported Pilot Account");
+  await expect(primary).toContainText("AUD 2,500");
+  await expect(primary).not.toContainText("AUD 11,500");
+
+  const allCases = commandCenter.getByRole("group", {
+    name: "All active-case aggregate including sample and demo evidence"
+  });
+  await expect(allCases).not.toHaveAttribute("open", "");
+  await expect(allCases).toContainText("Server all-case aggregate");
+  await expect(allCases).toContainText("AUD 11,500");
+  await expect(allCases).toContainText("2 cases");
 });

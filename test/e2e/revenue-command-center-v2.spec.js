@@ -144,6 +144,53 @@ function queueResponse(contexts, reference = Date.now()) {
   };
 }
 
+function readyEligibilityResponse(reference = Date.now()) {
+  return {
+    ok: true,
+    evaluated_at: new Date(reference).toISOString(),
+    detector: { id: "stalled-opportunity", version: "1" },
+    scope: "TENANT_VISIBLE_CANONICAL_OPPORTUNITIES",
+    mode: "READ_ONLY",
+    summary: {
+      complete: true,
+      limit: 100,
+      readiness: "READY",
+      global_reason_code: null,
+      total_opportunities: 1,
+      detector_assessable_count: 1,
+      detector_unassessable_count: 0,
+      scan_evaluated_count: 1,
+      reason_counts: {},
+      classifications: {
+        ELIGIBLE: 1,
+        MISSING_REQUIRED_EVIDENCE: 0,
+        STALE_EVIDENCE: 0,
+        SUPPRESSED_INVALID_EVIDENCE: 0,
+        SCAN_BLOCKED: 0
+      },
+      commercial_value_coverage: {
+        known_positive_count: 1,
+        known_zero_count: 0,
+        unknown_count: 0,
+        not_assessed_count: 0
+      }
+    },
+    records: [{
+      opportunity_id: "e2e-opp-stalled",
+      opportunity_name: "E2E Stalled Roofing",
+      classification: "ELIGIBLE",
+      detector_outcome: "ELIGIBLE_LEAK_DETECTED",
+      reason_code: "STALE_WITHOUT_NEXT_ACTION",
+      commercial_value: {
+        kind: "KNOWN_POSITIVE",
+        amount: "42000.5",
+        currency: "AUD"
+      },
+      next_step: "RUN_EXPLICIT_SCAN"
+    }]
+  };
+}
+
 function primaryContexts(reference = Date.now()) {
   return [
     caseContext({
@@ -231,7 +278,11 @@ test("renders the server-ordered truthful operating queue with evidence and auth
   })).toBeVisible();
   await expect(commandCenter).toContainText("STALE_WITHOUT_NEXT_ACTION");
   await expect(commandCenter).toContainText("Meaningful activity baseline");
-  await expect(commandCenter).toContainText("approval required");
+  const candidate = commandCenter.locator('[data-case-id="case-aud"]');
+  await expect(candidate).toContainText(
+    "review, approve, and complete its supported step in Opportunity Command Center"
+  );
+  await expect(candidate).not.toContainText("create the internal task");
   await expect(commandCenter.getByRole("button", {
     name: "TAKE ACTION"
   })).toBeEnabled();
@@ -249,9 +300,10 @@ test("renders the server-ordered truthful operating queue with evidence and auth
   await commandCenter.getByRole("button", {
     name: /Why TGE surfaced this.*Business identity unavailable/i
   }).click();
-  await expect(commandCenter).toContainText(
-    "Historical opportunity e2e-opp-execution-failure"
-  );
+  await commandCenter.locator('[data-case-id="case-na"]')
+    .getByText("Operator diagnostics", { exact: true }).click();
+  await expect(commandCenter.locator('[data-case-id="case-na"]'))
+    .toContainText("Opportunity IDe2e-opp-execution-failure");
   await expect(commandCenter).toContainText("Current opportunity context unavailable");
   await expect(commandCenter.getByRole("button", {
     name: "TAKE ACTION"
@@ -290,7 +342,9 @@ test("keeps queue and opportunity action titles synchronized during in-place mob
   const item = page.locator('[data-case-id="case-route-title"]');
   await item.getByRole("button", { name: /Why TGE surfaced this/i }).click();
   await item.getByRole("button", { name: "Open opportunity" }).click();
-  await expect(page).toHaveURL(/#opportunities\/e2e-opp-stalled$/);
+  await expect(page).toHaveURL(
+    /#opportunities\/e2e-opp-stalled\?case=case-route-title$/
+  );
   await expect(page.locator(".topbar h1")).toHaveText("Opportunity Action");
 
   await page.getByRole("button", { name: "← Back to opportunities" }).click();
@@ -1041,6 +1095,11 @@ test("withholds cached active-case money until the post-scan queue refresh succe
   let releasePostScan;
   const postScanGate = new Promise(resolve => { releasePostScan = resolve; });
 
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases/stalled-opportunity-eligibility`,
+    route => json(route, 200, readyEligibilityResponse(reference))
+  );
+
   await page.route(`${apiBaseUrl}/api/revenue-leak-cases/operating-queue`, async route => {
     queueReads += 1;
     if (queueMode === "POST_SCAN_PENDING") {
@@ -1102,8 +1161,10 @@ test("withholds cached active-case money until the post-scan queue refresh succe
   );
 
   await page.goto("/#opportunities");
+  const scanButton = page.getByRole("button", { name: "Scan stalled opportunities" });
+  await expect(scanButton).toBeEnabled();
   queueMode = "POST_SCAN_PENDING";
-  await page.getByRole("button", { name: "Scan stalled opportunities" }).click();
+  await scanButton.click();
   const result = page.getByLabel("Complete explicit scan outcomes");
   await expect(result).toContainText("1 credible revenue case found");
   await expect(result).toContainText("Refreshing durable queue truth");

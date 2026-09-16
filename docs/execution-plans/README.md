@@ -2,10 +2,11 @@
 
 ## Active plan
 
-- [`active/guided-first-credible-leak-pilot-v1.md`](active/guided-first-credible-leak-pilot-v1.md) — **Issue #14's approved three-slice milestone is active. Slice 1 and Slice 2 are merged; Slice 3 has reached a local coherent implementation candidate from exact `origin/main` `3c1a342` and awaits independent review.**
+- [`active/pilot-zero-business-first-presentation.md`](active/pilot-zero-business-first-presentation.md) — **Issue #39's approved browser-only presentation pass starts from exact clean `origin/main` `c6cb6a7`; product implementation begins only after its clean planning checkpoint.**
 
 ## Completed plans
 
+- [`completed/guided-first-credible-leak-pilot-v1.md`](completed/guided-first-credible-leak-pilot-v1.md) — **Issue #14's three slices are complete through merged PRs #36/#37/#38 and successful post-merge Verify runs, ending at exact `origin/main` `c6cb6a7`.**
 - [`completed/pilot-readiness.md`](completed/pilot-readiness.md) — **Pilot Readiness and the Assisted Pilot Safety Gate V1 are complete historical evidence. External provider, infrastructure, legal/privacy, backup/restore, and canonical tenant-data deletion gates remain explicit rather than implied.**
 - [`completed/first-value-onboarding-pilot-evidence.md`](completed/first-value-onboarding-pilot-evidence.md) — **Issue #9/#14 PR-3 completes the post-import first-value bridge and closed, tenant-scoped, privacy-minimized pilot-evidence contract as a local candidate; GitHub delivery remains coordinator-owned.**
 - [`completed/revenue-command-center-v2.md`](completed/revenue-command-center-v2.md) — **Issue #9 PR-2 makes the server-ordered RevenueLeakCase queue the primary Command Center and composes a tenant-safe, retry-safe handoff into the existing human-controlled RevenueAction lifecycle.**

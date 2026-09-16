@@ -1,8 +1,152 @@
 # Project State
 
-_Last locally audited on 2026-09-14. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+_Last locally audited on 2026-09-15. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
-Guided First Credible Leak Pilot V1 is the active approved milestone under
+Pilot Zero Business-First Presentation is the active approved browser-only
+mission under GitHub Issue #39. It starts from exact clean `origin/main`
+`c6cb6a7752fc68361498052b7a884cdb2cb93e74` on
+`feat/pilot-zero-business-first-presentation`. The bounded objective is to make
+the existing supported journey immediately legible as existing business data →
+trustworthy economic problem → why now → human-controlled action. Opportunities
+are the first-value import path; readiness precedes an explicit scan; the
+strongest server-ordered imported-customer case leads; and the existing
+RevenueAction prepare, approve, and safe internal-task execution mutations
+remain the sole action authority.
+
+The local implementation checkpoint `f720a01` now presents that existing
+authority as a business-first browser journey. Opportunity exports are the
+default intake; required mappings, blockers, and business impact lead while
+raw/canonical evidence remains inspectable; Operational Data Health precedes
+the explicit scan; and the server-ordered imported-customer cases are primary.
+Sample/demo cases, legacy opportunity guidance, technical identifiers/reasons,
+detector versions, and Pilot instrumentation remain available under labelled
+disclosures and do not satisfy customer first-value evidence. Case handoff now
+focuses the existing RevenueAction lifecycle, carries business/value/why
+context, and ends with an internal-task completion panel that explicitly says
+no message was sent and claims no recovered revenue, attribution, or ROI.
+
+Focused presentation TDD was RED **0/4** and GREEN **4/4**; the synchronized
+managed first-value journey was RED **0/1** and GREEN **1/1**. The affected
+Node set passes **77/77**, complete integration passes **477/477**, and complete
+managed Chromium passes **73/73**. The production build and engineering harness
+pass, migrations `001`-`016` remain byte-identical to exact base, and generated
+screenshots are retained outside the repository under
+`artifacts/tge-pilot-zero-after`. A controlled two-test rehearsal took about
+**2.0 seconds** of deterministic test execution (**3.98 seconds** wall time with
+managed startup); this is internal harness timing only and not customer or
+commercial evidence.
+
+Fresh independent review #1 of exact candidate `32b331e` found four deduplicated
+P2 presentation roots. `PZ-P2-SAMPLE-AGGREGATE` let a server-authoritative
+all-case total lead even when it included sample/demo money;
+`PZ-P2-CASE-ACTION-CONTINUITY` lost immutable originating-case value and why
+context at the RevenueAction handoff; `PZ-P2-EXECUTION-TYPE-SEQUENCE` described
+every action as internal-task creation even though communication drafts complete
+only through an explicit human manual confirmation; and
+`PZ-P2-CURRENT-WORKFLOW-COMPLETION` promoted any historical task-created result
+over a newer active action. Remediation cycle **1/3** is consumed for those four
+roots in browser presentation only.
+
+The remediated queue now leads with the first server-ordered customer case's
+exact projected money when sample/demo cases exist. The unchanged server
+all-case aggregate remains a clearly labelled, collapsed secondary disclosure;
+the browser does not calculate another aggregate or reorder customer cases.
+Case navigation carries bounded case/action pointers, but the opportunity page
+resolves immutable case identity, exact value semantics (including known zero),
+reason, and authoritative action link only through the existing tenant-bound
+case-history read. That evidence is presented separately from current
+opportunity intelligence. The current authoritative RevenueAction execution
+type determines internal-task versus communication-draft sequence and completion
+copy, and primary completion is bound to the current/focused workflow; older
+task-created results remain dated history and cannot offer “prepare another”
+while an active action exists. The visible import CTA now matches its accessible
+name (`Create preview`). No browser query value is monetary or action authority.
+
+The five synchronized Chromium regressions were RED **0/5** at `32b331e` for
+the intended defects and are GREEN **5/5**. Dependency-free presentation
+contracts pass **6/6**, affected Node/API/domain contracts pass **128/128**,
+complete integration passes **479/479**, and complete managed Chromium passes
+**76/76**, including desktop and 390px journeys, known-zero handoff, manual
+communication completion, and historical-completion/current-action separation.
+The production build passes with **34 modules** and the existing chunk-size
+warning; the engineering harness, diff hygiene, empty `src` diff, and migration
+`001`-`016` byte comparison against exact base pass. Updated evidence is outside
+the repository under `artifacts/tge-pilot-zero-cycle1`. PostgreSQL was not run
+because no server, persistence, transaction, tenant/RLS, schema, or migration
+boundary changed.
+
+Fresh independent review #2 (`/root/pilot_zero_cycle1_final_review`) of exact
+cycle-1 checkpoint `f0f62c27d0320741f3b47712612507309034503d` confirmed the
+Opportunity Command Center's type-specific sequence, but found one residual of
+the original `PZ-P2-EXECUTION-TYPE-SEQUENCE` root: a queue case still promised
+“review → approve → create the internal task” even though the queue projection
+does not expose execution type and a `FOLLOW_UP` may authoritatively materialize
+as a `COMMUNICATION_DRAFT`. This is incomplete closure of the same root, not a
+new root or remediation cycle; review count is **2** and remediation remains
+cycle **1/3**.
+
+The follow-up queue contract is built from the real RevenueLeakCase domain with
+`recommended_action_type: FOLLOW_UP`. At `f0f62c2` it was RED **0/1** because
+the rendered candidate contained the internal-task promise. The queue now says
+only that the operator will review, approve, and complete the action's supported
+step in Opportunity Command Center, and explicitly says the case review neither
+executes nor sends anything. It does not infer execution type or change the
+server projection. Focused queue GREEN is **1/1**; dependency-free presentation
+contracts pass **6/6**; affected Node/API/domain contracts pass **81/81**; and
+affected managed Chromium passes **26/26** across queue and ambiguous handoff,
+communication/manual completion, current-versus-historical workflow, known-zero
+originating value, the desktop and 390px first-value path, guided intake, and
+the complete changed import-workflow specification. Production build and the
+engineering harness pass; the existing build chunk-size warning remains.
+
+Two direct P3 presentation items were also closed without consuming a cycle.
+The import CTA's visible and accessible name is now consistently `Check fields
+and data quality`, with semantic selectors updated. The originating-case panel
+now leads with business context, exact authoritative case value, and explained
+why-now evidence; case/action IDs, reason code, link confirmation, and tenant-
+authority provenance remain inspectable under a closed diagnostics disclosure.
+No full integration or complete browser suite was repeated because the change
+is browser-only and the affected gates above cover its contracts; the prior
+cycle-1 checkpoint retains complete integration **479/479** and complete
+managed Chromium **76/76** evidence. PostgreSQL remains inapplicable. Fresh
+independent review of the new clean follow-up checkpoint is the next phase.
+External-pilot provider, hosting, backup/restore, privacy/DPA, legal retention/
+deletion, and real-customer validation remain blocked and out of scope.
+
+PR #40 delivery reached a bounded CI harness recovery at reviewed product head
+`cb58e078a1173b3a23b2b0827a1d5b958af072fe`. Push Verify `35096275999`
+succeeded. Pull-request Verify `35096329598` attempt 2 passed the engineering
+harness, integration, PostgreSQL, and 75 of 76 Chromium tests, then timed out in
+the post-scan queue-freshness test because its unrelated scan-readiness
+precondition came from mutable shared server state and because the queue mock
+could enter post-scan blocking mode before the initial queue read completed,
+leaving the scan control disabled. The bounded correction is test/docs-only:
+that scenario now owns a strict server-shaped READY eligibility fixture and
+awaits the enabled scan control before changing queue modes. No product,
+detector, money, tenant, persistence, or RevenueAction contract changed.
+
+This mission may change browser composition, copy, navigation, progressive
+disclosure, loading/empty/error hierarchy, and desktop/390px presentation only.
+It does not authorize API, persistence, schema, migration, detector, tenant/RLS,
+case-ordering, monetary-calculation, RevenueAction-authority, connector,
+autonomous outbound, attribution/ROI, recovered-revenue, or external-pilot
+work. Sample/demo evidence remains visibly separate and cannot satisfy
+first-value evidence. Exact money/currency, known-zero versus unknown, immutable
+evidence, explicit scan, ambiguous-write reconciliation, and human approval are
+preserved.
+
+Guided First Credible Leak Pilot V1 is complete. Slice 1 merged through PR #36
+as `0666e974ac0e007b8c0ead3ebef3b101f4688017` with post-merge Verify
+`34830965722`; Slice 2 merged through PR #37 as
+`3c1a3423c7ac03def96047783ca0f3f4b1f68f74` with post-merge Verify
+`34836937086`; Slice 3 merged through PR #38 as
+`c6cb6a7752fc68361498052b7a884cdb2cb93e74` with post-merge Verify
+`34932001831`. Its execution plan is archived as completed historical evidence.
+
+## Historical Guided First Credible Leak evidence
+
+At the recorded pre-merge checkpoint, Guided First Credible Leak Pilot V1 was
+the active approved milestone under
 GitHub Issue #14. Its three slices are sequential: guided CSV intake and
 server-truth resumability first; operational Data Health and detector
 eligibility only after Slice 1 merges; and the coherent first-value operating
@@ -18,7 +162,7 @@ Slice 1 merged through PR #36 as
 `0666e974ac0e007b8c0ead3ebef3b101f4688017`; post-merge Verify run
 `34830965722` succeeded. Slice 2 merged through PR #37 as exact `origin/main`
 `3c1a3423c7ac03def96047783ca0f3f4b1f68f74`; post-merge Verify run
-`34836937086` succeeded. Slice 3 is now active from that exact clean base on
+`34836937086` succeeded. Slice 3 was then active from that exact clean base on
 `feat/first-credible-revenue-moment-v1`. It may compose the existing guided
 import/resume, server-authoritative readiness, explicit detector scan,
 RevenueLeakCase queue/lifecycle/evidence, Pilot evidence, and RevenueAction
@@ -1030,10 +1174,10 @@ Follow [`ENGINEERING_HARNESS.md`](ENGINEERING_HARNESS.md) for verification level
 - Developer `data/*.json` must never be touched by tests/E2E.
 
 ## Milestone status
-- Active plan: [**Guided First Credible Leak Pilot V1**](execution-plans/active/guided-first-credible-leak-pilot-v1.md).
-  Slices 1 and 2 are merged; Slice 3 has reached a clean local implementation
-  candidate, completed the explicitly authorized bounded freshness
-  remediations, and awaits fresh independent review. The completed
+- Active plan: [**Pilot Zero Business-First Presentation**](execution-plans/active/pilot-zero-business-first-presentation.md).
+- Completed predecessor: [**Guided First Credible Leak Pilot V1**](execution-plans/completed/guided-first-credible-leak-pilot-v1.md).
+  Slices 1, 2, and 3 are merged through PRs #36/#37/#38 at exact `origin/main`
+  `c6cb6a7`; the post-merge Verify runs all succeeded. The completed
   [**Pilot Readiness**](execution-plans/completed/pilot-readiness.md) record is
   historical evidence, not an active backlog.
   The [**RevenueLeakCase foundation**](execution-plans/completed/revenue-leak-case-foundation.md)

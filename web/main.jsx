@@ -88,6 +88,37 @@ function routeFromHash() {
   return window.location.hash.replace(/^#\/?/, "").split("?", 1)[0];
 }
 
+function opportunityRouteFromHash() {
+  const hash = window.location.hash.replace(/^#\/?/, "");
+  const [path, query = ""] = hash.split("?", 2);
+  const match = path.match(/^opportunities\/([^/]+)$/);
+  if (!match) return null;
+
+  let opportunityId;
+  try {
+    opportunityId = decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+
+  const params = new URLSearchParams(query);
+  const boundedIdentity = name => {
+    const values = params.getAll(name);
+    return values.length === 1
+      && values[0].length > 0
+      && values[0].length <= 200
+      ? values[0]
+      : null;
+  };
+  return {
+    opportunityId,
+    focusAction: params.getAll("focus").length === 1
+      && params.get("focus") === "action",
+    caseId: boundedIdentity("case"),
+    actionId: boundedIdentity("action")
+  };
+}
+
 function pageTitle(page, route) {
   if (page === "dashboard") return "Command Center";
   if (page === "opportunities") {
@@ -1333,24 +1364,31 @@ function Opportunities() {
 
   const [selected, setSelected] =
     useState(null);
+  const [focusRevenueAction, setFocusRevenueAction] = useState(false);
+  const [focusRevenueLeakCaseId, setFocusRevenueLeakCaseId] = useState(null);
+  const [focusRevenueActionId, setFocusRevenueActionId] = useState(null);
 
   useEffect(() => {
     const selectFromHash = () => {
-      const match = window.location.hash
-        .replace(/^#\/?/, "")
-        .match(/^opportunities\/([^/]+)$/);
+      const route = opportunityRouteFromHash();
 
-      if (!match) {
+      if (!route) {
         setSelected(null);
+        setFocusRevenueAction(false);
+        setFocusRevenueLeakCaseId(null);
+        setFocusRevenueActionId(null);
         return;
       }
 
       const opportunity = opportunities.find(
-        item => item.id === match[1]
+        item => item.id === route.opportunityId
       );
 
       if (opportunity) {
         setSelected(opportunity);
+        setFocusRevenueAction(route.focusAction);
+        setFocusRevenueLeakCaseId(route.caseId);
+        setFocusRevenueActionId(route.actionId);
       }
     };
 
@@ -1369,14 +1407,28 @@ function Opportunities() {
     };
   }, [opportunities]);
 
-  const openOpportunity = opportunity => {
+  const openOpportunity = (
+    opportunity,
+    { focusAction = false, caseId = null, actionId = null } = {}
+  ) => {
     setSelected(opportunity);
-    window.location.hash = `opportunities/${opportunity.id}`;
+    setFocusRevenueAction(focusAction);
+    setFocusRevenueLeakCaseId(caseId);
+    setFocusRevenueActionId(actionId);
+    const params = new URLSearchParams();
+    if (focusAction) params.set("focus", "action");
+    if (caseId) params.set("case", caseId);
+    if (actionId) params.set("action", actionId);
+    const query = params.toString();
+    window.location.hash = `opportunities/${encodeURIComponent(opportunity.id)}${query ? `?${query}` : ""}`;
   };
 
   const closeOpportunity = () => {
     window.location.hash = "opportunities";
     setSelected(null);
+    setFocusRevenueAction(false);
+    setFocusRevenueLeakCaseId(null);
+    setFocusRevenueActionId(null);
   };
 
   /*
@@ -1389,6 +1441,9 @@ function Opportunities() {
     return (
       <OpportunityCommandCenter
         opportunity={selected}
+        focusRevenueAction={focusRevenueAction}
+        focusRevenueLeakCaseId={focusRevenueLeakCaseId}
+        focusRevenueActionId={focusRevenueActionId}
         onBack={closeOpportunity}
         onOpportunityUpdated={async updated => {
           setSelected(updated);
@@ -1418,13 +1473,13 @@ function Opportunities() {
           loading || Boolean(error)
         }
         onRefresh={refreshRevenue}
-        onOpenOpportunity={opportunityId => {
+        onOpenOpportunity={(opportunityId, options) => {
           const opportunity = opportunities.find(
             item => item.id === opportunityId
           );
 
           if (opportunity) {
-            openOpportunity(opportunity);
+            openOpportunity(opportunity, options);
           }
         }}
       />
