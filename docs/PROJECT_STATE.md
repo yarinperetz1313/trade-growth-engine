@@ -113,6 +113,18 @@ independent review of the new clean follow-up checkpoint is the next phase.
 External-pilot provider, hosting, backup/restore, privacy/DPA, legal retention/
 deletion, and real-customer validation remain blocked and out of scope.
 
+PR #40 delivery reached a bounded CI harness recovery at reviewed product head
+`cb58e078a1173b3a23b2b0827a1d5b958af072fe`. Push Verify `35096275999`
+succeeded. Pull-request Verify `35096329598` attempt 2 passed the engineering
+harness, integration, PostgreSQL, and 75 of 76 Chromium tests, then timed out in
+the post-scan queue-freshness test because its unrelated scan-readiness
+precondition came from mutable shared server state and because the queue mock
+could enter post-scan blocking mode before the initial queue read completed,
+leaving the scan control disabled. The bounded correction is test/docs-only:
+that scenario now owns a strict server-shaped READY eligibility fixture and
+awaits the enabled scan control before changing queue modes. No product,
+detector, money, tenant, persistence, or RevenueAction contract changed.
+
 This mission may change browser composition, copy, navigation, progressive
 disclosure, loading/empty/error hierarchy, and desktop/390px presentation only.
 It does not authorize API, persistence, schema, migration, detector, tenant/RLS,

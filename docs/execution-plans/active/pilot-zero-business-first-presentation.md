@@ -226,3 +226,24 @@
 - Delivery stop: do not push, open/update a PR, mutate GitHub, start CI, merge,
   or begin another milestone. Stop at a clean candidate for independent review.
 - Debt/follow-up: external-pilot gates remain blocked as listed above.
+
+## PR #40 CI recovery
+
+- PR #40 was opened at reviewed head `cb58e078a1173b3a23b2b0827a1d5b958af072fe`.
+  Push Verify run `35096275999` succeeded. Pull-request Verify run
+  `35096329598` attempt 1 was classified `TEST_OR_CI_HARNESS_DEFECT` /
+  `KNOWN_FLAKE`; its one evidence-supported unchanged rerun was consumed.
+- Attempt 2 again passed the harness, integration, PostgreSQL, and 75 of 76
+  Chromium journeys. The sole timeout was the post-scan queue-freshness test
+  waiting for a disabled scan button. That test exercised queue freshness but
+  switched its queue mock into post-scan blocking mode before the initial queue
+  read was guaranteed complete, and it also depended on mutable shared server
+  eligibility instead of owning that unrelated readiness precondition.
+- The bounded harness remediation supplies a strict server-shaped `READY`
+  eligibility response only within that scenario and awaits the enabled scan
+  control before changing the queue mock to post-scan mode. Product code,
+  detector rules, money, tenancy, queue semantics, and RevenueAction authority
+  are unchanged.
+  The broken watcher `303c1b1b-0ab7-43b2-8f84-0cfc26ce501a` was removed after
+  its terminal evidence was incorporated; the Coordinator owns verification
+  until replacement CI is started.
