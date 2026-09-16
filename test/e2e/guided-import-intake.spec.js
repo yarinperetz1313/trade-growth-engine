@@ -293,7 +293,7 @@ test("restores migration-015 minimized committed truth before cleaned preview ev
   await page.goto("/#imports?batch=cleaned-committed");
   await expect(page.getByRole("heading", { name: "Import committed" })).toBeVisible();
   await expect(page.getByText("2 committed")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Continue to Revenue Command Center" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue to Revenue attention" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Retry this batch" })).toHaveCount(0);
   expect(commitReads).toBe(1);
   expect(previewReads).toBe(0);

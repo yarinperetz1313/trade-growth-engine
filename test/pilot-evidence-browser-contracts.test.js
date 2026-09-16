@@ -184,7 +184,7 @@ test("browser sources keep first-value continuation bounded and outside browser 
   const combined = `${importWorkspace}\n${commandCenter}\n${api}\n${revenueContracts}`;
 
   assert.match(importWorkspace, /Committed Data Health/);
-  assert.match(importWorkspace, /Continue to Revenue Command Center/);
+  assert.match(importWorkspace, /Continue to Revenue attention/);
   assert.match(commandCenter, /First credible imported-customer case/);
   assert.match(commandCenter, /Sample \/ demo — excluded from first-value evidence/);
   assert.match(combined, /No eligible stalled-opportunity leak/);

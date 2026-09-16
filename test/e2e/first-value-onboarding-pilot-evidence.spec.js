@@ -380,7 +380,7 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   await expect(health).toContainText("Quality blocked0");
 
   await health.getByRole("button", {
-    name: "Continue to Revenue Command Center"
+    name: "Continue to Revenue attention"
   }).focus();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/#opportunities$/);
@@ -476,6 +476,25 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   await expect(originatingDiagnostics).toContainText("STALE_WITHOUT_NEXT_ACTION");
   await expect(execution).toContainText("Review → Approve → Create internal task");
   await expect(execution.getByTestId("revenue-action-status")).toHaveText("RECOMMENDED");
+  await expect.poll(async () => {
+    const topbar = await page.locator(".topbar").boundingBox();
+    const heading = await execution.getByRole("heading", {
+      name: "Review → Approve → Create internal task"
+    }).boundingBox();
+    const value = await originatingCase.locator(".oc-originating-case-value strong").boundingBox();
+    const status = await execution.getByTestId("revenue-action-status").boundingBox();
+    return {
+      headingBelowChrome: heading.y >= topbar.y + topbar.height,
+      headingVisible: heading.y + heading.height <= 844,
+      valueVisible: value.y + value.height <= 844,
+      statusVisible: status.y + status.height <= 844
+    };
+  }).toEqual({
+    headingBelowChrome: true,
+    headingVisible: true,
+    valueVisible: true,
+    statusVisible: true
+  });
   await execution.getByRole("button", { name: "Prepare action" }).click();
   await expect(execution.getByTestId("internal-task-proposal"))
     .toContainText("No due date invented");

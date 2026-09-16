@@ -1354,7 +1354,7 @@ function ResultStep({ facts, onContinue, onReset, result }) {
       <div className="import-footer-actions">
         <button className="text-button" onClick={onReset}>Start another import</button>
         <button
-          aria-label="Continue to Revenue Command Center — Review Operational Data Health — no scan yet"
+          aria-label="Continue to Revenue attention — Review Operational Data Health — no scan yet"
           className="primary"
           onClick={onContinue}
         >
@@ -1403,7 +1403,7 @@ function CommittedDataHealth({ facts, onContinue, resumed = false }) {
       </div>
       {onContinue && (
         <button
-          aria-label="Continue to Revenue Command Center — Review Operational Data Health — no scan yet"
+          aria-label="Continue to Revenue attention — Review Operational Data Health — no scan yet"
           className="primary"
           onClick={onContinue}
         >

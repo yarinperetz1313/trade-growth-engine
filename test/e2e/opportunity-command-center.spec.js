@@ -54,17 +54,17 @@ function expectOnlyExpectedFailedResourceError(browserErrors, status) {
 test("opens exact seeded opportunity, closes the intelligence loop, and preserves hash navigation", async ({ page }) => {
   const browserErrors = watchUnexpectedBrowserErrors(page);
 
-  await page.goto("/#opportunities");
+  await page.goto("/#all-opportunities");
 
   const row = page.getByTestId(`opportunity-row-${opportunityId}`);
   await expect(row).toContainText(businessName);
   await row.click();
 
-  await expect(page).toHaveURL(new RegExp(`#opportunities/${opportunityId}$`));
+  await expect(page).toHaveURL(new RegExp(`#opportunities/${opportunityId}\\?return=all-opportunities$`));
   await expect(page.getByTestId("opportunity-command-center")).toContainText(businessName);
   await expect(page.getByText("OPPORTUNITY COMMAND CENTER")).toBeVisible();
 
-  await page.goto(`/#opportunities/${opportunityId}`);
+  await page.goto(`/#opportunities/${opportunityId}?return=all-opportunities`);
   await expect(page.getByRole("heading", { name: businessName })).toBeVisible();
   await expect(page.getByText("This is not a probability of closing.")).toBeVisible();
   await expect(page.getByTestId("opportunity-value")).toHaveText(
@@ -102,11 +102,11 @@ test("opens exact seeded opportunity, closes the intelligence loop, and preserve
   expect(after.data.intelligence.health.status).not.toBe("UNKNOWN");
 
   await page.getByRole("button", { name: "← Back to opportunities" }).click();
-  await expect(page).toHaveURL(/#opportunities$/);
+  await expect(page).toHaveURL(/#all-opportunities$/);
   await expect(page.getByTestId(`opportunity-row-${opportunityId}`)).toBeVisible();
 
   await page.goBack();
-  await expect(page).toHaveURL(new RegExp(`#opportunities/${opportunityId}$`));
+  await expect(page).toHaveURL(new RegExp(`#opportunities/${opportunityId}\\?return=all-opportunities$`));
   await expect(page.getByRole("heading", { name: businessName })).toBeVisible();
 
   expect(browserErrors).toEqual([]);
@@ -147,7 +147,7 @@ test("shows a practical API failure state without crashing", async ({ page }) =>
     });
   });
 
-  await page.goto("/#opportunities");
+  await page.goto("/#all-opportunities");
 
   await expect(page.getByText("E2E_FORCED_FAILURE")).toBeVisible();
   await expect(
@@ -176,10 +176,8 @@ test("keeps opportunity data available when only revenue intelligence is unavail
     });
   });
 
-  await page.goto("/#opportunities");
+  await page.goto("/#all-opportunities");
 
-  await page.getByText("Operator diagnostics · Legacy opportunity guidance").click();
-  await expect(page.getByText("Unable to load revenue intelligence.")).toBeVisible();
   await expect(page.getByTestId(`opportunity-row-${opportunityId}`)).toContainText(businessName);
 
   // Chromium reports a native console diagnostic for the intentionally mocked

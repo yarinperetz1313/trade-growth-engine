@@ -1572,6 +1572,21 @@
   border-color: rgba(101, 211, 145, .2);
 }
 
+.oc-revenue-action-execution {
+  scroll-margin-top: 112px;
+}
+
+.oc-workflow-heading {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.oc-workflow-heading h2 {
+  min-width: 0;
+}
+
 .oc-originating-case {
   background: rgba(212, 181, 106, .055);
   border: 1px solid rgba(212, 181, 106, .2);

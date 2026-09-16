@@ -1,9 +1,43 @@
 # Project State
 
-_Last locally audited on 2026-09-15. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+_Last locally audited on 2026-09-17. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
-Pilot Zero Business-First Presentation is the active approved browser-only
-mission under GitHub Issue #39. It starts from exact clean `origin/main`
+Exceptional Revenue Operating Home candidate 1 is the active browser-only
+product sprint slice under GitHub Issue #41. It starts from merged Pilot Zero
+base `9c78d196708585201ae0fa4400cdd4df28a1a833` on
+`feat/exceptional-revenue-operating-home`. The accepted Pilot Zero truth
+boundaries remain unchanged: exact server money and currency, known zero versus
+unknown, server case order, sample isolation, explicit scans, bounded case/action
+identity, type-specific RevenueAction execution, historical/current workflow
+separation, and human approval remain authoritative.
+
+This candidate makes `Revenue attention` the default operating home, renames the
+generic dashboard `Pipeline overview`, and moves the complete tenant-visible
+portfolio to an explicit `All opportunities` destination. The queue and
+portfolio no longer render as competing stacked command centers. At 390px the
+first server-ordered customer case appears before a collapsed filter control;
+the complete portfolio uses labelled cards rather than a wide six-column table;
+and route-irrelevant prospect search is absent from revenue/action surfaces.
+Already-durable cases are described as the last validated queue truth, while
+the explicit scan is described as a human-triggered refresh of current canonical
+evidence. Focused action navigation accounts for sticky chrome and keeps the
+workflow heading, originating value, and current action status in the first
+stable mobile viewport.
+
+Dependency-free candidate contracts were intentionally RED **0/6** at base and
+are GREEN **6/6**. The focused truth set passes **21/21**, focused managed
+Chromium passes **5/5**, and the affected import/readiness/queue/portfolio/action
+managed Chromium set passes **49/49**. Complete integration passes **485/485**,
+complete managed Chromium passes **77/77**, and the production build passes
+with **34 modules** and the existing chunk-size warning. The engineering
+harness, diff hygiene, aggregate `src` comparison, and migration `001`-`016`
+byte comparison against exact base pass. No API, backend, persistence, schema,
+migration, detector, tenancy/RLS, monetary calculation, queue ordering, or
+RevenueAction authority changed. Exact-candidate screenshots are retained
+outside the repository under `artifacts/tge-sprint-candidate1`.
+
+Pilot Zero Business-First Presentation is the merged historical browser-only
+baseline authorized under GitHub Issue #39. It started from exact clean `origin/main`
 `c6cb6a7752fc68361498052b7a884cdb2cb93e74` on
 `feat/pilot-zero-business-first-presentation`. The bounded objective is to make
 the existing supported journey immediately legible as existing business data →

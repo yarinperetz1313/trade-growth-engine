@@ -407,9 +407,9 @@ function ScanAction({ disabled, disabledRefresh, running, onScan, onRefresh, ref
   return (
     <section className="rcc2-scan-action" aria-label="Explicit opportunity scan">
       <div>
-        <span className="eyebrow">STEP 2 · SCAN WHEN READY</span>
-        <h4>Check ready opportunities for a credible stall</h4>
-        <p>This runs only when you choose it. It reviews recorded evidence and refreshes the durable case queue.</p>
+        <span className="eyebrow">STEP 2 · REFRESH CURRENT EVIDENCE</span>
+        <h4>Refresh current evidence for credible stalls</h4>
+        <p>This explicit scan runs only when you choose it. It checks current canonical evidence and then refreshes durable queue truth.</p>
       </div>
       <div className="rcc2-hero-actions">
         <button type="button" className="oc-primary-button" disabled={disabled} onClick={onScan}>
@@ -1425,11 +1425,12 @@ export default function RevenueCommandCenter({
     >
       <div className="rcc2-hero">
         <div>
-          <span className="eyebrow">REVENUE LEAK QUEUE</span>
+          <span className="eyebrow">DURABLE REVENUE ATTENTION</span>
           <h3 id="revenue-command-center-title">Find the first credible revenue problem</h3>
           <p>
-            See what TGE received, what the server can assess, exact known money,
-            why a case matters, and the next human-controlled action.
+            These cases come from the last validated queue read. See what TGE knows,
+            exact known money, what remains unknown, why a case matters, and the next
+            human-controlled action. Refresh current evidence explicitly when ready.
           </p>
         </div>
       </div>
@@ -1530,28 +1531,6 @@ export default function RevenueCommandCenter({
               entries={queue.entries}
             />
           )}
-          <fieldset className="rcc2-filters">
-            <legend>Filter authoritative case fields</legend>
-            <div className="rcc2-filter">
-              <label htmlFor="rcc2-lifecycle-filter">Lifecycle</label>
-              <select id="rcc2-lifecycle-filter" value={lifecycleFilter} onChange={event => setLifecycleFilter(event.target.value)}>
-                <option value="ALL">All active states</option><option value="OPEN">Open</option><option value="SNOOZED">Snoozed</option>
-              </select>
-            </div>
-            <div className="rcc2-filter">
-              <label htmlFor="rcc2-value-filter">Value</label>
-              <select id="rcc2-value-filter" value={valueFilter} onChange={event => setValueFilter(event.target.value)}>
-                <option value="ALL">All value states</option><option value="KNOWN_POSITIVE">Known value</option><option value="KNOWN_ZERO">Known zero</option><option value="UNKNOWN">Unknown value</option><option value="NOT_APPLICABLE">Not applicable</option>
-              </select>
-            </div>
-            <div className="rcc2-filter">
-              <label htmlFor="rcc2-source-filter">Source</label>
-              <select id="rcc2-source-filter" value={sourceFilter} onChange={event => setSourceFilter(event.target.value)}>
-                <option value="ALL">All authoritative sources</option><option value="TGE">TGE</option>
-              </select>
-            </div>
-          </fieldset>
-
           {queue.entries.length === 0 ? (
             <div className="rcc2-state" data-testid="revenue-leak-queue-empty">
               No active revenue leak cases need attention. This is a complete queue
@@ -1559,8 +1538,6 @@ export default function RevenueCommandCenter({
               the explicit stalled-opportunity scan to evaluate current canonical
               evidence, or import/create opportunities if none are available.
             </div>
-          ) : visibleEntries.length === 0 ? (
-            <div className="rcc2-state">No cases match these authoritative filters.</div>
           ) : (
             <>
             {customerEntries.length > 0 && (
@@ -1605,6 +1582,33 @@ export default function RevenueCommandCenter({
               ))}
             </div>
             </section>
+            )}
+            <details className="rcc2-filter-disclosure" aria-label="Filter revenue attention">
+              <summary>Filter revenue attention</summary>
+              <fieldset className="rcc2-filters">
+                <legend>Filter authoritative case fields</legend>
+                <div className="rcc2-filter">
+                  <label htmlFor="rcc2-lifecycle-filter">Lifecycle</label>
+                  <select id="rcc2-lifecycle-filter" value={lifecycleFilter} onChange={event => setLifecycleFilter(event.target.value)}>
+                    <option value="ALL">All active states</option><option value="OPEN">Open</option><option value="SNOOZED">Snoozed</option>
+                  </select>
+                </div>
+                <div className="rcc2-filter">
+                  <label htmlFor="rcc2-value-filter">Value</label>
+                  <select id="rcc2-value-filter" value={valueFilter} onChange={event => setValueFilter(event.target.value)}>
+                    <option value="ALL">All value states</option><option value="KNOWN_POSITIVE">Known value</option><option value="KNOWN_ZERO">Known zero</option><option value="UNKNOWN">Unknown value</option><option value="NOT_APPLICABLE">Not applicable</option>
+                  </select>
+                </div>
+                <div className="rcc2-filter">
+                  <label htmlFor="rcc2-source-filter">Source</label>
+                  <select id="rcc2-source-filter" value={sourceFilter} onChange={event => setSourceFilter(event.target.value)}>
+                    <option value="ALL">All authoritative sources</option><option value="TGE">TGE</option>
+                  </select>
+                </div>
+              </fieldset>
+            </details>
+            {visibleEntries.length === 0 && (
+              <div className="rcc2-state">No cases match these authoritative filters.</div>
             )}
             {demoEntries.length > 0 && (
               <details className="rcc2-demo-cases" aria-label="Demo and sample cases">

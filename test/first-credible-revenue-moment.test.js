@@ -158,6 +158,6 @@ test("journey composition exposes explicit scan and continuous human case decisi
   assert.match(commandCenter, /No cross-currency total is calculated/);
   assert.match(commandCenter, /not customer adoption|not commercial-outcome evidence/i);
   assert.match(importWorkspace, /Review Operational Data Health — no scan yet/);
-  assert.match(main, /Revenue Leak Queue/);
+  assert.match(main, /Revenue attention/);
   assert.doesNotMatch(commandCenter, /autonomous|automatically execute/i);
 });

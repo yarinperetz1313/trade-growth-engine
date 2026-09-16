@@ -401,9 +401,21 @@ export default function OpportunityCommandCenter({
   useEffect(() => {
     if (!focusRevenueAction || loading) return;
     const target = document.getElementById("revenue-action-workflow");
-    target?.scrollIntoView({ block: "start" });
-    target?.focus({ preventScroll: true });
-  }, [focusRevenueAction, loading, opportunity.id]);
+    if (!target) return;
+    const topbar = document.querySelector(".topbar");
+    const scrollMarginTop = `${Math.ceil(topbar?.getBoundingClientRect().height || 0) + 16}px`;
+    target.style.scrollMarginTop = scrollMarginTop;
+    const animationFrame = requestAnimationFrame(() => {
+      target.scrollIntoView({ block: "start" });
+      target.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(animationFrame);
+  }, [
+    focusRevenueAction,
+    loading,
+    opportunity.id,
+    originatingRevenueLeakCaseState
+  ]);
 
   async function applyRevenueActionResult(result, requestIdentity) {
     if (!isCurrentRevenueActionMutation(requestIdentity)) return false;
@@ -906,14 +918,25 @@ export default function OpportunityCommandCenter({
       />
 
       <section
-        className="oc-panel oc-execution-panel"
+        className="oc-panel oc-execution-panel oc-revenue-action-execution"
         data-testid="revenue-action-execution"
+        data-focus-anchor="revenue-action-workflow"
         id="revenue-action-workflow"
         tabIndex="-1"
       >
         <div className="oc-card-label">SAFE NEXT ACTION</div>
 
-        <h2>{workflowHeading}</h2>
+        <div className="oc-workflow-heading">
+          <h2>{workflowHeading}</h2>
+          {activeRevenueAction && (
+            <span
+              className="oc-status-badge"
+              data-testid="revenue-action-status"
+            >
+              {activeRevenueAction.status}
+            </span>
+          )}
+        </div>
 
         {focusRevenueLeakCaseId && (
           <section
@@ -1110,7 +1133,6 @@ export default function OpportunityCommandCenter({
               <div>
                 <span
                   className="oc-status-badge"
-                  data-testid="revenue-action-status"
                 >
                   {activeRevenueAction.status}
                 </span>

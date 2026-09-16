@@ -321,6 +321,74 @@ p {
   padding: 32px 38px 60px;
 }
 
+.opportunity-portfolio {
+  display: grid;
+}
+
+.opportunity-portfolio-header,
+.opportunity-portfolio-card {
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(220px, 1.5fr) repeat(5, minmax(92px, .7fr));
+  min-width: 0;
+  padding: 14px 18px;
+}
+
+.opportunity-portfolio-header {
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+  color: #667085;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.opportunity-portfolio-card {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, .055);
+  color: #e8edf7;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+
+.opportunity-portfolio-card:last-child {
+  border-bottom: 0;
+}
+
+.opportunity-portfolio-card:hover,
+.opportunity-portfolio-card:focus-visible {
+  background: rgba(255, 255, 255, .035);
+  outline: none;
+}
+
+.opportunity-portfolio-identity,
+.opportunity-portfolio-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.opportunity-portfolio-identity span,
+.opportunity-portfolio-fact small {
+  color: #737e91;
+  font-size: 10px;
+}
+
+.opportunity-portfolio-fact small {
+  display: none;
+}
+
+.opportunity-portfolio-fact strong,
+.opportunity-portfolio-identity strong {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .welcome,
 .page-actions {
   display: flex;
@@ -992,16 +1060,39 @@ p {
   }
 
   .table,
-  .pipeline-board,
-  .opportunity-table {
+  .pipeline-board {
     max-width: 100%;
     overflow-x: auto;
   }
 
-  .table-row,
-  .opportunity-table-header,
-  .opportunity-table-row {
+  .table-row {
     min-width: 720px;
+  }
+
+  .opportunity-portfolio-header {
+    display: none;
+  }
+
+  .opportunity-portfolio {
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .opportunity-portfolio-card {
+    background: rgba(255, 255, 255, .02);
+    border: 1px solid rgba(255, 255, 255, .075);
+    border-radius: 12px;
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 15px;
+  }
+
+  .opportunity-portfolio-identity {
+    grid-column: 1 / -1;
+  }
+
+  .opportunity-portfolio-fact small {
+    display: block;
   }
 }
 
@@ -1291,6 +1382,25 @@ p {
   gap: 10px;
   margin: 0;
   padding: 18px 20px 10px;
+}
+
+.rcc2-filter-disclosure {
+  border-top: 1px solid rgba(255, 255, 255, .06);
+  padding: 14px 20px 4px;
+}
+
+.rcc2-filter-disclosure > summary {
+  color: #aeb7c5;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.rcc2-filter-disclosure .rcc2-filters {
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .rcc2-filters legend {
@@ -2003,6 +2113,40 @@ p {
 }
 
 @media (max-width: 600px) {
+  .sidebar {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .sidebar .brand {
+    display: none;
+  }
+
+  .sidebar .nav-item {
+    min-width: 0;
+    padding: 8px 11px;
+  }
+
+  .topbar {
+    padding: 12px 16px;
+  }
+
+  .topbar .eyebrow {
+    display: none;
+  }
+
+  .topbar h1 {
+    font-size: 18px;
+  }
+
+  .page {
+    padding: 18px 14px 42px;
+  }
+
+  .opportunity-portfolio-heading {
+    flex-direction: column;
+  }
+
   .rcc2-hero,
   .rcc2-detail-heading,
   .rcc2-next-action,

@@ -1,16 +1,18 @@
+import path from "node:path";
 import { expect, test } from "@playwright/test";
 
 const apiBaseUrl = process.env.VITE_API_URL || "http://127.0.0.1:3100";
 
-test("exposes only shipped navigation and wires Dashboard CTAs", async ({ page }) => {
+test("exposes one revenue operating home and keeps the pipeline overview distinct", async ({ page }) => {
   await page.goto("/#dashboard");
 
   const navigation = page.getByRole("complementary");
   await expect(navigation.getByRole("button")).toHaveText([
-    "Dashboard",
-    "Prospects",
-    "Revenue leaks",
+    "Revenue attention",
+    "All opportunities",
+    "Pipeline overview",
     "Pipeline",
+    "Prospects",
     "Imports"
   ]);
   await expect(page.getByRole("button", { name: "+ New Campaign" })).toHaveCount(0);
@@ -27,15 +29,48 @@ test("exposes only shipped navigation and wires Dashboard CTAs", async ({ page }
   )).toBe(3);
 
   await page.getByRole("button", { name: "View all →" }).click();
-  await expect(page).toHaveURL(/#opportunities$/);
+  await expect(page).toHaveURL(/#all-opportunities$/);
+  await expect(page.getByRole("heading", { name: "Complete opportunity portfolio", level: 2 })).toBeVisible();
 
-  await page.getByRole("button", { name: "Dashboard" }).click();
+  await page.getByRole("button", { name: "Pipeline overview" }).click();
   await page.getByRole("button", { name: "Open CRM →" }).click();
   await expect(page).toHaveURL(/#pipeline$/);
 });
 
+test("defaults to revenue attention and renders a labelled mobile opportunity portfolio", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await expect(page.locator(".topbar h1")).toHaveText("Revenue attention");
+  await expect(page.getByTestId("revenue-command-center")).toBeVisible();
+  await expect(page.getByPlaceholder("Search prospects...")).toHaveCount(0);
+
+  await page.goto("/#not-a-shipped-route");
+  await expect(page.locator(".topbar h1")).toHaveText("Revenue attention");
+  await expect(page.getByTestId("revenue-command-center")).toBeVisible();
+
+  await page.getByRole("button", { name: "All opportunities", exact: true }).click();
+  const portfolio = page.getByLabel("All opportunities portfolio");
+  await expect(portfolio).toBeVisible();
+  await expect(portfolio.locator(".opportunity-portfolio-header")).toBeHidden();
+  const card = page.getByTestId("opportunity-row-e2e-opp-command");
+  await expect(card).toContainText("Commercial value");
+  await expect(card).toContainText("Probability");
+  await expect(card).toContainText("Weighted value");
+  await expect(card).toContainText("Stage");
+  await expect.poll(() => page.evaluate(() => ({
+    body: document.body.scrollWidth,
+    viewport: document.documentElement.clientWidth
+  }))).toEqual({ body: 390, viewport: 390 });
+  if (process.env.TGE_EVIDENCE_DIR) {
+    await page.screenshot({
+      fullPage: true,
+      path: path.join(process.env.TGE_EVIDENCE_DIR, "04-mobile-all-opportunities.png")
+    });
+  }
+});
+
 test("searches the live prospects surface rather than fixtures", async ({ page }) => {
-  await page.goto("/#dashboard");
+  await page.goto("/#prospects");
 
   await page.getByPlaceholder("Search prospects...").fill("E2E Command Plumbing");
 
@@ -46,7 +81,7 @@ test("searches the live prospects surface rather than fixtures", async ({ page }
 
 test("fits the product shell inside a mobile viewport", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/#dashboard");
+  await page.goto("/#all-opportunities");
 
   const expectShellToFit = () =>
     expect.poll(async () =>
@@ -56,46 +91,42 @@ test("fits the product shell inside a mobile viewport", async ({ page }) => {
       }))
     ).toEqual({ body: 390, viewport: 390 });
 
-  await expect(page.getByText("E2E Revenue Electrical", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("opportunity-row-e2e-opp-revenue")).toBeVisible();
   await expectShellToFit();
 
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
-  await expect.poll(() => page.evaluate(() => {
-    const sidebar = document.querySelector(".sidebar").getBoundingClientRect();
-    const search = document.querySelector(".search").getBoundingClientRect();
-
-    return search.top >= sidebar.bottom;
-  })).toBe(true);
-
   await page.evaluate(() => window.scrollTo(0, 0));
 
   const destinations = [
-    ["Prospects", "Prospect Intelligence"],
-    ["Revenue leaks", "Opportunity Intelligence"],
-    ["Pipeline", "Pipeline"]
+    ["Prospects", "Prospect Intelligence", 2],
+    ["Revenue attention", "Find the first credible revenue problem", 3],
+    ["All opportunities", "Complete opportunity portfolio", 2],
+    ["Pipeline", "Pipeline", 2]
   ];
 
-  for (const [destination, heading] of destinations) {
-    await page.getByRole("button", { name: destination }).click();
+  for (const [destination, heading, level] of destinations) {
+    await page.getByRole("button", { name: destination, exact: true }).click();
     await expect(page.getByRole("heading", {
       name: heading,
       exact: true,
-      level: 2
+      level
     })).toBeVisible();
 
     if (destination === "Prospects") {
       await expect(page.getByText("E2E Command Plumbing", { exact: true })).toBeVisible();
-    } else if (destination === "Revenue leaks") {
+    } else if (destination === "All opportunities") {
       await expect(page.getByTestId("opportunity-row-e2e-opp-command")).toBeVisible();
-    } else {
+    } else if (destination === "Pipeline") {
       await expect(page.getByText("E2E Command Plumbing", { exact: true })).toBeVisible();
+    } else {
+      await expect(page.getByTestId("revenue-command-center")).toBeVisible();
     }
 
     await expectShellToFit();
   }
 
-  await expect(page.getByRole("button", { name: "Revenue leaks" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Revenue attention" })).toBeVisible();
 });
 
 test("renders unknown commercial values honestly and withholds an unsafe biggest-value comparison", async ({ page }) => {
@@ -280,7 +311,7 @@ test("renders unknown commercial values honestly and withholds an unsafe biggest
     page.locator(".opportunity").filter({ hasText: "E2E Known Value Roofing" })
   ).toContainText("NZD 25,000");
 
-  await page.getByRole("button", { name: "Revenue leaks" }).click();
+  await page.getByRole("button", { name: "All opportunities" }).click();
   for (const opportunity of unknownOpportunities) {
     const unknownRow = page.getByTestId(`opportunity-row-${opportunity.id}`);
     await expect(unknownRow).toContainText("Unknown");
@@ -294,7 +325,7 @@ test("renders unknown commercial values honestly and withholds an unsafe biggest
   await expect(page.getByTestId(`opportunity-row-${fallbackWeightedOpportunity.id}`)).toContainText("Unknown");
   await expect(page.getByTestId(`opportunity-row-${fallbackWeightedOpportunity.id}`)).not.toContainText("2,400");
 
-  await page.getByRole("button", { name: "Pipeline" }).click();
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
   await expect(page.getByText("Open Pipeline", { exact: true }).locator("..")).toContainText(
     "NZD 25,000 · 1 known value withheld (currency unavailable or invalid)"
   );
@@ -303,7 +334,7 @@ test("renders unknown commercial values honestly and withholds an unsafe biggest
   await expect(
     page.locator(".deal-card").filter({ hasText: "E2E Known Value Roofing" })
   ).toContainText("NZD 25,000");
-  await page.getByRole("button", { name: "Revenue leaks" }).click();
+  await page.getByRole("button", { name: "All opportunities" }).click();
 
   await page.getByTestId("opportunity-row-e2e-boolean-value").click();
   await expect(page.getByRole("button", { name: "Set Value", exact: true })).toBeVisible();
@@ -365,8 +396,10 @@ test("individual weighted displays agree with exact revenue truth and never infe
     current = { id: "astra-weighted", business_name: "Exact weighted trade", stage: "QUALIFIED", probability: 1, value, weighted_value, currency: "AUD" };
     expected = display;
     await page.goto(`/?weighted-case=${index}#opportunities`);
-    await expect(page.getByTestId("opportunity-row-astra-weighted").locator(":scope > span").nth(2)).toHaveText(expected);
     await expect(page.getByTestId("revenue-weighted-pipeline-value")).toHaveText(expected);
+    await page.getByRole("button", { name: "All opportunities" }).click();
+    await expect(page.getByTestId("opportunity-row-astra-weighted")
+      .getByText("Weighted value").locator("..")).toContainText(expected);
     await page.getByTestId("opportunity-row-astra-weighted").click();
     const snapshot = page.locator(".oc-snapshot > div").filter({ has: page.getByText("Weighted value", { exact: true }) });
     await expect(snapshot.locator("strong")).toHaveText(expected);
@@ -406,20 +439,22 @@ test("keeps initial core request failures distinct from empty and known-zero sta
   await expect(page.getByText("Prospect data unavailable.")).toBeVisible();
   await expect(page.getByText("No prospects found yet.")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Pipeline" }).click();
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
   await expect(page.getByText("Opportunity data unavailable.")).toBeVisible();
   await expect(page.getByText("No opportunities")).toHaveCount(0);
   await expect(page.getByText("Open Pipeline").locator("..").getByText("Unknown")).toBeVisible();
   await expect(page.getByText("Active Opportunities").locator("..").getByText("Unknown")).toBeVisible();
 
-  await page.getByRole("button", { name: "Revenue leaks" }).click();
-  await expect(page.getByText("Opportunity data unavailable.")).toBeVisible();
-  await expect(page.getByText("No opportunities found.")).toHaveCount(0);
+  await page.getByRole("button", { name: "Revenue attention" }).click();
   await page.getByText("Operator diagnostics · Legacy opportunity guidance").click();
   await expect(page.getByText("Opportunity actions are unavailable until opportunity data can be loaded.")).toBeVisible();
   await expect(page.locator('[data-testid^="revenue-action-"]')).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Dashboard" }).click();
+  await page.getByRole("button", { name: "All opportunities" }).click();
+  await expect(page.getByText("Opportunity data unavailable.")).toBeVisible();
+  await expect(page.getByText("No opportunities found.")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Pipeline overview" }).click();
   await expect(page.getByText("Unable to load opportunities.")).toBeVisible();
   await expect(page.getByText("Growth intelligence unavailable.")).toBeVisible();
   await expect(page.getByText("Live", { exact: true })).toHaveCount(0);
@@ -472,7 +507,7 @@ test("executes the remaining low-cost core CTA success paths", async ({ page }) 
     expect.objectContaining({ prospect_id: "e2e-prospect-unconverted" })
   ]));
 
-  await page.getByRole("button", { name: "Pipeline" }).click();
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
   const pipelineCard = page.locator(".deal-card").filter({
     hasText: "E2E Command Plumbing"
   });

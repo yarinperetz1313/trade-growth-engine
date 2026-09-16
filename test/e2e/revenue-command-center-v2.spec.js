@@ -267,6 +267,16 @@ test("renders the server-ordered truthful operating queue with evidence and auth
     "case-aud"
   );
   await expect(commandCenter.locator("[data-case-id]")).toHaveCount(5);
+  const firstCustomerCase = commandCenter.locator('[data-case-id="case-aud"]');
+  const filterDisclosure = commandCenter.getByRole("group", {
+    name: "Filter revenue attention"
+  });
+  await expect(filterDisclosure).not.toHaveAttribute("open", "");
+  const mobileOrder = await Promise.all([
+    firstCustomerCase.boundingBox(),
+    filterDisclosure.boundingBox()
+  ]);
+  expect(mobileOrder[0].y).toBeLessThan(mobileOrder[1].y);
 
   const evidenceButton = commandCenter.getByRole("button", {
     name: /Why TGE surfaced this.*E2E Stalled Roofing/i
@@ -278,7 +288,7 @@ test("renders the server-ordered truthful operating queue with evidence and auth
   })).toBeVisible();
   await expect(commandCenter).toContainText("STALE_WITHOUT_NEXT_ACTION");
   await expect(commandCenter).toContainText("Meaningful activity baseline");
-  const candidate = commandCenter.locator('[data-case-id="case-aud"]');
+  const candidate = firstCustomerCase;
   await expect(candidate).toContainText(
     "review, approve, and complete its supported step in Opportunity Command Center"
   );
@@ -290,6 +300,7 @@ test("renders the server-ordered truthful operating queue with evidence and auth
     name: "Open opportunity"
   })).toBeEnabled();
 
+  await filterDisclosure.getByText("Filter revenue attention", { exact: true }).click();
   await commandCenter.getByLabel("Value", { exact: true }).selectOption("UNKNOWN");
   await expect(commandCenter.locator("[data-case-id]")).toHaveCount(1);
   await expect(commandCenter).toContainText("E2E Execution Electrical");
@@ -337,7 +348,7 @@ test("keeps queue and opportunity action titles synchronized during in-place mob
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/#opportunities");
-  await expect(page.locator(".topbar h1")).toHaveText("Revenue Leak Queue");
+  await expect(page.locator(".topbar h1")).toHaveText("Revenue attention");
 
   const item = page.locator('[data-case-id="case-route-title"]');
   await item.getByRole("button", { name: /Why TGE surfaced this/i }).click();
@@ -349,7 +360,7 @@ test("keeps queue and opportunity action titles synchronized during in-place mob
 
   await page.getByRole("button", { name: "← Back to opportunities" }).click();
   await expect(page).toHaveURL(/#opportunities$/);
-  await expect(page.locator(".topbar h1")).toHaveText("Revenue Leak Queue");
+  await expect(page.locator(".topbar h1")).toHaveText("Revenue attention");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
@@ -1356,7 +1367,7 @@ test("ignores a late queue response after a hash-route change", async ({ page })
   });
   await page.goto("/#opportunities");
   await expect(page.getByText("Loading revenue leak operating queue…")).toBeVisible();
-  await page.getByRole("button", { name: "Pipeline" }).click();
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
   release();
   await expect(page).toHaveURL(/#pipeline$/);
   await expect(page.getByTestId("revenue-command-center")).toHaveCount(0);
