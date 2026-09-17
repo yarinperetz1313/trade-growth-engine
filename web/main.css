@@ -1572,6 +1572,70 @@
   border-color: rgba(101, 211, 145, .2);
 }
 
+.oc-revenue-action-execution {
+  scroll-margin-top: 112px;
+}
+
+.oc-general-intelligence > summary,
+.oc-additional-context > summary {
+  color: #b8c1ce;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+  padding: 14px 16px;
+}
+
+.oc-page:not(.focused-action) .oc-general-intelligence,
+.oc-page:not(.focused-action) .oc-additional-context,
+.oc-page:not(.focused-action) .oc-general-intelligence-body,
+.oc-page:not(.focused-action) .oc-additional-context-body {
+  display: contents;
+}
+
+.oc-page:not(.focused-action) .oc-general-intelligence > summary,
+.oc-page:not(.focused-action) .oc-additional-context > summary {
+  display: none;
+}
+
+.oc-page.focused-action {
+  display: flex;
+  flex-direction: column;
+}
+
+.oc-page.focused-action > .oc-header {
+  display: none;
+}
+
+.oc-page.focused-action > .oc-revenue-action-execution {
+  order: 1;
+}
+
+.oc-page.focused-action > .oc-general-intelligence {
+  order: 2;
+}
+
+.oc-page.focused-action > .oc-additional-context {
+  order: 3;
+}
+
+.oc-page.focused-action > .oc-general-intelligence,
+.oc-page.focused-action > .oc-additional-context {
+  border: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+
+.oc-workflow-heading {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.oc-workflow-heading h2 {
+  min-width: 0;
+}
+
 .oc-originating-case {
   background: rgba(212, 181, 106, .055);
   border: 1px solid rgba(212, 181, 106, .2);
@@ -1834,6 +1898,78 @@
 
   .oc-execution-history-item {
     grid-template-columns: 1fr;
+  }
+
+  .oc-page.focused-action {
+    padding: 12px 14px 36px;
+  }
+
+  .oc-page.focused-action .oc-back {
+    margin-bottom: 4px;
+  }
+
+  .oc-page.focused-action .oc-revenue-action-execution {
+    padding: 15px;
+  }
+
+  .oc-page.focused-action .oc-originating-case {
+    gap: 8px;
+    margin: 10px 0;
+    padding: 12px;
+  }
+
+  .oc-page.focused-action .oc-originating-case h3,
+  .oc-page.focused-action .oc-originating-case p {
+    margin: 3px 0;
+  }
+
+  .oc-page.focused-action .oc-current-intelligence-context,
+  .oc-page.focused-action .oc-section-description {
+    display: none;
+  }
+
+  .oc-page.focused-action .oc-action-sequence {
+    gap: 4px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 8px 0;
+  }
+
+  .oc-page.focused-action .oc-action-sequence li {
+    display: flex;
+    flex-direction: column;
+    padding: 8px;
+  }
+
+  .oc-page.focused-action .oc-action-sequence li > span {
+    height: 18px;
+    width: 18px;
+  }
+
+  .oc-page.focused-action .oc-action-sequence small {
+    font-size: 9px;
+  }
+
+  .oc-page.focused-action .oc-action-sequence li:not(:last-child) small,
+  .oc-page.focused-action .oc-execution-recommendation p {
+    display: none;
+  }
+
+  .oc-page.focused-action .oc-workflow-heading h2 {
+    font-size: 18px;
+    margin: 4px 0;
+  }
+
+  .oc-page.focused-action .oc-execution-current {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .oc-page.focused-action .oc-execution-current > .oc-execution-controls {
+    order: 2;
+  }
+
+  .oc-page.focused-action .oc-execution-current > .oc-execution-proposal {
+    order: 3;
   }
 }
 

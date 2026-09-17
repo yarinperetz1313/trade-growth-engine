@@ -26,11 +26,13 @@ test("opportunity exports are the explicit first-run business path", () => {
   assert.doesNotMatch(workspace, /aria-label="Review deterministic mapping"/);
 });
 
-test("sample-inclusive economics lead with one server-projected customer case", () => {
+test("customer economics always lead with one server-projected customer case", () => {
   const commandCenter = source("web/components/RevenueCommandCenter.jsx");
 
   assert.match(commandCenter, /Primary customer-case economic evidence/);
-  assert.match(commandCenter, /formatPotentialRevenueAtRisk\(customerHero\.potential_value\)/);
+  assert.match(commandCenter, /buildCustomerEconomicBrief\(entries\)/);
+  assert.match(commandCenter, /formatPotentialRevenueAtRisk\(brief\.entry\.potential_value\)/);
+  assert.match(commandCenter, /exact first server-ordered customer-case evidence/);
   assert.match(commandCenter, /All active-case aggregate including sample and demo evidence/);
   assert.match(commandCenter, /secondary server-authoritative disclosure/);
 });

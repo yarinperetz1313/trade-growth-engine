@@ -293,10 +293,41 @@ test("restores migration-015 minimized committed truth before cleaned preview ev
   await page.goto("/#imports?batch=cleaned-committed");
   await expect(page.getByRole("heading", { name: "Import committed" })).toBeVisible();
   await expect(page.getByText("2 committed")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Continue to Revenue Command Center" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue to Revenue attention" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Retry this batch" })).toHaveCount(0);
   expect(commitReads).toBe(1);
   expect(previewReads).toBe(0);
+});
+
+test("carries bounded committed-import context into fresh server readiness and drops it on reload", async ({ page }) => {
+  await page.route(`${apiBaseUrl}/api/pilot-evidence/status`, route => json(route, 200, {
+    ok: true,
+    data: committedPilotStatus()
+  }));
+  await page.route(`${apiBaseUrl}/api/import-batches/browser-batch-1/commit`, route =>
+    json(route, 200, { ok: true, data: committedFixture({ reconciled: true }) })
+  );
+
+  await page.goto("/#imports?batch=browser-batch-1");
+  await expect(page.getByRole("heading", { name: "Import committed" })).toBeVisible();
+  await page.getByRole("button", { name: /Continue to Revenue attention/ }).click();
+
+  await expect(page).toHaveURL(/#opportunities$/);
+  const arrival = page.getByRole("status", { name: "Committed import arrival context" });
+  await expect(arrival).toContainText("2 records committed from Opportunity export");
+  await expect(arrival).toContainText("server-authoritative readiness and durable queue truth");
+  await expect(arrival).toContainText("no scan ran automatically");
+  await expect(page.getByTestId("stalled-opportunity-readiness")).toBeVisible();
+
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  await page.getByRole("button", { name: "Revenue attention" }).click();
+  await expect(page.getByRole("status", { name: "Committed import arrival context" }))
+    .toHaveCount(0);
+
+  await page.reload();
+  await expect(page.getByRole("status", { name: "Committed import arrival context" }))
+    .toHaveCount(0);
+  await expect(page.getByTestId("stalled-opportunity-readiness")).toBeVisible();
 });
 
 test("does not claim workspace authentication when import access is unavailable", async ({ page }) => {
@@ -345,6 +376,41 @@ async function mockEmptyPilotStatus(page) {
       case_feedback: []
     }
   }));
+}
+
+function committedPilotStatus() {
+  return {
+    milestones: {
+      import_committed: true,
+      portfolio_scan_completed: false,
+      first_credible_case_surfaced: false,
+      case_inspected: false,
+      revenue_action_materialized_linked: false,
+      action_approved: false,
+      action_executed: false
+    },
+    latest_import: {
+      import_batch_id: "browser-batch-1",
+      source_collection: "opportunities",
+      total_count: 2,
+      committed_count: 2,
+      skipped_count: 0,
+      quality_blocked_count: 0,
+      quality_conflict_count: 0,
+      source_identity_covered_count: 2,
+      commercial_value_covered_count: 1,
+      stage_covered_count: 2,
+      created_at_covered_count: 1,
+      created_at_invalid_count: 0,
+      updated_at_covered_count: 2,
+      updated_at_invalid_count: 0,
+      contactable_count: null
+    },
+    surfaced_case_id: null,
+    inspected_case_ids: [],
+    linked_action_ids: [],
+    case_feedback: []
+  };
 }
 
 async function json(route, status, body) {
