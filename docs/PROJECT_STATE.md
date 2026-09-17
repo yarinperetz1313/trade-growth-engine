@@ -2,8 +2,48 @@
 
 _Last locally audited on 2026-09-17. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
-Exceptional Revenue Operating Home candidate 1 is the active browser-only
-product sprint slice under GitHub Issue #41. It starts from merged Pilot Zero
+Exceptional Revenue Operating Home Candidate 2 is now checkpointed locally at
+product/test commit `d87e0b6da8e59136a4e0790ff11599739cdd7646` on
+`feat/exceptional-revenue-operating-home`, building on independently accepted
+Candidate 1 HEAD `33a4acf072e378d6703430aa207443c6bead7d33`. It closes authorized
+Issue #41 backlog E–I in browser composition only. Optional Pilot instrumentation
+is isolated under labelled diagnostics and cannot displace usable customer queue
+or readiness truth; genuine authorization, integrity, persistence, readiness, and
+limit blockers remain primary.
+
+A committed import may now carry only an in-memory count and closed collection
+label into Revenue attention. Server reads re-resolve readiness, cases, money,
+and action truth; reload, direct navigation, or navigation away removes the note,
+and neither query parameters nor browser storage gain authority. Every customer
+queue now leads with the same first server-ordered non-sample case economic brief,
+including known positive, known zero, and unknown money. Sample-only and empty
+queues name the missing customer evidence without inferring zero or a synthetic
+aggregate.
+
+Bounded case/action links now render a compact Opportunity Action mode. It leads
+with originating business/value/why evidence, current authoritative action status,
+the type-specific human sequence and primary control, while keeping general
+opportunity intelligence inspectable under disclosures. At 390px the return
+control, workflow heading, exact value, status, and next action are all inside the
+first stable viewport; back/forward restores the exact bounded route. Existing
+prepare → approve → internal task or manual communication completion, current
+versus historical workflow, ambiguous/failure reconciliation, and no-send/no-
+recovered-revenue semantics remain unchanged.
+
+Candidate 2 contracts were RED **11/17** for six intended gaps and are GREEN
+**18/18**. Complete integration is **492/492** and complete managed Chromium is
+**81/81**. The production build passes with **35 modules** and the existing chunk
+warning; the engineering harness and diff hygiene pass. Aggregate `src` and
+migrations `001`–`016` are unchanged from exact base
+`9c78d196708585201ae0fa4400cdd4df28a1a833`, so PostgreSQL was not run. Exact
+desktop/390px evidence is retained outside the repository under external evidence
+directory `tge-candidate2-evidence.Lk8s8o`. The focused
+first-value test took 1.3–1.4 seconds of deterministic test execution and 3.17
+seconds wall time with managed startup; this is internal harness timing only.
+Backlog J/demo route remains unstarted and outside Candidate 2.
+
+Exceptional Revenue Operating Home candidate 1 is the accepted foundation for
+the active browser-only product sprint under GitHub Issue #41. It starts from merged Pilot Zero
 base `9c78d196708585201ae0fa4400cdd4df28a1a833` on
 `feat/exceptional-revenue-operating-home`. The accepted Pilot Zero truth
 boundaries remain unchanged: exact server money and currency, known zero versus

@@ -1,4 +1,66 @@
-# Exceptional Revenue Operating Home — Candidate 1
+# Exceptional Revenue Operating Home — Candidates 1–2
+
+## Candidate 2 outcome
+
+Candidate 2 completes authorized backlog E–I on accepted Candidate 1 HEAD
+`33a4acf072e378d6703430aa207443c6bead7d33`. The browser now preserves usable
+customer queue/readiness truth when optional Pilot instrumentation is unavailable,
+carries only a bounded in-memory committed-import arrival note into fresh server
+reads, gives every first server-ordered customer case the same exact economic
+brief, leads bounded deep links with a compact Opportunity Action workflow, and
+keeps empty/partial/no-leak/failure states evidence-specific. It does not add API,
+persistence, schema, migration, detector, tenant, ordering, monetary, autonomous
+outbound, attribution, or recovered-revenue behavior.
+
+### Backlog disposition
+
+- **E — closed:** Pilot status, mutation, identifiers, and milestone evidence live
+  under `Pilot instrumentation diagnostics`. Their failure cannot replace or
+  block a usable customer queue or Operational Data Health. Queue/readiness auth,
+  integrity, limit, and persistence failures remain primary customer blockers.
+- **F — closed:** a successful commit may pass only committed record count and a
+  closed collection label through React memory. Revenue attention immediately
+  reloads server-authoritative readiness and durable queue truth; no query or
+  browser storage carries money/action authority, and reload or navigation away
+  discards the note.
+- **G — closed:** customer-only known-positive, known-zero, unknown, and mixed
+  queues all use the first server-ordered non-sample customer case. Sample-only
+  and empty queues name the missing customer evidence without inferring zero;
+  server aggregate truth stays secondary and labelled.
+- **H — closed:** focused case/action routes put originating business, exact
+  detection-time value, why-now evidence, current RevenueAction status, the
+  human sequence, and its primary control before two closed general-intelligence
+  disclosures. Return navigation, history, keyboard focus, internal-task versus
+  communication-draft semantics, current/historical separation, failure recovery,
+  and no-send/no-recovered-revenue truth remain intact.
+- **I — closed:** explicit scan counts distinguish no opportunities, assessed
+  no-leak records, and evidence limitations, with a next truthful step. Queue
+  loading, stale/reconciling, ordinary empty, authorization, persistence, limit,
+  integrity, known zero, and unknown money remain distinct.
+
+### Candidate 2 red-first and verification evidence
+
+- The dependency-free Candidate 2 contracts were intentionally RED **11/17**
+  (six intended gaps) before implementation and are GREEN **18/18**, including
+  the customer economic matrix and bounded import-arrival contract.
+- Affected browser/product contracts pass **39/39** after updating two accepted
+  expectations for the new diagnostics/empty hierarchy. Focused import and
+  first-value journeys pass **10/10**; focused first-value plus queue truth and
+  reconciliation pass **20/20**.
+- Complete integration passes **492/492** and complete managed Chromium passes
+  **81/81**. Production build passes with **35 modules** and the existing chunk
+  size warning. The engineering harness and `git diff --check` pass.
+- `src` and migrations `001`–`016` remain byte-identical to exact base
+  `9c78d196708585201ae0fa4400cdd4df28a1a833`; PostgreSQL is not applicable.
+- Exact browser evidence is outside the repository under external evidence
+  directory `tge-candidate2-evidence.Lk8s8o`: desktop
+  import entry, 390px customer queue, 390px focused Opportunity Action, and
+  390px completed internal-task truth. The deterministic first-value test took
+  **1.3–1.4 seconds** of Playwright execution and **3.17 seconds** wall time with
+  managed startup; this is internal harness timing only.
+- Product/test checkpoint: `d87e0b6da8e59136a4e0790ff11599739cdd7646`.
+  Backlog J/demo route remains deliberately unstarted and requires the later
+  founder decision already specified by the sprint.
 
 ## Outcome
 
