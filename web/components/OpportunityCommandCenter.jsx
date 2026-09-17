@@ -159,6 +159,9 @@ export default function OpportunityCommandCenter({
   const [originatingRevenueLeakCaseState, setOriginatingRevenueLeakCaseState] =
     useState("IDLE");
 
+  const [originatingRevenueLeakCaseIssue, setOriginatingRevenueLeakCaseIssue] =
+    useState(null);
+
   const revenueActionOpportunityId = useRef(opportunity.id);
   const revenueActionGeneration = useRef(0);
   const revenueActionRequest = useRef(0);
@@ -274,6 +277,7 @@ export default function OpportunityCommandCenter({
     setExecutionMessage(null);
     setOriginatingRevenueLeakCase(null);
     setOriginatingRevenueLeakCaseState("IDLE");
+    setOriginatingRevenueLeakCaseIssue(null);
     setActionLoading(null);
     setActionError(null);
     setActionMessage(null);
@@ -922,9 +926,10 @@ export default function OpportunityCommandCenter({
         opportunityId={opportunity.id}
         revenueActions={revenueActions}
         focusedCaseId={focusRevenueLeakCaseId}
-        onFocusedCaseResolved={(record, state) => {
+        onFocusedCaseResolved={(record, state, issue) => {
           setOriginatingRevenueLeakCase(record);
           setOriginatingRevenueLeakCaseState(state);
+          setOriginatingRevenueLeakCaseIssue(issue);
         }}
       />
         </div>
@@ -973,14 +978,28 @@ export default function OpportunityCommandCenter({
                     {detectorReasonExplanation(originatingRevenueLeakCase.reason_code)}
                   </p>
                 </>
+              ) : originatingRevenueLeakCaseState === "ERROR"
+                && originatingRevenueLeakCaseIssue ? (
+                <div
+                  className="oc-error rlc-error"
+                  data-testid="focused-originating-history-error"
+                  role="alert"
+                >
+                  <strong>{originatingRevenueLeakCaseIssue.title}</strong>
+                  <span>{originatingRevenueLeakCaseIssue.message}</span>
+                  {originatingRevenueLeakCaseIssue.retry && (
+                    <button
+                      className="oc-secondary-button"
+                      onClick={originatingRevenueLeakCaseIssue.retry}
+                    >
+                      Retry history
+                    </button>
+                  )}
+                </div>
               ) : (
                 <>
                   <h3>Originating case evidence unavailable</h3>
-                  <p>
-                    {originatingRevenueLeakCaseState === "ERROR"
-                      ? "The recorded case context could not be loaded."
-                      : "The originating case was not confirmed by durable opportunity case history."}
-                  </p>
+                  <p>The originating case was not confirmed by durable opportunity case history.</p>
                 </>
               )}
             </div>
