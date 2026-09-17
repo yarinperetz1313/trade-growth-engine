@@ -1,5 +1,42 @@
 # Exceptional Revenue Operating Home — Candidates 1–2
 
+## Candidate 2 remediation cycle 2 — focused history recovery
+
+Fresh independent review of exact Candidate 2 HEAD
+`88fd98ef81a9636b59377775fa1559c85b367672` found one new P2 root,
+`C2-P2-FOCUSED-HISTORY-RECOVERY`. The focused workflow reduced a failed
+originating-case history read to generic unavailable copy while the classified
+403/503 explanation and `Retry history` control remained inside the closed
+general-intelligence disclosure. Accepted A–G and the rest of H–I remain closed;
+this bounded browser/test/docs remediation is cycle **2/3** for the sprint.
+
+The red-first managed Chromium regressions use the exact focused route at 390px.
+They were RED **0/3** on the reviewed head for authorization visibility,
+persistence/recovery visibility, and authoritative retry recovery. The primary
+workflow now receives the case panel's classified error and its existing retry
+callback. It renders authorization denial without retry, renders persistence
+failure with a discoverable retry, and returns to exact originating business,
+money, and why-now evidence after recovery. The loader, stale-response guards,
+and write authority remain owned by `RevenueLeakCasePanel`; the presentation
+does not create another history state machine or any action mutation path.
+
+Product/test checkpoint `5e05320bc7012ffa58f63a0b3c5c1fd3738b93b8`
+is GREEN **3/3** for the new regressions. The retry regression proves exactly
+two authoritative history reads and zero RevenueAction writes. The affected
+Opportunity Action, queue handoff/reconciliation, and first-value managed
+Chromium set passes **34/34**; direct RevenueLeakCase Chromium passes **10/10**;
+and focused source contracts pass **17/17**. The production build passes with
+**35 modules** and the existing chunk-size warning; the engineering harness and
+`git diff --check` pass. Aggregate `src` and migrations remain unchanged from
+exact base `9c78d196708585201ae0fa4400cdd4df28a1a833`. Generated build output was
+moved outside the worktree to `tge-focused-history-build.uGSgcZ`. The worktree
+is artifact-free; PostgreSQL was not run because no backend or persistence
+boundary changed. Full integration and complete Chromium were not repeated for
+this browser-only remediation because the exact regressions and affected suites
+cover the changed presentation/loader callback boundary. Server authorization,
+API, persistence, schema, migration, tenant, detector, money, ordering, and
+RevenueAction semantics remain unchanged.
+
 ## Candidate 2 outcome
 
 Candidate 2 completes authorized backlog E–I on accepted Candidate 1 HEAD

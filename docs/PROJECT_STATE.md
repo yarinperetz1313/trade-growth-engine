@@ -2,6 +2,38 @@
 
 _Last locally audited on 2026-09-17. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
+Exceptional Revenue Operating Home remediation cycle **2/3** closes independent
+review finding `C2-P2-FOCUSED-HISTORY-RECOVERY` at product/test checkpoint
+`5e05320bc7012ffa58f63a0b3c5c1fd3738b93b8`. Focused Opportunity Action routes
+now keep classified originating-case history failures in the primary workflow
+even while general opportunity intelligence remains closed. An authorization
+denial explains the missing access without offering a misleading retry; a
+persistence/service failure preserves the no-empty/no-leak truth and exposes
+`Retry history` in the primary workflow.
+
+That control delegates to the existing authoritative `RevenueLeakCasePanel`
+loader rather than creating a second read or mutation state machine. A successful
+retry replaces the failure with the exact linked originating case, including its
+detection-time money and why-now evidence, and does not write or duplicate a
+RevenueAction. Server authorization, case history, RevenueAction authority,
+money, ordering, detector, tenant, API, persistence, schema, and migration
+contracts are unchanged.
+
+The exact 390px regressions were intentionally RED **0/3** on Candidate 2 HEAD
+`88fd98ef81a9636b59377775fa1559c85b367672` and are GREEN **3/3** after the
+fix: focused 403, focused 503 with discoverable recovery, and 503 retry to
+authoritative evidence with exactly two history reads and zero action writes.
+The affected Opportunity Action, queue-handoff/reconciliation, and first-value
+managed Chromium boundary passes **34/34**; direct RevenueLeakCase Chromium
+passes **10/10**; focused source contracts pass **17/17**. The production build
+passes with **35 modules** and the existing chunk warning, and the engineering
+harness and diff hygiene pass. `src` and migrations remain unchanged from exact
+base `9c78d196708585201ae0fa4400cdd4df28a1a833`; PostgreSQL was not run. Full
+integration and complete Chromium were not repeated for this browser-only
+remediation because the focused and affected gates cover the changed boundary.
+Generated build output is outside the repository under
+`tge-focused-history-build.uGSgcZ`.
+
 Exceptional Revenue Operating Home Candidate 2 is now checkpointed locally at
 product/test commit `d87e0b6da8e59136a4e0790ff11599739cdd7646` on
 `feat/exceptional-revenue-operating-home`, building on independently accepted
