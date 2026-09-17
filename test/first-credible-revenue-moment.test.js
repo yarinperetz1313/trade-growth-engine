@@ -11,7 +11,12 @@ const journeyContracts = import("../web/lib/firstValueJourney.mjs");
 function queueEntry(id, origin) {
   return {
     case: { id, lifecycle_state: "OPEN" },
-    data_origin: origin
+    data_origin: origin,
+    potential_value: id.includes("zero")
+      ? { kind: "KNOWN_ZERO", amount: "0.000000", currency: "AUD" }
+      : id.includes("unknown")
+        ? { kind: "UNKNOWN" }
+        : { kind: "KNOWN_POSITIVE", amount: "42000.500000", currency: "AUD" }
   };
 }
 
@@ -135,6 +140,45 @@ test("credible hero follows authoritative queue order while excluding sample pro
   assert.equal(selectCredibleHero(entries), entries[1]);
   assert.equal(selectCredibleHero([entries[0]]), null);
   assert.equal(selectCredibleHero([]), null);
+});
+
+test("customer economic brief uses the first server-ordered customer case across the full evidence matrix", async () => {
+  const { buildCustomerEconomicBrief } = await journeyContracts;
+  const known = queueEntry("known", "EXISTING_CUSTOMER");
+  const zero = queueEntry("zero", "IMPORTED_CUSTOMER");
+  const unknown = queueEntry("unknown", "EXISTING_CUSTOMER");
+  const sample = queueEntry("sample", "SAMPLE_DEMO");
+
+  assert.deepEqual(buildCustomerEconomicBrief([known]), {
+    kind: "CUSTOMER_CASE",
+    entry: known,
+    sample_count: 0
+  });
+  assert.deepEqual(buildCustomerEconomicBrief([zero]), {
+    kind: "CUSTOMER_CASE",
+    entry: zero,
+    sample_count: 0
+  });
+  assert.deepEqual(buildCustomerEconomicBrief([unknown]), {
+    kind: "CUSTOMER_CASE",
+    entry: unknown,
+    sample_count: 0
+  });
+  assert.deepEqual(buildCustomerEconomicBrief([sample, known]), {
+    kind: "CUSTOMER_CASE",
+    entry: known,
+    sample_count: 1
+  });
+  assert.deepEqual(buildCustomerEconomicBrief([sample]), {
+    kind: "SAMPLE_ONLY",
+    entry: null,
+    sample_count: 1
+  });
+  assert.deepEqual(buildCustomerEconomicBrief([]), {
+    kind: "EMPTY",
+    entry: null,
+    sample_count: 0
+  });
 });
 
 test("journey composition exposes explicit scan and continuous human case decisions", () => {

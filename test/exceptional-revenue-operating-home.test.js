@@ -13,6 +13,10 @@ const actionSource = await readFile(
 );
 const stylesSource = await readFile(new URL("../web/styles.css", import.meta.url), "utf8");
 const commandCenterStyles = await readFile(new URL("../web/main.css", import.meta.url), "utf8");
+const importSource = await readFile(
+  new URL("../web/components/ImportWorkspace.jsx", import.meta.url),
+  "utf8"
+);
 
 test("revenue attention is the default operating home with unambiguous navigation", () => {
   assert.match(mainSource, /\["opportunities", "Revenue attention"\]/);
@@ -62,4 +66,43 @@ test("durable queue evidence and an explicit scan refresh have distinct truthful
   assert.match(queueSource, /Refresh current evidence/);
   assert.match(queueSource, /checks current canonical evidence/);
   assert.doesNotMatch(queueSource, /This runs only when you choose it\. It reviews recorded evidence and refreshes the durable case queue\./);
+});
+
+test("usable customer truth stays primary when optional Pilot instrumentation is unavailable", () => {
+  const customerGroup = queueSource.indexOf('aria-label="Priority customer review"');
+  const diagnostics = queueSource.lastIndexOf("<PilotInstrumentationDiagnostics");
+  assert.ok(customerGroup >= 0);
+  assert.ok(diagnostics > customerGroup);
+  assert.match(queueSource, /<details[^>]*className="rcc2-pilot-diagnostics"/);
+  assert.doesNotMatch(queueSource, /\{pilotError && \(\s*<div className="rcc2-alert" role="alert">/);
+  assert.match(queueSource, /Customer queue and Operational Data Health remain authoritative/);
+});
+
+test("committed import arrival is bounded context and server reads remain authoritative", () => {
+  assert.match(mainSource, /importArrivalContext/);
+  assert.match(queueSource, /aria-label="Committed import arrival context"/);
+  assert.match(queueSource, /server-authoritative readiness and durable queue truth/);
+  assert.match(importSource, /buildImportArrivalContext/);
+  assert.doesNotMatch(mainSource + importSource, /localStorage|sessionStorage/);
+  assert.doesNotMatch(mainSource, /URLSearchParams[\s\S]{0,180}committedCount/);
+});
+
+test("focused Opportunity Action defers route-irrelevant intelligence under disclosures", () => {
+  assert.match(actionSource, /focusRevenueAction \? "oc-page focused-action"/);
+  assert.match(actionSource, /Return to Revenue attention/);
+  assert.match(actionSource, /aria-label="General opportunity intelligence"/);
+  assert.match(actionSource, /Inspect general opportunity intelligence/);
+  assert.match(actionSource, /aria-label="Additional opportunity context"/);
+  assert.match(actionSource, /Inspect additional opportunity context/);
+  assert.match(commandCenterStyles, /\.oc-page\.focused-action/);
+});
+
+test("empty and partial outcomes describe assessed counts, limitations, and truthful next steps", () => {
+  assert.match(queueSource, /Assessed · no leak/);
+  assert.match(queueSource, /Evidence limitations/);
+  assert.match(queueSource, /No opportunity evidence was available to scan/);
+  assert.match(queueSource, /No credible stalled-opportunity case found/);
+  assert.match(queueSource, /Unknown is not zero/);
+  assert.match(queueSource, /Next truthful step/);
+  assert.doesNotMatch(queueSource, /revenue recovered|recovered revenue achieved|successful recovery/i);
 });

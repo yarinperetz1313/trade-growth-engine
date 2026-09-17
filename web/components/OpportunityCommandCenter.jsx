@@ -406,7 +406,11 @@ export default function OpportunityCommandCenter({
     const scrollMarginTop = `${Math.ceil(topbar?.getBoundingClientRect().height || 0) + 16}px`;
     target.style.scrollMarginTop = scrollMarginTop;
     const animationFrame = requestAnimationFrame(() => {
-      target.scrollIntoView({ block: "start" });
+      if (target.closest(".focused-action")) {
+        window.scrollTo({ top: 0, left: 0 });
+      } else {
+        target.scrollIntoView({ block: "start" });
+      }
       target.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(animationFrame);
@@ -672,12 +676,12 @@ export default function OpportunityCommandCenter({
 
   if (loading) {
     return (
-      <div className="oc-page" data-testid="opportunity-command-center">
+      <div className={focusRevenueAction ? "oc-page focused-action" : "oc-page"} data-testid="opportunity-command-center">
         <button
           className="oc-back"
           onClick={onBack}
         >
-          ← Back to opportunities
+          ← {focusRevenueAction ? "Return to Revenue attention" : "Back to opportunities"}
         </button>
 
         <div className="oc-loading">
@@ -695,12 +699,12 @@ export default function OpportunityCommandCenter({
 
   if (error) {
     return (
-      <div className="oc-page" data-testid="opportunity-command-center">
+      <div className={focusRevenueAction ? "oc-page focused-action" : "oc-page"} data-testid="opportunity-command-center">
         <button
           className="oc-back"
           onClick={onBack}
         >
-          ← Back to opportunities
+          ← {focusRevenueAction ? "Return to Revenue attention" : "Back to opportunities"}
         </button>
 
         <div className="oc-error">
@@ -722,12 +726,12 @@ export default function OpportunityCommandCenter({
   }
 
   return (
-    <div className="oc-page" data-testid="opportunity-command-center">
+    <div className={focusRevenueAction ? "oc-page focused-action" : "oc-page"} data-testid="opportunity-command-center">
       <button
         className="oc-back"
         onClick={onBack}
       >
-        ← Back to opportunities
+        ← {focusRevenueAction ? "Return to Revenue attention" : "Back to opportunities"}
       </button>
 
       <header className="oc-header">
@@ -793,6 +797,13 @@ export default function OpportunityCommandCenter({
         </div>
       )}
 
+      <details
+        className="oc-general-intelligence"
+        aria-label="General opportunity intelligence"
+        open={!focusRevenueAction}
+      >
+        <summary>Inspect general opportunity intelligence</summary>
+        <div className="oc-general-intelligence-body">
       <section className="oc-hero-grid">
         <div className="oc-health-card">
           <div className="oc-card-label">
@@ -916,6 +927,8 @@ export default function OpportunityCommandCenter({
           setOriginatingRevenueLeakCaseState(state);
         }}
       />
+        </div>
+      </details>
 
       <section
         className="oc-panel oc-execution-panel oc-revenue-action-execution"
@@ -1032,8 +1045,8 @@ export default function OpportunityCommandCenter({
         </p>
 
         <ol className="oc-action-sequence" aria-label="Human-controlled action steps">
-          <li><span>1</span><strong>Review</strong><small>{workflowExecutionType === "COMMUNICATION_DRAFT" ? "Check the recommendation and prepared draft." : "Check the recommendation and prepared task."}</small></li>
-          <li><span>2</span><strong>Approve</strong><small>Record the human decision explicitly.</small></li>
+          <li><span>1</span><strong>Review</strong><small>{workflowExecutionType === "COMMUNICATION_DRAFT" ? "Prepared draft." : "Prepared task."}</small></li>
+          <li><span>2</span><strong>Approve</strong><small>Human decision.</small></li>
           <li>
             <span>3</span>
             <strong>{workflowExecutionType === "COMMUNICATION_DRAFT"
@@ -1042,9 +1055,9 @@ export default function OpportunityCommandCenter({
                 ? "Create internal task"
                 : "Complete through the supported path"}</strong>
             <small>{workflowExecutionType === "COMMUNICATION_DRAFT"
-              ? "No message is sent by TGE."
+              ? "TGE does not send."
               : workflowExecutionType === "INTERNAL_TASK"
-                ? "No external message is sent."
+                ? "No external send."
                 : "No autonomous outbound action occurs."}</small>
           </li>
         </ol>
@@ -1303,6 +1316,13 @@ export default function OpportunityCommandCenter({
         </div>
       </section>
 
+      <details
+        className="oc-additional-context"
+        aria-label="Additional opportunity context"
+        open={!focusRevenueAction}
+      >
+        <summary>Inspect additional opportunity context</summary>
+        <div className="oc-additional-context-body">
       <section className="oc-panel">
         <div className="oc-card-label">
           ACTION CENTRE
@@ -1787,6 +1807,8 @@ export default function OpportunityCommandCenter({
           </div>
         </div>
       </section>
+        </div>
+      </details>
     </div>
   );
 }

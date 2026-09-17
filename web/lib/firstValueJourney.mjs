@@ -19,6 +19,22 @@ export function partitionCredibleCases(entries) {
   return { customerEntries, demoEntries };
 }
 
+export function buildCustomerEconomicBrief(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  const entry = selectCredibleHero(list);
+  const sampleCount = list.filter(item => item?.data_origin === "SAMPLE_DEMO").length;
+
+  return Object.freeze({
+    kind: entry
+      ? "CUSTOMER_CASE"
+      : sampleCount > 0
+        ? "SAMPLE_ONLY"
+        : "EMPTY",
+    entry,
+    sample_count: sampleCount
+  });
+}
+
 export function buildFirstValueScanResult(summary, queue) {
   const outcomes = summary.outcomes;
   const credibleCaseCount = outcomes.ELIGIBLE_LEAK_DETECTED.count;

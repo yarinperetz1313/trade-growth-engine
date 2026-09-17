@@ -1728,6 +1728,56 @@ p {
   padding: 16px 20px;
 }
 
+.rcc2-import-arrival {
+  align-items: center;
+  background: rgba(114, 217, 154, 0.055);
+  border-top: 1px solid rgba(114, 217, 154, 0.18);
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  padding: 16px 20px;
+}
+
+.rcc2-import-arrival strong,
+.rcc2-import-arrival p {
+  display: block;
+  margin: 5px 0 0;
+}
+
+.rcc2-import-arrival p {
+  color: #8f99aa;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.rcc2-pilot-diagnostics {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  color: #7f8999;
+  font-size: 10px;
+  padding: 14px 20px;
+}
+
+.rcc2-pilot-diagnostics > summary {
+  color: #aab3c0;
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.rcc2-pilot-diagnostics > p {
+  line-height: 1.5;
+  margin: 10px 0 0;
+}
+
+.rcc2-diagnostic-state {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.rcc2-diagnostic-state .oc-secondary-button {
+  justify-self: start;
+}
+
 .rcc2-pilot-journey > p {
   color: #768195;
   font-size: 9px;
@@ -2167,6 +2217,7 @@ p {
   }
 
   .rcc2-hero,
+  .rcc2-import-arrival,
   .rcc2-detail-heading,
   .rcc2-next-action,
   .rcc2-pilot-feedback,

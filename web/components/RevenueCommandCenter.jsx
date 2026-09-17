@@ -29,6 +29,7 @@ import {
   requiresPilotEvidenceReconciliation
 } from "../lib/pilotEvidenceContracts.mjs";
 import {
+  buildCustomerEconomicBrief,
   buildFirstValueScanResult,
   partitionCredibleCases,
   selectCredibleHero
@@ -154,10 +155,10 @@ function ScanSummary({ summary, queue, queueFreshness }) {
             ? "The durable queue below contains the current active cases after this explicit scan. Open the highest-priority customer case to inspect why it matters and choose the next human-controlled step."
             : "The explicit scan confirmed credible cases. Current active-case counts and economic value remain withheld until durable queue truth refreshes."
           : summary.evaluated_count === 0
-            ? "No canonical opportunities were available. Import or create opportunity evidence, review Operational Data Health, then explicitly scan again."
+            ? "No canonical opportunities were available. Next truthful step: import or create opportunity evidence, review Operational Data Health, then explicitly scan again."
           : result.limitation_count > 0
-            ? `TGE found no leak in ${result.assessed_no_leak_count} assessable records; ${result.limitation_count} could not support a decision. Review the exact limitations before improving evidence and scanning again.`
-            : `TGE found no stalled leak in ${result.assessed_no_leak_count} assessable records. This result covers only the current tenant-visible opportunity dataset.`}</p>
+            ? `TGE found no leak in ${result.assessed_no_leak_count} assessable records; ${result.limitation_count} could not support a decision. Next truthful step: review what is missing, improve that evidence, and scan again.`
+            : `TGE found no stalled leak in ${result.assessed_no_leak_count} assessable records. This result covers only the current tenant-visible opportunity dataset. Next truthful step: refresh readiness when the business data changes.`}</p>
       </div>
       <div className="rcc2-result-counts" aria-label="Credible scan result counts">
         <div><span>Credible cases</span><strong>{result.credible_case_count}</strong></div>
@@ -403,6 +404,66 @@ function PilotJourney({ status }) {
   );
 }
 
+function PilotInstrumentationDiagnostics({
+  error,
+  message,
+  mutation,
+  onReconcile,
+  onRetry,
+  onRetryExact,
+  reconciliationBlocked,
+  retry,
+  state,
+  status
+}) {
+  return (
+    <details
+      className="rcc2-pilot-diagnostics"
+      aria-label="Pilot instrumentation diagnostics"
+    >
+      <summary>Operator diagnostics · Pilot instrumentation</summary>
+      <p>
+        Customer queue and Operational Data Health remain authoritative. Pilot
+        instrumentation records privacy-minimized journey evidence only and cannot
+        block or replace usable customer truth.
+      </p>
+      <p><strong>Instrumentation status:</strong> {state}</p>
+      {message && <div className="rcc2-success" role="status">{message}</div>}
+      {error && (
+        <div className="rcc2-diagnostic-state" role="status">
+          <strong>{error.title}</strong><span>{error.message}</span>
+          {reconciliationBlocked && (
+            <button
+              type="button"
+              className="oc-secondary-button"
+              disabled={state === "LOADING"}
+              onClick={onReconcile}
+            >
+              Reconcile pilot evidence
+            </button>
+          )}
+          {!reconciliationBlocked && state === "ERROR" && (
+            <button type="button" className="oc-secondary-button" onClick={onRetry}>
+              Retry pilot status
+            </button>
+          )}
+          {!reconciliationBlocked && retry && retry.kind !== "inspect" && (
+            <button
+              type="button"
+              className="oc-secondary-button"
+              disabled={Boolean(mutation)}
+              onClick={onRetryExact}
+            >
+              Retry exact pilot evidence
+            </button>
+          )}
+        </div>
+      )}
+      <PilotJourney status={status} />
+    </details>
+  );
+}
+
 function ScanAction({ disabled, disabledRefresh, running, onScan, onRefresh, refreshing }) {
   return (
     <section className="rcc2-scan-action" aria-label="Explicit opportunity scan">
@@ -473,13 +534,10 @@ function QueueSummary({ summary, freshness, entries = [] }) {
     );
   }
 
-  const { demoEntries } = partitionCredibleCases(entries);
-  const customerHero = selectCredibleHero(entries);
-  if (demoEntries.length > 0) {
-    const potential = customerHero
-      ? formatPotentialRevenueAtRisk(customerHero.potential_value)
-      : null;
-    const businessName = customerHero ? identityCopy(customerHero) : null;
+  const brief = buildCustomerEconomicBrief(entries);
+  if (brief.kind === "CUSTOMER_CASE") {
+    const potential = formatPotentialRevenueAtRisk(brief.entry.potential_value);
+    const businessName = identityCopy(brief.entry);
     return (
       <div className="rcc2-economic-evidence">
         <section
@@ -487,23 +545,28 @@ function QueueSummary({ summary, freshness, entries = [] }) {
           aria-label="Primary customer-case economic evidence"
         >
           <span className="eyebrow">CUSTOMER-CASE EVIDENCE</span>
-          <h4>{businessName || "No active customer case"}</h4>
-          <strong>{potential?.value || "No customer-case amount"}</strong>
-          <small>{potential
-            ? `${potential.detail} · exact server-projected case evidence`
-            : "Sample/demo evidence is excluded from customer first-value evidence."}</small>
+          <h4>{businessName}</h4>
+          <strong>{potential.value}</strong>
+          <small>{potential.detail} · exact first server-ordered customer-case evidence</small>
+          <small>
+            Why now: {detectorReasonExplanation(brief.entry.case.reason_code)}
+          </small>
         </section>
         <details
           className="rcc2-all-case-aggregate"
-          aria-label="All active-case aggregate including sample and demo evidence"
+          aria-label={brief.sample_count > 0
+            ? "All active-case aggregate including sample and demo evidence"
+            : "Current customer-case value breakdown"}
         >
           <summary>
-            Server all-case aggregate · includes {demoEntries.length} sample/demo
-            {demoEntries.length === 1 ? " case" : " cases"}
+            {brief.sample_count > 0
+              ? `Server all-case aggregate · includes ${brief.sample_count} sample/demo ${brief.sample_count === 1 ? "case" : "cases"}`
+              : "Inspect current customer-case value breakdown"}
           </summary>
           <p>
-            This secondary server-authoritative disclosure includes customer and
-            sample/demo cases. It is not customer first-value evidence.
+            {brief.sample_count > 0
+              ? "This secondary server-authoritative disclosure includes customer and sample/demo cases. It is not customer first-value evidence."
+              : "This secondary server-authoritative breakdown preserves known positive, known zero, unknown, and not-applicable case states without calculating a new browser aggregate."}
           </p>
           <AllCaseQueueSummary summary={summary} />
         </details>
@@ -511,8 +574,34 @@ function QueueSummary({ summary, freshness, entries = [] }) {
     );
   }
 
+  if (brief.kind === "SAMPLE_ONLY") {
+    return (
+      <div className="rcc2-economic-evidence">
+        <section className="rcc2-primary-economic-evidence" aria-label="No customer-case economic evidence">
+          <span className="eyebrow">CUSTOMER-CASE EVIDENCE</span>
+          <h4>No active customer case</h4>
+          <strong>Customer-case value unavailable</strong>
+          <small>{brief.sample_count} sample/demo {brief.sample_count === 1 ? "case is" : "cases are"} excluded from customer evidence. No customer value was inferred.</small>
+        </section>
+        <details className="rcc2-all-case-aggregate" aria-label="Sample and demo value breakdown">
+          <summary>Inspect labelled sample/demo queue evidence</summary>
+          <AllCaseQueueSummary summary={summary} />
+        </details>
+      </div>
+    );
+  }
+
   return (
-    <AllCaseQueueSummary summary={summary} />
+    <div className="rcc2-economic-evidence">
+      <div className="rcc2-state" role="status">
+        <strong>No active customer-case economic evidence</strong>
+        <small>No amount was inferred. Review Operational Data Health, then explicitly scan current canonical evidence when ready.</small>
+      </div>
+      <details className="rcc2-all-case-aggregate" aria-label="Empty active-case value breakdown">
+        <summary>Inspect confirmed empty queue value breakdown</summary>
+        <AllCaseQueueSummary summary={summary} />
+      </details>
+    </div>
   );
 }
 
@@ -794,7 +883,9 @@ export default function RevenueCommandCenter({
   revenue,
   loading,
   error,
+  importArrivalContext = null,
   actionsUnavailable = false,
+  onDismissImportArrival,
   onRefresh,
   onOpenOpportunity
 }) {
@@ -1434,6 +1525,27 @@ export default function RevenueCommandCenter({
           </p>
         </div>
       </div>
+      {importArrivalContext && (
+        <section
+          className="rcc2-import-arrival"
+          role="status"
+          aria-label="Committed import arrival context"
+        >
+          <div>
+            <span className="eyebrow">IMPORT COMMITTED · CONTEXT ONLY</span>
+            <strong>
+              {importArrivalContext.committedCount} {importArrivalContext.committedCount === 1 ? "record" : "records"} committed from {importArrivalContext.sourceLabel}
+            </strong>
+            <p>
+              TGE is resolving server-authoritative readiness and durable queue truth
+              below. This arrival note is not economic or action authority, and no scan ran automatically.
+            </p>
+          </div>
+          <button type="button" className="text-button" onClick={onDismissImportArrival}>
+            Dismiss import context
+          </button>
+        </section>
+      )}
       <RevenueJourneyPath />
 
       {queueState === "LOADING" && !queue && (
@@ -1465,37 +1577,6 @@ export default function RevenueCommandCenter({
               onClick={reconcileCaseDecision}
             >
               {mutationKind === "RECONCILE" ? "Reconciling…" : "Reconcile case history"}
-            </button>
-          )}
-        </div>
-      )}
-      {pilotMessage && <div className="rcc2-success" role="status">{pilotMessage}</div>}
-      {pilotError && (
-        <div className="rcc2-alert" role="alert">
-          <strong>{pilotError.title}</strong><span>{pilotError.message}</span>
-          {pilotReconciliationBlocked && (
-            <button
-              type="button"
-              className="oc-secondary-button"
-              disabled={pilotStatusState === "LOADING"}
-              onClick={reconcilePilotEvidence}
-            >
-              Reconcile pilot evidence
-            </button>
-          )}
-          {!pilotReconciliationBlocked && pilotStatusState === "ERROR" && (
-            <button type="button" className="oc-secondary-button" onClick={loadPilotStatus}>
-              Retry pilot status
-            </button>
-          )}
-          {!pilotReconciliationBlocked && pilotRetry && pilotRetry.kind !== "inspect" && (
-            <button
-              type="button"
-              className="oc-secondary-button"
-              disabled={Boolean(pilotMutation)}
-              onClick={() => runPilotObservation(pilotRetry)}
-            >
-              Retry exact pilot evidence
             </button>
           )}
         </div>
@@ -1536,7 +1617,8 @@ export default function RevenueCommandCenter({
               No active revenue leak cases need attention. This is a complete queue
               result, not a claim that every opportunity was recently scanned. Run
               the explicit stalled-opportunity scan to evaluate current canonical
-              evidence, or import/create opportunities if none are available.
+              evidence. Next truthful step: review Operational Data Health, or
+              import/create opportunities if none are available.
             </div>
           ) : (
             <>
@@ -1646,6 +1728,19 @@ export default function RevenueCommandCenter({
         </>
       )}
 
+      <PilotInstrumentationDiagnostics
+        error={pilotError}
+        message={pilotMessage}
+        mutation={pilotMutation}
+        onReconcile={reconcilePilotEvidence}
+        onRetry={loadPilotStatus}
+        onRetryExact={() => runPilotObservation(pilotRetry)}
+        reconciliationBlocked={pilotReconciliationBlocked}
+        retry={pilotRetry}
+        state={pilotStatusState}
+        status={pilotStatus}
+      />
+
       <details className="rcc2-secondary" aria-label="Legacy active-pipeline guidance">
         <summary>Operator diagnostics · Legacy opportunity guidance</summary>
         {loading && !revenue ? (
@@ -1672,7 +1767,6 @@ export default function RevenueCommandCenter({
           </>
         )}
       </details>
-      <PilotJourney status={pilotStatus} />
     </section>
   );
 }

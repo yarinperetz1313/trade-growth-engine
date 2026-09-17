@@ -457,6 +457,45 @@ test("keeps loading, empty, partial context, and limit/integrity/persistence fai
   })).toBeDisabled();
 });
 
+test("keeps usable customer queue truth primary when optional Pilot instrumentation fails", async ({ page }) => {
+  const reference = Date.now();
+  const customer = caseContext({
+    id: "case-instrumentation-independent",
+    opportunityId: "e2e-opp-stalled",
+    businessName: "Instrumentation Independent Roofing",
+    amount: "42000.5",
+    currency: "AUD",
+    reference
+  });
+  await page.route(`${apiBaseUrl}/api/revenue-leak-cases/operating-queue`, route =>
+    json(route, 200, queueResponse([customer], reference))
+  );
+  await page.route(`${apiBaseUrl}/api/pilot-evidence/status`, route =>
+    json(route, 503, {
+      ok: false,
+      error: "PILOT_EVIDENCE_PERSISTENCE_UNAVAILABLE",
+      message: "Optional journey instrumentation is unavailable."
+    })
+  );
+
+  await page.goto("/#opportunities");
+
+  const commandCenter = page.getByTestId("revenue-command-center");
+  await expect(commandCenter.getByLabel("Primary customer-case economic evidence"))
+    .toContainText("AUD 42,000.5");
+  await expect(commandCenter.locator('[data-case-id="case-instrumentation-independent"]'))
+    .toBeVisible();
+  await expect(commandCenter.getByTestId("stalled-opportunity-readiness")).toBeVisible();
+  await expect(commandCenter.getByRole("button", { name: "Scan stalled opportunities" }))
+    .toBeEnabled();
+  const diagnostics = commandCenter.getByRole("group", {
+    name: "Pilot instrumentation diagnostics"
+  });
+  await expect(diagnostics).not.toHaveAttribute("open", "");
+  await expect(diagnostics).toContainText("Pilot evidence status unavailable");
+  await expect(commandCenter.getByRole("alert")).toHaveCount(0);
+});
+
 test("shows explicit scan suppression/exclusion truth and refreshes the queue", async ({ page }) => {
   const reference = Date.now();
   let queueReads = 0;

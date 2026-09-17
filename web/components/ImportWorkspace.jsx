@@ -33,6 +33,7 @@ import {
   importResumeHash,
   parseImportResumeHash
 } from "../lib/importResume.mjs";
+import { buildImportArrivalContext } from "../lib/importArrivalContext.mjs";
 
 const SOURCE_COLLECTIONS = listImportCollectionCapabilities();
 
@@ -1335,6 +1336,7 @@ function UnknownCommitStep({ error, loading, onReconcile, onRetry }) {
 
 function ResultStep({ facts, onContinue, onReset, result }) {
   const summary = result?.summary || {};
+  const arrivalContext = buildImportArrivalContext(result, facts);
   return (
     <section className="card import-panel import-terminal success">
       <h3>Import committed</h3>
@@ -1356,7 +1358,7 @@ function ResultStep({ facts, onContinue, onReset, result }) {
         <button
           aria-label="Continue to Revenue attention — Review Operational Data Health — no scan yet"
           className="primary"
-          onClick={onContinue}
+          onClick={() => onContinue?.(arrivalContext)}
         >
           Review Operational Data Health — no scan yet
         </button>
@@ -1405,7 +1407,7 @@ function CommittedDataHealth({ facts, onContinue, resumed = false }) {
         <button
           aria-label="Continue to Revenue attention — Review Operational Data Health — no scan yet"
           className="primary"
-          onClick={onContinue}
+          onClick={() => onContinue(null)}
         >
           Review Operational Data Health — no scan yet
         </button>

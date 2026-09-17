@@ -330,7 +330,7 @@ test("prepares, approves, and manually confirms a ranked communication action wi
   await expect(execution.getByLabel("Human-controlled action steps"))
     .toContainText("Complete manually");
   await expect(execution.getByLabel("Human-controlled action steps"))
-    .toContainText("No message is sent by TGE");
+    .toContainText("TGE does not send.");
 
   await page.getByTestId("approve-revenue-action").click();
   await expect(page.getByTestId("revenue-action-status")).toHaveText("APPROVED");

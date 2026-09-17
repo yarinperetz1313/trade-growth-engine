@@ -417,6 +417,11 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   await commandCenter.getByRole("button", { name: "Scan stalled opportunities" }).click();
   await expect(commandCenter.getByLabel("Complete explicit scan outcomes"))
     .toContainText("Evidence stale or untrustworthy");
+  const pilotDiagnostics = commandCenter.getByRole("group", {
+    name: "Pilot instrumentation diagnostics"
+  });
+  await expect(pilotDiagnostics).not.toHaveAttribute("open", "");
+  await pilotDiagnostics.getByText("Operator diagnostics · Pilot instrumentation").click();
   await expect(commandCenter.getByText(
     "Durable status confirms the exact pilot evidence fact. No duplicate mutation was attempted."
   )).toBeVisible();
@@ -476,6 +481,12 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   await expect(originatingDiagnostics).toContainText("STALE_WITHOUT_NEXT_ACTION");
   await expect(execution).toContainText("Review → Approve → Create internal task");
   await expect(execution.getByTestId("revenue-action-status")).toHaveText("RECOMMENDED");
+  await expect(page.getByRole("button", { name: "← Return to Revenue attention" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "General opportunity intelligence" }))
+    .not.toHaveAttribute("open", "");
+  await expect(page.getByRole("group", { name: "Additional opportunity context" }))
+    .not.toHaveAttribute("open", "");
+  await expect(execution.getByRole("button", { name: "Prepare action" })).toBeVisible();
   await expect.poll(async () => {
     const topbar = await page.locator(".topbar").boundingBox();
     const heading = await execution.getByRole("heading", {
@@ -483,18 +494,38 @@ test("resumes committed Data Health and reconciles the exact first-value journey
     }).boundingBox();
     const value = await originatingCase.locator(".oc-originating-case-value strong").boundingBox();
     const status = await execution.getByTestId("revenue-action-status").boundingBox();
+    const nextAction = await execution.getByRole("button", { name: "Prepare action" }).boundingBox();
+    const returnAction = await page.getByRole("button", { name: "← Return to Revenue attention" }).boundingBox();
     return {
+      returnBelowChrome: returnAction.y >= topbar.y + topbar.height,
+      returnVisible: returnAction.y + returnAction.height <= 844,
       headingBelowChrome: heading.y >= topbar.y + topbar.height,
       headingVisible: heading.y + heading.height <= 844,
       valueVisible: value.y + value.height <= 844,
-      statusVisible: status.y + status.height <= 844
+      statusVisible: status.y + status.height <= 844,
+      nextActionVisible: nextAction.y + nextAction.height <= 844
     };
   }).toEqual({
+    returnBelowChrome: true,
+    returnVisible: true,
     headingBelowChrome: true,
     headingVisible: true,
     valueVisible: true,
-    statusVisible: true
+    statusVisible: true,
+    nextActionVisible: true
   });
+  if (process.env.TGE_EVIDENCE_DIR) {
+    await page.screenshot({
+      path: path.join(process.env.TGE_EVIDENCE_DIR, "03-mobile-focused-action.png")
+    });
+  }
+  await page.getByRole("button", { name: "← Return to Revenue attention" }).click();
+  await expect(page).toHaveURL(/#opportunities$/);
+  await page.goBack();
+  await expect(page).toHaveURL(
+    /#opportunities\/e2e-opp-stalled\?focus=action&case=case-imported&action=pilot-action-1$/
+  );
+  await expect(execution.getByTestId("revenue-action-status")).toHaveText("RECOMMENDED");
   await execution.getByRole("button", { name: "Prepare action" }).click();
   await expect(execution.getByTestId("internal-task-proposal"))
     .toContainText("No due date invented");
@@ -511,7 +542,7 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   if (process.env.TGE_EVIDENCE_DIR) {
     await page.screenshot({
       fullPage: true,
-      path: path.join(process.env.TGE_EVIDENCE_DIR, "03-mobile-task-created.png")
+      path: path.join(process.env.TGE_EVIDENCE_DIR, "04-mobile-task-created.png")
     });
   }
   await expect.poll(() => page.evaluate(() => ({

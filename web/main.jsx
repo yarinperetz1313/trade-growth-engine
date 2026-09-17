@@ -148,12 +148,14 @@ function App() {
   const [importRoute, setImportRoute] = useState(importRouteFromHash);
   const [importRouteVersion, setImportRouteVersion] = useState(0);
   const [route, setRoute] = useState(routeFromHash);
+  const [importArrivalContext, setImportArrivalContext] = useState(null);
 
   useEffect(() => {
     const syncPageFromHash = () => {
       const nextPage = pageFromHash();
       setRoute(routeFromHash());
       setPage(nextPage);
+      if (nextPage !== "opportunities") setImportArrivalContext(null);
       if (nextPage === "imports") {
         setImportRoute(importRouteFromHash());
         setImportRouteVersion(current => current + 1);
@@ -280,7 +282,10 @@ function App() {
         )}
 
         {page === "opportunities" && (
-          <RevenueAttention />
+          <RevenueAttention
+            importArrivalContext={importArrivalContext}
+            onDismissImportArrival={() => setImportArrivalContext(null)}
+          />
         )}
 
         {page === "all-opportunities" && (
@@ -290,7 +295,10 @@ function App() {
         {page === "imports" && (
           <ImportWorkspace
             key={importRouteVersion}
-            onContinueToCommandCenter={() => navigatePage("opportunities")}
+            onContinueToCommandCenter={arrivalContext => {
+              setImportArrivalContext(arrivalContext);
+              navigatePage("opportunities");
+            }}
             onResumeRouteChange={setImportRoute}
           />
         )}
@@ -1360,15 +1368,25 @@ function Pipeline() {
   );
 }
 
-function RevenueAttention() {
-  return <OpportunityWorkspace view="attention" />;
+function RevenueAttention({ importArrivalContext, onDismissImportArrival }) {
+  return (
+    <OpportunityWorkspace
+      view="attention"
+      importArrivalContext={importArrivalContext}
+      onDismissImportArrival={onDismissImportArrival}
+    />
+  );
 }
 
 function AllOpportunities() {
   return <OpportunityWorkspace view="portfolio" />;
 }
 
-function OpportunityWorkspace({ view }) {
+function OpportunityWorkspace({
+  view,
+  importArrivalContext = null,
+  onDismissImportArrival = null
+}) {
   const {
     opportunities = [],
     revenue,
@@ -1489,6 +1507,7 @@ function OpportunityWorkspace({ view }) {
     <div className="page">
 
       <RevenueCommandCenter
+        importArrivalContext={importArrivalContext}
         revenue={revenue}
         loading={revenueLoading}
         error={revenueError}
@@ -1496,6 +1515,7 @@ function OpportunityWorkspace({ view }) {
           loading || Boolean(error)
         }
         onRefresh={refreshRevenue}
+        onDismissImportArrival={onDismissImportArrival}
         onOpenOpportunity={(opportunityId, options) => {
           const opportunity = opportunities.find(
             item => item.id === opportunityId
