@@ -80,3 +80,26 @@
   collapsed filters, the focused action retains its workflow context, and the
   all-opportunity portfolio uses labelled responsive cards without page-level
   overflow.
+- Fresh independent review of `c14ccc9` found one P2 responsive ownership gap:
+  the six-column portfolio required about 786px but retained its desktop grid at
+  820px and 1024px viewports after the fixed sidebar and page padding reduced
+  the available card width. It also found the related non-blocking P3 that
+  desktop values had lost their accessible field labels. Both findings belong
+  to the portfolio presentation boundary; accepted operating-home, queue,
+  scan, money, ordering, and action behavior remain closed.
+- The managed regression was intentionally RED **0/2** on `c14ccc9`: exact
+  bounding-box evidence showed field containment false at both 820px and
+  1024px while 390px and 1280px remained true, and the desktop card accessible
+  name exposed undifferentiated values without field labels. The portfolio now
+  changes to its existing labelled card layout at `1120px`, where the
+  fixed-sidebar content area can no longer safely own the desktop grid.
+  Desktop labels use a visually-hidden pattern rather than `display: none` and
+  become visible again in the responsive card layout.
+- The same regressions are GREEN **2/2** across 390/820/1024/1280 and desktop
+  accessibility. Candidate/first-value/Pilot source contracts pass **15/15**;
+  monetary truth passes **4/4**; and the affected product-truth and Opportunity
+  Action Chromium specifications pass **22/22**. The engineering harness and
+  production build pass (34 modules; existing chunk warning only), and
+  generated `dist` output was moved outside the worktree. No
+  product/API/source-domain, persistence, migration, tenant, monetary, or
+  RevenueAction boundary changed.

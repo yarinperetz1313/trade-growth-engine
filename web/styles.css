@@ -380,7 +380,16 @@ p {
 }
 
 .opportunity-portfolio-fact small {
-  display: none;
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
 }
 
 .opportunity-portfolio-fact strong,
@@ -981,6 +990,41 @@ p {
   }
 }
 
+@media (max-width: 1120px) {
+  .opportunity-portfolio-header {
+    display: none;
+  }
+
+  .opportunity-portfolio {
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .opportunity-portfolio-card {
+    background: rgba(255, 255, 255, .02);
+    border: 1px solid rgba(255, 255, 255, .075);
+    border-radius: 12px;
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 15px;
+  }
+
+  .opportunity-portfolio-identity {
+    grid-column: 1 / -1;
+  }
+
+  .opportunity-portfolio-fact small {
+    clip: auto;
+    clip-path: none;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    position: static;
+    white-space: normal;
+    width: auto;
+  }
+}
+
 @media (max-width: 800px) {
   .app {
     display: block;
@@ -1069,31 +1113,6 @@ p {
     min-width: 720px;
   }
 
-  .opportunity-portfolio-header {
-    display: none;
-  }
-
-  .opportunity-portfolio {
-    gap: 10px;
-    padding: 10px;
-  }
-
-  .opportunity-portfolio-card {
-    background: rgba(255, 255, 255, .02);
-    border: 1px solid rgba(255, 255, 255, .075);
-    border-radius: 12px;
-    gap: 12px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    padding: 15px;
-  }
-
-  .opportunity-portfolio-identity {
-    grid-column: 1 / -1;
-  }
-
-  .opportunity-portfolio-fact small {
-    display: block;
-  }
 }
 
 /* Revenue Command Center */

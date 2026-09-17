@@ -36,6 +36,25 @@ migration, detector, tenancy/RLS, monetary calculation, queue ordering, or
 RevenueAction authority changed. Exact-candidate screenshots are retained
 outside the repository under `artifacts/tge-sprint-candidate1`.
 
+Fresh independent review of exact candidate `c14ccc9` found one bounded P2 in
+the new portfolio presentation: at 820px and 1024px viewports, the fixed sidebar
+and page padding left less space than the six-column grid required, while the
+card's overflow boundary silently hid probability, weighted value, or stage.
+The related non-blocking P3 was that `display: none` removed desktop field
+labels from the accessibility tree. Remediation cycle **1/3** is limited to
+these presentation findings. A deterministic managed-browser regression was
+RED **0/2** on `c14ccc9`, proving containment false at both intermediate widths
+while 390px and 1280px remained correct and proving the missing accessible
+labels. The corrected CSS activates the existing labelled card layout at
+`1120px`, based on the fixed-sidebar content-width boundary, and visually hides
+rather than accessibility-hides desktop labels. The focused regressions are
+GREEN **2/2**; source truth contracts pass **15/15**, the complete product-truth
+and Opportunity Action Chromium specifications pass **22/22**, monetary truth
+passes **4/4**, and the engineering harness and production build pass. Product
+logic, exact money/currency semantics, known-zero/unknown truth, navigation,
+server ordering, sample isolation, explicit scanning, and RevenueAction
+authority are unchanged.
+
 Pilot Zero Business-First Presentation is the merged historical browser-only
 baseline authorized under GitHub Issue #39. It started from exact clean `origin/main`
 `c6cb6a7752fc68361498052b7a884cdb2cb93e74` on

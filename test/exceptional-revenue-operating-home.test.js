@@ -45,12 +45,14 @@ test("focused action settles on a sticky-header-safe workflow anchor", () => {
   assert.match(commandCenterStyles, /\.oc-revenue-action-execution[\s\S]*scroll-margin-top/);
 });
 
-test("all opportunities use labelled task-oriented mobile cards instead of a wide table", () => {
+test("all opportunities use labelled task-oriented cards whenever the content width cannot hold the desktop grid", () => {
   assert.match(mainSource, /className="opportunity-portfolio-card"/);
   assert.match(mainSource, /className="opportunity-portfolio-fact"/);
   assert.match(mainSource, />Commercial value</);
   assert.match(mainSource, />Probability</);
-  assert.match(stylesSource, /@media \(max-width: 800px\)[\s\S]*\.opportunity-portfolio/);
+  assert.match(stylesSource, /@media \(max-width: 1120px\)[\s\S]*\.opportunity-portfolio/);
+  assert.match(stylesSource, /\.opportunity-portfolio-fact small \{[\s\S]*clip-path: inset\(50%\)/);
+  assert.match(stylesSource, /@media \(max-width: 1120px\)[\s\S]*\.opportunity-portfolio-fact small \{[\s\S]*clip-path: none/);
   assert.doesNotMatch(stylesSource, /\.opportunity-table-header,[\s\S]*min-width: 720px/);
 });
 

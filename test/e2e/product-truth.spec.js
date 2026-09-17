@@ -69,6 +69,46 @@ test("defaults to revenue attention and renders a labelled mobile opportunity po
   }
 });
 
+test("keeps every portfolio field inside its card across intermediate and endpoint widths", async ({ page }) => {
+  const widths = [390, 820, 1024, 1280];
+  const fieldContainment = {};
+
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/#all-opportunities");
+
+    const card = page.getByTestId("opportunity-row-e2e-opp-command");
+    await expect(card).toBeVisible();
+    fieldContainment[width] = await card.evaluate(element => {
+      const cardBounds = element.getBoundingClientRect();
+      const fields = Array.from(element.querySelectorAll(
+        ".opportunity-portfolio-identity, .opportunity-portfolio-fact"
+      ));
+
+      return fields.every(field => {
+        const bounds = field.getBoundingClientRect();
+        return bounds.left >= cardBounds.left - 0.5
+          && bounds.right <= cardBounds.right + 0.5;
+      });
+    });
+  }
+
+  expect(fieldContainment).toEqual({
+    390: true,
+    820: true,
+    1024: true,
+    1280: true
+  });
+});
+
+test("keeps desktop portfolio field labels in each card's accessible name", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/#all-opportunities");
+  await expect(page.getByTestId("opportunity-row-e2e-opp-command")).toHaveAccessibleName(
+    /Score .* Commercial value .* Probability .* Weighted value .* Stage /
+  );
+});
+
 test("searches the live prospects surface rather than fixtures", async ({ page }) => {
   await page.goto("/#prospects");
 
