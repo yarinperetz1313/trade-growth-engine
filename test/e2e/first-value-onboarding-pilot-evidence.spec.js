@@ -461,6 +461,10 @@ test("resumes committed Data Health and reconciles the exact first-value journey
   await refreshedImported.getByRole("button", {
     name: "CONTINUE ACTION"
   }).click();
+  // Exercise the Linux-compatible fallback with a one-pixel text-metric stress.
+  await page.addStyleTag({
+    content: ".focused-action { font-family: Arial, sans-serif; font-size: 17px; }"
+  });
   await expect(page).toHaveURL(
     /#opportunities\/e2e-opp-stalled\?focus=action&case=case-imported&action=pilot-action-1$/
   );
@@ -503,7 +507,16 @@ test("resumes committed Data Health and reconciles the exact first-value journey
       headingVisible: heading.y + heading.height <= 844,
       valueVisible: value.y + value.height <= 844,
       statusVisible: status.y + status.height <= 844,
-      nextActionVisible: nextAction.y + nextAction.height <= 844
+      nextActionVisible: nextAction.y + nextAction.height <= 844,
+      nextActionHitTestable: await execution.getByRole("button", {
+        name: "Prepare action"
+      }).evaluate(element => {
+        const box = element.getBoundingClientRect();
+        return document.elementFromPoint(
+          box.left + box.width / 2,
+          box.top + box.height / 2
+        ) === element;
+      })
     };
   }).toEqual({
     returnBelowChrome: true,
@@ -512,7 +525,8 @@ test("resumes committed Data Health and reconciles the exact first-value journey
     headingVisible: true,
     valueVisible: true,
     statusVisible: true,
-    nextActionVisible: true
+    nextActionVisible: true,
+    nextActionHitTestable: true
   });
   if (process.env.TGE_EVIDENCE_DIR) {
     await page.screenshot({

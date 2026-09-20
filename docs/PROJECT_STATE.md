@@ -1,6 +1,29 @@
 # Project State
 
-_Last locally audited on 2026-09-17. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+_Last locally audited on 2026-09-20. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+
+PR #42 received one bounded responsive-geometry remediation after GitHub Verify
+runs `35168466481` and `35168486302` exposed the same Linux-only failure at
+exact HEAD `a14d91c033c6933d67ee255be39958fdcfad20c8`: the primary `Prepare
+action` control fell below the first 390×844 focused-action viewport while the
+return control, workflow heading, status, exact value, and why-now evidence
+remained visible. The mobile focused workflow now places active action controls
+immediately after their status and title, ahead of repeated reason/proposal
+detail. This changes presentation order only; originating evidence, the
+human-controlled Review → Approve → Execute sequence, no-send truth, and every
+RevenueAction authority boundary remain unchanged.
+
+The exact journey was RED **0/1** on `a14d91c` under an Arial/system-font
+fallback plus one-pixel text-metric stress: the action control bottom was
+**850.28125px**. It is GREEN **3/3** under repeated stress after the fix, with
+full-viewport visibility and center-point hit testing. The affected first-value,
+Opportunity Action, queue, RevenueLeakCase lifecycle, and focused 403/503 retry
+managed Chromium boundary passes **44/44**; relevant source contracts pass
+**27/27**. The Vite production build passes with **35 modules** and the existing
+chunk warning, the engineering harness passes, and `src` plus migrations remain
+unchanged from exact base `9c78d196708585201ae0fa4400cdd4df28a1a833`.
+PostgreSQL and full integration were not repeated because this bounded change is
+CSS plus its browser regression only.
 
 Exceptional Revenue Operating Home remediation cycle **2/3** closes independent
 review finding `C2-P2-FOCUSED-HISTORY-RECOVERY` at product/test checkpoint

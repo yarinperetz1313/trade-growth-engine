@@ -1964,8 +1964,12 @@
     flex-direction: column;
   }
 
+  .oc-page.focused-action .oc-execution-current > .oc-execution-heading {
+    order: -2;
+  }
+
   .oc-page.focused-action .oc-execution-current > .oc-execution-controls {
-    order: 2;
+    order: -1;
   }
 
   .oc-page.focused-action .oc-execution-current > .oc-execution-proposal {

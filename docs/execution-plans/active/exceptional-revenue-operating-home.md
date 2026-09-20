@@ -1,5 +1,32 @@
 # Exceptional Revenue Operating Home — Candidates 1–2
 
+## PR #42 bounded CI geometry remediation
+
+GitHub Verify runs `35168466481` and `35168486302` both failed at exact PR head
+`a14d91c033c6933d67ee255be39958fdcfad20c8` after **83/84** Chromium tests.
+The sole failure was a responsive presentation defect: under Linux font metrics,
+the primary `Prepare action` control fell below the first 390×844 focused-action
+viewport even though the return control, workflow heading, status, exact value,
+and why-now evidence remained visible.
+
+The deterministic regression applies an Arial/system-font fallback and a
+one-pixel text-metric stress to that exact journey. It was RED **0/1** on
+`a14d91c`, with the control bottom at **850.28125px**, and is GREEN **3/3**
+after the fix with both full visibility and center-point hit testing. Focused
+mobile action controls now follow their authoritative status/title before
+repeated reason or prepared-proposal detail. The evidence and human sequence
+remain ahead of the control, and the underlying prepare, approve, and execute
+DOM/action order and authority are unchanged.
+
+The affected managed Chromium boundary passes **44/44**, including first value,
+Opportunity Action authority, focused history 403/503/retry recovery, queue
+reconciliation, and RevenueLeakCase lifecycle coverage. Relevant source
+contracts pass **27/27**. The Vite build passes with **35 modules** and the
+existing chunk warning, and the engineering harness passes. Aggregate `src` and
+migrations remain unchanged from base
+`9c78d196708585201ae0fa4400cdd4df28a1a833`; PostgreSQL and full integration are
+not applicable to this CSS/test-only remediation.
+
 ## Candidate 2 remediation cycle 2 — focused history recovery
 
 Fresh independent review of exact Candidate 2 HEAD
