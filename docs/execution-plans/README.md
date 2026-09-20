@@ -6,6 +6,7 @@
 
 ## Completed plans
 
+- [`completed/external-pilot-offboarding-operator.md`](completed/external-pilot-offboarding-operator.md) — **External Pilot One gains a dry-run-first, exact-OWNER, dedicated-DSN operator workflow over the existing offboarding authority, with privacy-minimized receipts and explicit provider/legal/backup gates.**
 - [`completed/guided-first-credible-leak-pilot-v1.md`](completed/guided-first-credible-leak-pilot-v1.md) — **Issue #14's three slices are complete through merged PRs #36/#37/#38 and successful post-merge Verify runs, ending at exact `origin/main` `c6cb6a7`.**
 - [`completed/pilot-readiness.md`](completed/pilot-readiness.md) — **Pilot Readiness and the Assisted Pilot Safety Gate V1 are complete historical evidence. External provider, infrastructure, legal/privacy, backup/restore, and canonical tenant-data deletion gates remain explicit rather than implied.**
 - [`completed/first-value-onboarding-pilot-evidence.md`](completed/first-value-onboarding-pilot-evidence.md) — **Issue #9/#14 PR-3 completes the post-import first-value bridge and closed, tenant-scoped, privacy-minimized pilot-evidence contract as a local candidate; GitHub delivery remains coordinator-owned.**

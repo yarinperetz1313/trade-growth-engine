@@ -2,6 +2,40 @@
 
 _Last locally audited on 2026-09-20. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
+External Pilot One now has a local offboarding-operator candidate based on exact
+`origin/main` `44ebebb8da92c8493985e9160d96ba836cba1f8f`. The repository-native
+`operator:offboarding` command requires only the dedicated
+`TGE_OFFBOARDING_OPERATOR_DATABASE_URL`; exact tenant UUID plus named active
+OWNER issuer/subject; and, for apply, the exact
+`OFFBOARD_ACCESS_AND_RAW_EVIDENCE` confirmation. Request is dry-run by default.
+It composes the existing offboarding service/repository transaction and
+database function, so transaction-local identity/tenant context, the current
+sensitive-action seam, final OWNER revalidation, concurrency/idempotency, and
+the public route's separate step-up failure boundary are unchanged.
+
+Actor-bound status/receipt output contains only stable lifecycle codes,
+timestamps, evidence/count truth, retention classes, and the next runbook or
+maintenance command. Actual maintenance remains the existing separate
+targetless `maintenance:cleanup` authority. A terminal receipt proves raw
+scrubbing and database membership/invitation revocation, reports retained
+canonical CRM, ID-map, audit, and Pilot evidence counts, and explicitly labels
+provider identity, logs, exports, canonical/legal retention, backup expiry, and
+restore reconciliation as external/unknown actions. It never claims canonical
+destructive deletion or provider action.
+
+Delivery was red-first: the initial focused operator set was **0/8** before the
+workflow existed. Final focused unit is **9/9** and the new PostgreSQL 16.15
+operator gate is **3/3**, covering zero-write dry-run, non-owner/ambiguous/cross-
+tenant/actor-mismatch/terminal denials, concurrent idempotent apply, stale-OWNER
+final revalidation, executable CLI output minimization, actual maintenance,
+immutable evidence, raw scrub, access revocation, retained truth, and unrelated
+tenant isolation. Complete integration passes **501/501**; complete PostgreSQL
+passes **94/94**; the engineering harness and production build pass with **35
+modules** and the existing chunk warning. Migrations `001`–`016` are unchanged
+from the exact base and `git diff --check` passes. This is local evidence only:
+no push, PR, CI, merge, provider credential/action, customer data/action, legal
+retention decision, canonical deletion, or backup action occurred.
+
 PR #42 received one bounded responsive-geometry remediation after GitHub Verify
 runs `35168466481` and `35168486302` exposed the same Linux-only failure at
 exact HEAD `a14d91c033c6933d67ee255be39958fdcfad20c8`: the primary `Prepare
