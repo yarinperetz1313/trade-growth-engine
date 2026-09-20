@@ -16,6 +16,14 @@ function loadOperator() {
 
 function fixture({ status = null, role = "OWNER", ambiguous = false } = {}) {
   const calls = [];
+  let requestCompleted = false;
+  const pending = {
+    requestId: "request-a",
+    state: "PENDING",
+    scope: "ACCESS_AND_RAW_EVIDENCE_ONLY",
+    retryable: false,
+    requestedAt: "2026-09-20T00:00:00.000Z"
+  };
   const workflow = loadOperator().createOffboardingOperatorWorkflow({
     authority: {
       async resolveActiveOwner(input) {
@@ -32,19 +40,14 @@ function fixture({ status = null, role = "OWNER", ambiguous = false } = {}) {
     requestService: {
       async request(input) {
         calls.push(["request", input]);
-        return status || {
-          requestId: "request-a",
-          state: "PENDING",
-          scope: "ACCESS_AND_RAW_EVIDENCE_ONLY",
-          retryable: false,
-          requestedAt: "2026-09-20T00:00:00.000Z"
-        };
+        requestCompleted = true;
+        return status || pending;
       }
     },
     receiptRepository: {
       async read(input) {
         calls.push(["read", input]);
-        return status;
+        return status || (requestCompleted ? pending : null);
       }
     }
   });
@@ -91,7 +94,7 @@ test("apply requires the exact confirmation and delegates to the authoritative s
   assert.equal(result.offboardingEffectsApplied, false);
   assert.equal(result.nextAction.command, "npm run maintenance:cleanup");
   assert.deepEqual(calls.map(([name]) => name), [
-    "read", "resolveActiveOwner", "request"
+    "read", "resolveActiveOwner", "request", "read"
   ]);
   assert.deepEqual(calls[2][1].input, {
     confirmation: "OFFBOARD_ACCESS_AND_RAW_EVIDENCE"
@@ -136,6 +139,138 @@ test("pending apply replay remains idempotent through the authoritative service"
   assert.equal(result.requestId, undefined);
   assert.equal(result.state, "PENDING");
   assert.equal(calls.filter(([name]) => name === "request").length, 1);
+});
+
+test("apply establishes actor ownership from the authoritative persisted request before acceptance", async () => {
+  const calls = [];
+  let reads = 0;
+  const workflow = loadOperator().createOffboardingOperatorWorkflow({
+    authority: {
+      async resolveActiveOwner(input) {
+        calls.push("owner");
+        return {
+          ...input,
+          role: "OWNER",
+          authorizationContext: {},
+          persistenceContext: {}
+        };
+      }
+    },
+    requestService: {
+      async request() {
+        calls.push("request");
+        return {
+          state: "PENDING",
+          scope: "ACCESS_AND_RAW_EVIDENCE_ONLY",
+          retryable: false,
+          requestedAt: "2026-09-20T00:00:00.000Z"
+        };
+      }
+    },
+    receiptRepository: {
+      async read() {
+        reads += 1;
+        calls.push(`read:${reads}`);
+        return reads === 1 ? null : { actorMismatch: true };
+      }
+    }
+  });
+
+  await assert.rejects(
+    workflow.request({
+      ...ACTOR,
+      apply: true,
+      confirmation: "OFFBOARD_ACCESS_AND_RAW_EVIDENCE"
+    }),
+    error => error.code === "OFFBOARDING_REQUEST_ACTOR_MISMATCH"
+  );
+  assert.deepEqual(calls, ["read:1", "owner", "request", "read:2"]);
+});
+
+test("unknown commit acknowledgement requires status reconciliation without claiming denial or retry", async () => {
+  const calls = [];
+  const workflow = loadOperator().createOffboardingOperatorWorkflow({
+    authority: {
+      async resolveActiveOwner(input) {
+        return {
+          ...input,
+          role: "OWNER",
+          authorizationContext: {},
+          persistenceContext: {}
+        };
+      }
+    },
+    requestService: {
+      async request() {
+        calls.push("request");
+        const error = new Error("commit acknowledgement lost");
+        error.code = "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN";
+        error.outcomeUnknown = true;
+        error.retryable = false;
+        throw error;
+      }
+    },
+    receiptRepository: {
+      async read() {
+        calls.push("read");
+        return null;
+      }
+    }
+  });
+
+  const result = await workflow.request({
+    ...ACTOR,
+    apply: true,
+    confirmation: "OFFBOARD_ACCESS_AND_RAW_EVIDENCE"
+  });
+  assert.deepEqual(result, {
+    code: "OFFBOARDING_REQUEST_RECONCILIATION_REQUIRED",
+    mode: "APPLY",
+    state: "UNKNOWN",
+    scope: "ACCESS_AND_RAW_EVIDENCE_ONLY",
+    retryable: false,
+    requestMutationAttempted: true,
+    outcomeConfirmed: false,
+    offboardingEffectsApplied: false,
+    nextAction: {
+      code: "CHECK_REQUEST_STATUS",
+      operatorCommand: "status",
+      runbook: "docs/runbooks/external-pilot-offboarding.md"
+    }
+  });
+  assert.deepEqual(calls, ["read", "request"]);
+});
+
+test("a definitive request failure remains a denial", async () => {
+  const workflow = loadOperator().createOffboardingOperatorWorkflow({
+    authority: {
+      async resolveActiveOwner(input) {
+        return {
+          ...input,
+          role: "OWNER",
+          authorizationContext: {},
+          persistenceContext: {}
+        };
+      }
+    },
+    requestService: {
+      async request() {
+        const error = new Error("definitive authorization denial");
+        error.code = "42501";
+        throw error;
+      }
+    },
+    receiptRepository: { async read() { return null; } }
+  });
+
+  await assert.rejects(
+    workflow.request({
+      ...ACTOR,
+      apply: true,
+      confirmation: "OFFBOARD_ACCESS_AND_RAW_EVIDENCE"
+    }),
+    error => error.code === "OFFBOARDING_REQUEST_DENIED"
+  );
 });
 
 test("receipt reports only lifecycle, evidence counts, and retention classes", async () => {

@@ -13,6 +13,9 @@ const {
 const {
   createPostgresOffboardingOperatorAdapter
 } = require("../../src/tenantOffboarding/postgresOperatorAdapter");
+const {
+  withTenantTransaction
+} = require("../../src/persistence/postgres/transaction");
 
 const databaseUrl = process.env.TGE_TEST_DATABASE_URL;
 const root = path.resolve(__dirname, "../..");
@@ -162,6 +165,169 @@ if (!databaseUrl) {
         0
       );
     } finally {
+      await adapter.close();
+    }
+  });
+
+  test("operator preflight rejects a privileged session login hidden by SET ROLE and a file-server role member", async () => {
+    const owner = await seedTenant("unsafe-login-owner", "OWNER");
+    const roleSwitchLogin = `tge_offboarding_switch_${randomUUID().replaceAll("-", "")}`;
+    const fileServerLogin = `tge_offboarding_file_${randomUUID().replaceAll("-", "")}`;
+    const roleSwitchPassword = randomUUID();
+    const fileServerPassword = randomUUID();
+    await createLogin(admin, roleSwitchLogin, roleSwitchPassword);
+    await createLogin(admin, fileServerLogin, fileServerPassword);
+    try {
+      await admin.query(
+        `alter role ${quoteIdentifier(roleSwitchLogin)} createdb createrole`
+      );
+      await admin.query(
+        `grant ${quoteIdentifier(operatorRole)} to ${quoteIdentifier(roleSwitchLogin)}`
+      );
+      await admin.query(`grant tge_runtime to ${quoteIdentifier(fileServerLogin)}`);
+      await admin.query(
+        `grant pg_write_server_files to ${quoteIdentifier(fileServerLogin)}`
+      );
+
+      const switchedUrl = replaceCredentials(
+        adminUrl,
+        roleSwitchLogin,
+        roleSwitchPassword
+      );
+      const switched = new URL(switchedUrl);
+      switched.searchParams.set("options", `-c role=${operatorRole}`);
+      const fileServerUrl = replaceCredentials(
+        adminUrl,
+        fileServerLogin,
+        fileServerPassword
+      );
+
+      for (const connectionString of [switched.toString(), fileServerUrl]) {
+        const unsafeAdapter = createPostgresOffboardingOperatorAdapter({
+          connectionString
+        });
+        try {
+          const unsafeWorkflow = createOffboardingOperatorWorkflow(unsafeAdapter);
+          await assert.rejects(
+            unsafeWorkflow.request({ ...target(owner), apply: false }),
+            error => error.code === "OFFBOARDING_OPERATOR_CONFIGURATION_INVALID"
+          );
+        } finally {
+          await unsafeAdapter.close();
+        }
+      }
+    } finally {
+      await admin.query(
+        `revoke pg_write_server_files from ${quoteIdentifier(fileServerLogin)}`
+      );
+      await admin.query(`revoke tge_runtime from ${quoteIdentifier(fileServerLogin)}`);
+      await admin.query(
+        `revoke ${quoteIdentifier(operatorRole)} from ${quoteIdentifier(roleSwitchLogin)}`
+      );
+      await admin.query(`drop role ${quoteIdentifier(roleSwitchLogin)}`);
+      await admin.query(`drop role ${quoteIdentifier(fileServerLogin)}`);
+    }
+  });
+
+  test("two synchronized OWNER actors cannot both accept one authoritative request", async () => {
+    const first = await seedTenant("actor-race-first", "OWNER");
+    const second = {
+      ...first,
+      subject: `auth0|actor-race-second-${randomUUID()}`
+    };
+    await admin.query(
+      `insert into tge.tenant_memberships (
+         tenant_id, identity_issuer, subject_id, role, status
+       ) values ($1, $2, $3, 'OWNER', 'ACTIVE')`,
+      [second.id, second.issuer, second.subject]
+    );
+
+    const { adapter } = operator();
+    let arrivals = 0;
+    let releaseBarrier;
+    const barrier = new Promise(resolve => { releaseBarrier = resolve; });
+    const synchronizedService = {
+      async request(input) {
+        arrivals += 1;
+        if (arrivals === 2) releaseBarrier();
+        await barrier;
+        return adapter.requestService.request(input);
+      }
+    };
+    const workflow = createOffboardingOperatorWorkflow({
+      authority: adapter.authority,
+      requestService: synchronizedService,
+      receiptRepository: adapter.receiptRepository
+    });
+    try {
+      const apply = actor => workflow.request({
+        ...target(actor),
+        apply: true,
+        confirmation: "OFFBOARD_ACCESS_AND_RAW_EVIDENCE"
+      });
+      const results = await Promise.allSettled([apply(first), apply(second)]);
+      assert.equal(results.filter(result => result.status === "fulfilled").length, 1);
+      assert.equal(results.filter(result => result.status === "rejected").length, 1);
+      const acceptedIndex = results.findIndex(result => result.status === "fulfilled");
+      const rejected = results.find(result => result.status === "rejected");
+      assert.equal(rejected.reason.code, "OFFBOARDING_REQUEST_ACTOR_MISMATCH");
+
+      const persisted = await admin.query(
+        `select requested_by_subject_hash = encode(sha256(convert_to(
+           $2::text || ':' || $3::text, 'UTF8'
+         )), 'hex') actor_matches
+         from tge.tenant_offboarding_requests where tenant_id = $1`,
+        [first.id, first.issuer, [first, second][acceptedIndex].subject]
+      );
+      assert.deepEqual(persisted.rows, [{ actor_matches: true }]);
+    } finally {
+      await adapter.close();
+    }
+  });
+
+  test("lost COMMIT acknowledgement reports reconciliation while the authoritative request remains pending", async () => {
+    const owner = await seedTenant("unknown-outcome-owner", "OWNER");
+    const { adapter } = operator();
+    const lossyPool = commitAcknowledgementLossPool(operatorUrl);
+    const requestService = {
+      request({ persistenceContext }) {
+        return withTenantTransaction(lossyPool, persistenceContext, async ({ client }) => {
+          const result = await client.query(
+            "select * from tge.request_tenant_offboarding($1::text)",
+            ["OFFBOARD_ACCESS_AND_RAW_EVIDENCE"]
+          );
+          return result.rows[0];
+        });
+      }
+    };
+    const workflow = createOffboardingOperatorWorkflow({
+      authority: adapter.authority,
+      requestService,
+      receiptRepository: adapter.receiptRepository
+    });
+    try {
+      const result = await workflow.request({
+        ...target(owner),
+        apply: true,
+        confirmation: "OFFBOARD_ACCESS_AND_RAW_EVIDENCE"
+      });
+      assert.equal(result.code, "OFFBOARDING_REQUEST_RECONCILIATION_REQUIRED");
+      assert.equal(result.state, "UNKNOWN");
+      assert.equal(result.retryable, false);
+      assert.equal(result.outcomeConfirmed, false);
+      assert.equal(result.nextAction.operatorCommand, "status");
+
+      const persisted = await admin.query(
+        `select state, count(*) over ()::integer request_count
+         from tge.tenant_offboarding_requests where tenant_id = $1`,
+        [owner.id]
+      );
+      assert.deepEqual(persisted.rows, [{ state: "PENDING", request_count: 1 }]);
+      const status = await workflow.inspect(target(owner));
+      assert.equal(status.code, "OFFBOARDING_STATUS_PENDING");
+      assert.equal(status.nextAction.command, "npm run maintenance:cleanup");
+    } finally {
+      await lossyPool.end();
       await adapter.close();
     }
   });
@@ -506,6 +672,35 @@ async function createLogin(client, role, password) {
     [role, password]
   );
   await client.query(result.rows[0].sql);
+}
+
+function commitAcknowledgementLossPool(connectionString) {
+  const { Pool } = require("pg");
+  const pool = new Pool({ connectionString, max: 1 });
+  let acknowledgementLost = false;
+  return {
+    async connect() {
+      const client = await pool.connect();
+      return {
+        async query(statement, values) {
+          if (!acknowledgementLost && statement === "COMMIT") {
+            await client.query(statement, values);
+            acknowledgementLost = true;
+            const error = new Error("commit acknowledgement lost");
+            error.code = "CONNECTION_LOST_AFTER_COMMIT";
+            throw error;
+          }
+          return client.query(statement, values);
+        },
+        release(error) {
+          return client.release(error);
+        }
+      };
+    },
+    end() {
+      return pool.end();
+    }
+  };
 }
 
 function replaceDatabase(connectionString, databaseName) {

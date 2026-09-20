@@ -162,22 +162,33 @@ function createPostgresOffboardingOperatorAdapter({ connectionString } = {}) {
 
 async function validateOperatorLogin(pool) {
   const result = await pool.query(
-    `select current_user role_name, roles.rolinherit, roles.rolsuper,
+    `select session_user login_name, current_user effective_role_name,
+       session_user = current_user effective_role_matches,
+       roles.rolinherit, roles.rolsuper,
        roles.rolcreatedb, roles.rolcreaterole, roles.rolreplication,
        roles.rolbypassrls,
-       pg_catalog.pg_has_role(current_user, 'tge_runtime', 'member') runtime_member,
-       pg_catalog.pg_has_role(current_user, 'tge_owner', 'member') owner_member,
-       pg_catalog.pg_has_role(current_user, 'tge_migrator', 'member') migrator_member,
-       pg_catalog.pg_has_role(current_user, 'tge_maintenance', 'member') maintenance_member,
-       has_schema_privilege(current_user, 'tge', 'CREATE') schema_create
+       pg_catalog.pg_has_role(session_user, 'tge_runtime', 'member') runtime_member,
+       pg_catalog.pg_has_role(session_user, 'tge_owner', 'member') owner_member,
+       pg_catalog.pg_has_role(session_user, 'tge_migrator', 'member') migrator_member,
+       pg_catalog.pg_has_role(session_user, 'tge_maintenance', 'member') maintenance_member,
+       has_schema_privilege(session_user, 'tge', 'CREATE') schema_create,
+       exists (
+         select 1
+         from pg_catalog.pg_roles granted_roles
+         where granted_roles.rolname not in (session_user, 'tge_runtime')
+           and pg_catalog.pg_has_role(
+             session_user, granted_roles.oid, 'member'
+           )
+       ) unexpected_role_membership
      from pg_catalog.pg_roles roles
-     where roles.rolname = current_user`
+     where roles.rolname = session_user`
   );
   const role = result.rows[0];
   if (
     !role
     || ["tge_runtime", "tge_owner", "tge_migrator", "tge_maintenance"]
-      .includes(role.role_name)
+      .includes(role.login_name)
+    || role.effective_role_matches !== true
     || role.rolinherit !== true
     || role.rolsuper !== false
     || role.rolcreatedb !== false
@@ -189,6 +200,7 @@ async function validateOperatorLogin(pool) {
     || role.migrator_member !== false
     || role.maintenance_member !== false
     || role.schema_create !== false
+    || role.unexpected_role_membership !== false
   ) {
     const error = new Error("The offboarding operator login is unsafe.");
     error.code = "OFFBOARDING_OPERATOR_CONFIGURATION_INVALID";

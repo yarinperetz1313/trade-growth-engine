@@ -23,6 +23,21 @@ provider identity, logs, exports, canonical/legal retention, backup expiry, and
 restore reconciliation as external/unknown actions. It never claims canonical
 destructive deletion or provider action.
 
+Independent review found three operator-boundary defects at initial checkpoint
+`5bd70a2`: the connection preflight trusted `current_user` after a role switch,
+distinct active OWNER actors could both report acceptance of one persisted
+request, and a lost COMMIT acknowledgement was misreported as a definitive
+denial. Remediation cycle 1 now validates the authenticated `session_user`,
+requires the effective role to match it, and permits no transitive role beyond
+`tge_runtime`; real PostgreSQL regressions reject both a CREATEDB/CREATEROLE
+login hidden by `SET ROLE` and a `pg_write_server_files` member. Apply now
+re-reads the authoritative actor-bound request before claiming acceptance, so a
+synchronized two-OWNER race yields one acceptance and one actor mismatch while
+same-actor replay remains idempotent. A real committed-but-unacknowledged
+transaction returns `OFFBOARDING_REQUEST_RECONCILIATION_REQUIRED`, never claims
+failure or retries automatically, and directs the actor to authoritative
+status; definitive authorization denial remains separate.
+
 Delivery was red-first: the initial focused operator set was **0/8** before the
 workflow existed. Final focused unit is **9/9** and the new PostgreSQL 16.15
 operator gate is **3/3**, covering zero-write dry-run, non-owner/ambiguous/cross-
@@ -35,6 +50,15 @@ modules** and the existing chunk warning. Migrations `001`–`016` are unchanged
 from the exact base and `git diff --check` passes. This is local evidence only:
 no push, PR, CI, merge, provider credential/action, customer data/action, legal
 retention decision, canonical deletion, or backup action occurred.
+
+Cycle-1 adversarial tests were RED at unit **10/12** and PostgreSQL **3/6** on
+`5bd70a2`. They are GREEN at unit **12/12**, focused operator PostgreSQL **6/6**,
+and combined offboarding/expiry/concurrency PostgreSQL **26/26**. Complete
+integration passes **504/504** after one unrelated loopback socket-close
+transient was isolated by an unchanged focused **19/19** rerun; complete
+PostgreSQL 16.15 passes **97/97**. The engineering harness and production build
+pass with **35 modules** and the existing chunk warning. Fresh independent
+review remains pending for the remediation checkpoint.
 
 PR #42 received one bounded responsive-geometry remediation after GitHub Verify
 runs `35168466481` and `35168486302` exposed the same Linux-only failure at

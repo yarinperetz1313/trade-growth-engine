@@ -73,29 +73,41 @@ function createOffboardingOperatorWorkflow({
       };
     }
 
-    let accepted;
     try {
-      accepted = await requestService.request({
+      await requestService.request({
         authorizationContext: owner.authorizationContext,
         persistenceContext: owner.persistenceContext,
         input: { confirmation: CONFIRMATION }
       });
-    } catch {
+    } catch (error) {
+      if (isUnknownTransactionOutcome(error)) {
+        return reconciliationRequiredResult();
+      }
       throw operatorError(
         "OFFBOARDING_REQUEST_DENIED",
         "The offboarding request was denied."
       );
     }
+
+    const authoritative = await readReceipt(receiptRepository, target);
+    if (authoritative?.actorMismatch === true) {
+      throw operatorError(
+        "OFFBOARDING_REQUEST_ACTOR_MISMATCH",
+        "The offboarding request belongs to a different named actor."
+      );
+    }
+    if (!authoritative) return reconciliationRequiredResult();
+
     return {
       code: "OFFBOARDING_REQUEST_ACCEPTED",
       mode: "APPLY",
-      state: accepted.state,
-      scope: accepted.scope,
-      retryable: accepted.retryable === true,
-      requestedAt: accepted.requestedAt,
+      state: authoritative.state,
+      scope: authoritative.scope,
+      retryable: authoritative.retryable === true,
+      requestedAt: authoritative.requestedAt,
       requestMutationAttempted: true,
       offboardingEffectsApplied: false,
-      nextAction: nextAction(accepted)
+      nextAction: nextAction(authoritative)
     };
   }
 
@@ -203,6 +215,29 @@ function nextAction(status) {
     return { code: "WAIT_FOR_MAINTENANCE_RESULT", runbook: RUNBOOK };
   }
   return { code: "COMPLETE_EXTERNAL_RETENTION_ACTIONS", runbook: RUNBOOK };
+}
+
+function isUnknownTransactionOutcome(error) {
+  return error?.code === "POSTGRES_TRANSACTION_OUTCOME_UNKNOWN"
+    && error?.outcomeUnknown === true;
+}
+
+function reconciliationRequiredResult() {
+  return {
+    code: "OFFBOARDING_REQUEST_RECONCILIATION_REQUIRED",
+    mode: "APPLY",
+    state: "UNKNOWN",
+    scope: "ACCESS_AND_RAW_EVIDENCE_ONLY",
+    retryable: false,
+    requestMutationAttempted: true,
+    outcomeConfirmed: false,
+    offboardingEffectsApplied: false,
+    nextAction: {
+      code: "CHECK_REQUEST_STATUS",
+      operatorCommand: "status",
+      runbook: RUNBOOK
+    }
+  };
 }
 
 function evidenceStatus(status) {

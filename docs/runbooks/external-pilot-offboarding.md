@@ -10,10 +10,15 @@ provider users, logs, exports, or backups.
 - Use a dedicated operator login exposed only as
   `TGE_OFFBOARDING_OPERATOR_DATABASE_URL`. The command has no runtime or generic
   DSN fallback.
-- The login must have the existing `tge_runtime` database role and no owner,
-  migrator, maintenance, superuser, schema-create, or bypass-RLS authority.
-  The command verifies this role shape before reading or requesting anything;
-  a generic runtime or privileged login is rejected.
+- The authenticated session login must have the existing `tge_runtime`
+  database role and no other transitive role membership, including PostgreSQL
+  predefined file/server roles. It must have no owner, migrator, maintenance,
+  superuser, create-database, create-role, replication, schema-create, or
+  bypass-RLS authority. The effective role must exactly equal the authenticated
+  session login; a connection that uses `options=-c role=...` or another role
+  switch is rejected even when the effective role looks restricted. The
+  command verifies this shape before reading or requesting anything; a generic
+  runtime or privileged login is rejected.
 - Supply the exact tenant UUID and the exact named active OWNER issuer and
   subject. The command fails closed if the identity is missing, ambiguous,
   non-OWNER, or belongs to another tenant.
@@ -49,6 +54,9 @@ Stop on any of these codes:
   the receipt command.
 - `OFFBOARDING_REQUEST_ACTOR_MISMATCH`: the tenant already has a request from a
   different named actor; stop rather than replacing or adopting that request.
+- `OFFBOARDING_REQUEST_RECONCILIATION_REQUIRED`: PostgreSQL did not confirm the
+  request transaction outcome. Do not report denial and do not automatically
+  retry. Run the actor-bound `status` command once to reconcile database truth.
 - `OFFBOARDING_STATUS_UNAVAILABLE` or
   `OFFBOARDING_OPERATOR_CONFIGURATION_INVALID`: fix the dedicated operator
   connection/configuration; do not fall back to another DSN.
@@ -70,8 +78,18 @@ npm run operator:offboarding -- request \
 The command resolves one exact active OWNER, then calls the existing
 `TenantOffboardingService`. Its repository transaction establishes tenant,
 issuer, and subject as transaction-local database context. The authoritative
-database function performs the final OWNER and identity revalidation. A
-concurrent replay returns the single existing request.
+database function performs the final OWNER and identity revalidation. After an
+acknowledged mutation, the operator re-reads the actor-bound request before it
+can report acceptance. A same-actor concurrent replay returns the single
+existing request; a different active OWNER racing for that tenant cannot adopt
+or report acceptance of the other actor's request.
+
+If COMMIT may have succeeded but its acknowledgement was lost, the command
+returns `OFFBOARDING_REQUEST_RECONCILIATION_REQUIRED` with
+`outcomeConfirmed: false` and `operatorCommand: status`. It does not claim the
+request failed, run maintenance, or retry the mutation. Use the exact same
+tenant/issuer/subject with the status command above; only the authoritative
+actor-bound status determines the next action.
 
 `OFFBOARDING_REQUEST_ACCEPTED` means only that the request exists. It does not
 mean memberships were revoked, raw evidence was scrubbed, a provider user was
