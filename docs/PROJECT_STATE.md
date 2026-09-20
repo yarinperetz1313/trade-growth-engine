@@ -2,21 +2,35 @@
 
 _Last locally audited on 2026-09-20. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
-External Pilot One backup/restore proof remediation cycle **2/3** closes the
-remaining runtime-privilege and signal-cleanup findings on top of checkpoint
-`3010dd3`. The drill now compares the migration-defined effective privilege
-contract for runtime and maintenance across every `tge` table, live-order
-sequence, executable function, schema, and the bounded RevenueAction update
-columns. Real PostgreSQL regressions were RED **0/4** when a maintenance table
-read, runtime offboarding-processor execution, required runtime opportunity
-mutations, or an unmanifested tenant-bearing table were introduced. They are
-GREEN **5/5**, including the unchanged full backup/restore proof. Tenant-table
-discovery is independent of RLS; manifest membership and forced RLS are then
-validated separately.
+External Pilot One backup/restore proof remediation cycle **3/3** closes the
+remaining runtime-column privilege finding on top of checkpoint `0ba7a05`.
+The drill now compares effective `SELECT`, `INSERT`, `UPDATE`, and `REFERENCES`
+authority for every live column of every `tge` table, in addition to its existing
+table, sequence, function, schema, and ownership contracts. Expected column
+authority is derived from the migration-defined table contract; the bounded
+RevenueAction update-column allowlist remains the only explicit exception. The
+same comparison runs for both group roles and the dedicated runtime/maintenance
+logins, so direct, inherited, excess, and missing grants fail closed.
 
-Cleanup retains every PostgreSQL child until confirmed exit. It sends one
+Real PostgreSQL 16.15 regressions were intentionally RED **0/4** at `0ba7a05`:
+group and dedicated-login `UPDATE (commit_metadata)` on `import_batches`, plus
+group and dedicated-login `SELECT (raw_payload)` on `import_staging_records`,
+all escaped certification. The granted runtime login performed one actual
+committed-batch metadata update inside a rolled-back transaction while the proof
+incorrectly returned `VERIFIED`. They are GREEN **4/4** after the fix. Without
+the adversarial grants, the same runtime write and maintenance raw read are both
+rejected with PostgreSQL `42501`; all four prior table/function/catalog attacks
+still fail closed; and the unchanged positive dump/restore proof passes. The
+focused real-database boundary is **11/11** and configuration/lifecycle remains
+**36/36**.
+
+Cycle 2's tenant-table discovery remains independent of RLS; manifest membership
+and forced RLS are still validated separately. Its cleanup behavior is unchanged:
+the lifecycle retains every PostgreSQL child until confirmed exit, sends one
 bounded `SIGTERM`, escalates to `SIGKILL` when necessary, and does not remove the
-archive or disposable target while a child remains alive. A cleanup deadline
+archive or disposable target while a child remains alive.
+
+A cleanup deadline
 now emits only `BACKUP_RESTORE_CLEANUP_FAILED` before re-raising the original
 `SIGINT` or `SIGTERM`. The real-subprocess lifecycle roots were RED **0/2** at
 `3010dd3`; focused lifecycle/configuration is GREEN **36/36**, complete

@@ -134,6 +134,57 @@ if (!testDatabaseUrl) {
 
     const adversarialContracts = [
       {
+        name: "runtime group column update expansion",
+        mutate: "grant update (commit_metadata) on tge.import_batches to tge_runtime",
+        repair: "revoke update (commit_metadata) on tge.import_batches from tge_runtime",
+        expectedPhase: "RUNTIME_COLUMN_PRIVILEGES",
+        proveAuthority: async () => {
+          const runtime = new Client({
+            connectionString: replaceDatabase(runtimeUrl, sourceDatabase)
+          });
+          await runtime.connect();
+          try {
+            await runtime.query("begin");
+            await runtime.query(
+              "select tge.set_request_context($1::uuid, $2::text, $3::text)",
+              [tenantA, "urn:tge:synthetic", "owner-a-subject"]
+            );
+            const update = await runtime.query(
+              `update tge.import_batches
+               set commit_metadata = commit_metadata
+               where tenant_id = $1::uuid and id = 'committed-batch'`,
+              [tenantA]
+            );
+            assert.equal(update.rowCount, 1);
+          } finally {
+            await runtime.query("rollback").catch(() => {});
+            await runtime.end();
+          }
+        }
+      },
+      {
+        name: "runtime dedicated-login column update expansion",
+        mutate: `grant update (commit_metadata) on tge.import_batches
+          to ${quoteIdentifier(runtimeRole)}`,
+        repair: `revoke update (commit_metadata) on tge.import_batches
+          from ${quoteIdentifier(runtimeRole)}`,
+        expectedPhase: "RUNTIME_COLUMN_PRIVILEGES"
+      },
+      {
+        name: "maintenance group column read expansion",
+        mutate: "grant select (raw_payload) on tge.import_staging_records to tge_maintenance",
+        repair: "revoke select (raw_payload) on tge.import_staging_records from tge_maintenance",
+        expectedPhase: "MAINTENANCE_COLUMN_PRIVILEGES"
+      },
+      {
+        name: "maintenance dedicated-login column read expansion",
+        mutate: `grant select (raw_payload) on tge.import_staging_records
+          to ${quoteIdentifier(maintenanceRole)}`,
+        repair: `revoke select (raw_payload) on tge.import_staging_records
+          from ${quoteIdentifier(maintenanceRole)}`,
+        expectedPhase: "MAINTENANCE_COLUMN_PRIVILEGES"
+      },
+      {
         name: "maintenance table privilege expansion",
         mutate: "grant select on tge.import_staging_records to tge_maintenance",
         repair: "revoke select on tge.import_staging_records from tge_maintenance",
@@ -169,6 +220,7 @@ if (!testDatabaseUrl) {
         const adversarialEvidence = temporaryAbsentDirectory();
         try {
           await source.query(contract.mutate);
+          if (contract.proveAuthority) await contract.proveAuthority();
           await assert.rejects(
             runBackupRestoreDrill({
               env: { ...env, TGE_BACKUP_RESTORE_EVIDENCE_DIR: adversarialEvidence }
@@ -189,6 +241,53 @@ if (!testDatabaseUrl) {
         }
       });
     }
+
+    await t.test("runtime cannot write committed import metadata without the adversarial grant", async () => {
+      const runtime = new Client({
+        connectionString: replaceDatabase(runtimeUrl, sourceDatabase)
+      });
+      await runtime.connect();
+      try {
+        await runtime.query("begin");
+        await runtime.query(
+          "select tge.set_request_context($1::uuid, $2::text, $3::text)",
+          [tenantA, "urn:tge:synthetic", "owner-a-subject"]
+        );
+        await assert.rejects(
+          runtime.query(
+            `update tge.import_batches
+             set commit_metadata = commit_metadata
+             where tenant_id = $1::uuid and id = 'committed-batch'`,
+            [tenantA]
+          ),
+          error => {
+            assert.equal(error?.code, "42501");
+            return true;
+          }
+        );
+      } finally {
+        await runtime.query("rollback").catch(() => {});
+        await runtime.end();
+      }
+    });
+
+    await t.test("maintenance cannot read raw payloads without the adversarial grant", async () => {
+      const maintenance = new Client({
+        connectionString: replaceDatabase(maintenanceUrl, sourceDatabase)
+      });
+      await maintenance.connect();
+      try {
+        await assert.rejects(
+          maintenance.query("select raw_payload from tge.import_staging_records limit 1"),
+          error => {
+            assert.equal(error?.code, "42501");
+            return true;
+          }
+        );
+      } finally {
+        await maintenance.end();
+      }
+    });
 
     const failedTargetDatabase = `tge_restore_failed_${compactUuid()}`;
     await operator.query(`create database ${quoteIdentifier(failedTargetDatabase)}`);

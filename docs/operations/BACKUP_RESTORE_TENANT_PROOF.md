@@ -51,8 +51,10 @@ repositories without persisting the values. It
 also verifies relationship constraints, no external send claim, nonprivileged
 runtime readiness and forced RLS, prohibited transitive membership and `SET
 ROLE`, object ownership and the exact migration-defined effective table,
-sequence, function, schema, and RevenueAction-column grants for both runtime and
-maintenance, own-tenant repository
+sequence, function, and schema grants. It also compares effective `SELECT`,
+`INSERT`, `UPDATE`, and `REFERENCES` on every live `tge` column for both group
+roles and dedicated logins, with only the bounded RevenueAction update columns
+allowed as an exception. It then verifies own-tenant repository
 reads, forged cross-tenant read/write denial, active unrelated-tenant data
 isolation, expired raw scrubbing, and offboarded authentication lookup/reopen
 denial. The manifest inventory is also checked against every current `tge` table

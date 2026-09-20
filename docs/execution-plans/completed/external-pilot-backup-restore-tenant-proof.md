@@ -81,6 +81,25 @@ the original SIGINT/SIGTERM semantics. Focused configuration/lifecycle tests
 pass **36/36**, integration passes **528/528**, and PostgreSQL 16.15 passes
 **96/96**. No schema or migration changed.
 
+Final Policy V2 remediation cycle **3/3** closes the remaining same-root column
+privilege gap. PostgreSQL table privilege checks do not expose an independently
+granted column privilege, so the verifier now compares effective `SELECT`,
+`INSERT`, `UPDATE`, and `REFERENCES` for every live column across the complete
+`tge` table catalog. Expected permissions come from the existing table contract;
+the bounded RevenueAction update columns are the only explicit column exception.
+The comparison executes for `tge_runtime`, `tge_maintenance`, and both dedicated
+login roles, covering inherited and direct grants without weakening table,
+sequence, schema, function, ownership, or manifest checks.
+
+Four new PostgreSQL 16.15 attacks were RED **0/4** at `0ba7a05`: runtime group
+and login `UPDATE (commit_metadata)` authority, plus maintenance group and login
+`SELECT (raw_payload)` authority, all falsely certified. With the group update
+grant, the runtime login performed one real committed-batch metadata update in a
+rolled-back transaction. After the fix all four attacks fail certification, the
+same operations without the grants fail with `42501`, the prior four adversarial
+contracts remain closed, and the positive full dump/restore proof passes. The
+focused database proof is **11/11** and configuration/lifecycle is **36/36**.
+
 ## Privacy and safety contract
 
 Durable evidence contains table row counts, SHA-256 digests, bounded statuses,

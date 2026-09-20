@@ -56,6 +56,9 @@ const RUNTIME_SEQUENCE_NAMES = Object.freeze([
 const TABLE_PRIVILEGES = Object.freeze([
   "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"
 ]);
+const COLUMN_PRIVILEGES = Object.freeze([
+  "SELECT", "INSERT", "UPDATE", "REFERENCES"
+]);
 const RUNTIME_TABLE_PRIVILEGES = Object.freeze({
   tenants: Object.freeze(["SELECT"]),
   tenant_memberships: Object.freeze(["SELECT"]),
@@ -1125,6 +1128,33 @@ async function assertEffectivePrivilegeContract(client, roleName, kind) {
     }
   }
 
+  const columns = await client.query(
+    `select relation.relname table_name, attribute.attname column_name,
+       ${COLUMN_PRIVILEGES.map((privilege, index) =>
+         `has_column_privilege($1::text, relation.oid, attribute.attnum, '${privilege}') privilege_${index}`
+       ).join(",\n       ")}
+     from pg_class relation
+     join pg_namespace namespace on namespace.oid = relation.relnamespace
+     join pg_attribute attribute on attribute.attrelid = relation.oid
+       and attribute.attnum > 0 and not attribute.attisdropped
+     where namespace.nspname = 'tge' and relation.relkind in ('r','p')
+     order by relation.relname, attribute.attnum`,
+    [roleName]
+  );
+  for (const row of columns.rows) {
+    const allowed = new Set(expectedTables[row.table_name] || []);
+    for (const [index, privilege] of COLUMN_PRIVILEGES.entries()) {
+      const boundedRevenueActionUpdate = kind === "runtime"
+        && row.table_name === "revenue_actions"
+        && privilege === "UPDATE"
+        && RUNTIME_REVENUE_ACTION_UPDATE_COLUMNS.includes(row.column_name);
+      const expected = allowed.has(privilege) || boundedRevenueActionUpdate;
+      if (Boolean(row[`privilege_${index}`]) !== expected) {
+        fail(`${kind.toUpperCase()}_COLUMN_PRIVILEGES`);
+      }
+    }
+  }
+
   const sequences = await client.query(
     `select relation.relname sequence_name,
        has_sequence_privilege($1::text, relation.oid, 'USAGE') usage,
@@ -1179,23 +1209,6 @@ async function assertEffectivePrivilegeContract(client, roleName, kind) {
     fail(`${kind.toUpperCase()}_SCHEMA_PRIVILEGES`);
   }
 
-  if (kind === "runtime") {
-    const columns = await client.query(
-      `select column_record.column_name,
-         has_column_privilege($1::text, 'tge.revenue_actions', column_record.column_name, 'UPDATE') update
-       from information_schema.columns column_record
-       where column_record.table_schema = 'tge'
-         and column_record.table_name = 'revenue_actions'
-       order by column_record.column_name`,
-      [roleName]
-    );
-    const actualUpdates = columns.rows.filter(row => row.update)
-      .map(row => row.column_name).sort();
-    if (JSON.stringify(actualUpdates)
-      !== JSON.stringify([...RUNTIME_REVENUE_ACTION_UPDATE_COLUMNS].sort())) {
-      fail("RUNTIME_REVENUE_ACTION_UPDATE_COLUMNS");
-    }
-  }
 }
 
 async function assertServerVersion(client) {
