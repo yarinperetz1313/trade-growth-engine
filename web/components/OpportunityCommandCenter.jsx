@@ -159,6 +159,9 @@ export default function OpportunityCommandCenter({
   const [originatingRevenueLeakCaseState, setOriginatingRevenueLeakCaseState] =
     useState("IDLE");
 
+  const [originatingRevenueLeakCaseIssue, setOriginatingRevenueLeakCaseIssue] =
+    useState(null);
+
   const revenueActionOpportunityId = useRef(opportunity.id);
   const revenueActionGeneration = useRef(0);
   const revenueActionRequest = useRef(0);
@@ -274,6 +277,7 @@ export default function OpportunityCommandCenter({
     setExecutionMessage(null);
     setOriginatingRevenueLeakCase(null);
     setOriginatingRevenueLeakCaseState("IDLE");
+    setOriginatingRevenueLeakCaseIssue(null);
     setActionLoading(null);
     setActionError(null);
     setActionMessage(null);
@@ -401,9 +405,25 @@ export default function OpportunityCommandCenter({
   useEffect(() => {
     if (!focusRevenueAction || loading) return;
     const target = document.getElementById("revenue-action-workflow");
-    target?.scrollIntoView({ block: "start" });
-    target?.focus({ preventScroll: true });
-  }, [focusRevenueAction, loading, opportunity.id]);
+    if (!target) return;
+    const topbar = document.querySelector(".topbar");
+    const scrollMarginTop = `${Math.ceil(topbar?.getBoundingClientRect().height || 0) + 16}px`;
+    target.style.scrollMarginTop = scrollMarginTop;
+    const animationFrame = requestAnimationFrame(() => {
+      if (target.closest(".focused-action")) {
+        window.scrollTo({ top: 0, left: 0 });
+      } else {
+        target.scrollIntoView({ block: "start" });
+      }
+      target.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(animationFrame);
+  }, [
+    focusRevenueAction,
+    loading,
+    opportunity.id,
+    originatingRevenueLeakCaseState
+  ]);
 
   async function applyRevenueActionResult(result, requestIdentity) {
     if (!isCurrentRevenueActionMutation(requestIdentity)) return false;
@@ -660,12 +680,12 @@ export default function OpportunityCommandCenter({
 
   if (loading) {
     return (
-      <div className="oc-page" data-testid="opportunity-command-center">
+      <div className={focusRevenueAction ? "oc-page focused-action" : "oc-page"} data-testid="opportunity-command-center">
         <button
           className="oc-back"
           onClick={onBack}
         >
-          ← Back to opportunities
+          ← {focusRevenueAction ? "Return to Revenue attention" : "Back to opportunities"}
         </button>
 
         <div className="oc-loading">
@@ -683,12 +703,12 @@ export default function OpportunityCommandCenter({
 
   if (error) {
     return (
-      <div className="oc-page" data-testid="opportunity-command-center">
+      <div className={focusRevenueAction ? "oc-page focused-action" : "oc-page"} data-testid="opportunity-command-center">
         <button
           className="oc-back"
           onClick={onBack}
         >
-          ← Back to opportunities
+          ← {focusRevenueAction ? "Return to Revenue attention" : "Back to opportunities"}
         </button>
 
         <div className="oc-error">
@@ -710,12 +730,12 @@ export default function OpportunityCommandCenter({
   }
 
   return (
-    <div className="oc-page" data-testid="opportunity-command-center">
+    <div className={focusRevenueAction ? "oc-page focused-action" : "oc-page"} data-testid="opportunity-command-center">
       <button
         className="oc-back"
         onClick={onBack}
       >
-        ← Back to opportunities
+        ← {focusRevenueAction ? "Return to Revenue attention" : "Back to opportunities"}
       </button>
 
       <header className="oc-header">
@@ -781,6 +801,13 @@ export default function OpportunityCommandCenter({
         </div>
       )}
 
+      <details
+        className="oc-general-intelligence"
+        aria-label="General opportunity intelligence"
+        open={!focusRevenueAction}
+      >
+        <summary>Inspect general opportunity intelligence</summary>
+        <div className="oc-general-intelligence-body">
       <section className="oc-hero-grid">
         <div className="oc-health-card">
           <div className="oc-card-label">
@@ -899,21 +926,35 @@ export default function OpportunityCommandCenter({
         opportunityId={opportunity.id}
         revenueActions={revenueActions}
         focusedCaseId={focusRevenueLeakCaseId}
-        onFocusedCaseResolved={(record, state) => {
+        onFocusedCaseResolved={(record, state, issue) => {
           setOriginatingRevenueLeakCase(record);
           setOriginatingRevenueLeakCaseState(state);
+          setOriginatingRevenueLeakCaseIssue(issue);
         }}
       />
+        </div>
+      </details>
 
       <section
-        className="oc-panel oc-execution-panel"
+        className="oc-panel oc-execution-panel oc-revenue-action-execution"
         data-testid="revenue-action-execution"
+        data-focus-anchor="revenue-action-workflow"
         id="revenue-action-workflow"
         tabIndex="-1"
       >
         <div className="oc-card-label">SAFE NEXT ACTION</div>
 
-        <h2>{workflowHeading}</h2>
+        <div className="oc-workflow-heading">
+          <h2>{workflowHeading}</h2>
+          {activeRevenueAction && (
+            <span
+              className="oc-status-badge"
+              data-testid="revenue-action-status"
+            >
+              {activeRevenueAction.status}
+            </span>
+          )}
+        </div>
 
         {focusRevenueLeakCaseId && (
           <section
@@ -937,14 +978,28 @@ export default function OpportunityCommandCenter({
                     {detectorReasonExplanation(originatingRevenueLeakCase.reason_code)}
                   </p>
                 </>
+              ) : originatingRevenueLeakCaseState === "ERROR"
+                && originatingRevenueLeakCaseIssue ? (
+                <div
+                  className="oc-error rlc-error"
+                  data-testid="focused-originating-history-error"
+                  role="alert"
+                >
+                  <strong>{originatingRevenueLeakCaseIssue.title}</strong>
+                  <span>{originatingRevenueLeakCaseIssue.message}</span>
+                  {originatingRevenueLeakCaseIssue.retry && (
+                    <button
+                      className="oc-secondary-button"
+                      onClick={originatingRevenueLeakCaseIssue.retry}
+                    >
+                      Retry history
+                    </button>
+                  )}
+                </div>
               ) : (
                 <>
                   <h3>Originating case evidence unavailable</h3>
-                  <p>
-                    {originatingRevenueLeakCaseState === "ERROR"
-                      ? "The recorded case context could not be loaded."
-                      : "The originating case was not confirmed by durable opportunity case history."}
-                  </p>
+                  <p>The originating case was not confirmed by durable opportunity case history.</p>
                 </>
               )}
             </div>
@@ -1009,8 +1064,8 @@ export default function OpportunityCommandCenter({
         </p>
 
         <ol className="oc-action-sequence" aria-label="Human-controlled action steps">
-          <li><span>1</span><strong>Review</strong><small>{workflowExecutionType === "COMMUNICATION_DRAFT" ? "Check the recommendation and prepared draft." : "Check the recommendation and prepared task."}</small></li>
-          <li><span>2</span><strong>Approve</strong><small>Record the human decision explicitly.</small></li>
+          <li><span>1</span><strong>Review</strong><small>{workflowExecutionType === "COMMUNICATION_DRAFT" ? "Prepared draft." : "Prepared task."}</small></li>
+          <li><span>2</span><strong>Approve</strong><small>Human decision.</small></li>
           <li>
             <span>3</span>
             <strong>{workflowExecutionType === "COMMUNICATION_DRAFT"
@@ -1019,9 +1074,9 @@ export default function OpportunityCommandCenter({
                 ? "Create internal task"
                 : "Complete through the supported path"}</strong>
             <small>{workflowExecutionType === "COMMUNICATION_DRAFT"
-              ? "No message is sent by TGE."
+              ? "TGE does not send."
               : workflowExecutionType === "INTERNAL_TASK"
-                ? "No external message is sent."
+                ? "No external send."
                 : "No autonomous outbound action occurs."}</small>
           </li>
         </ol>
@@ -1110,7 +1165,6 @@ export default function OpportunityCommandCenter({
               <div>
                 <span
                   className="oc-status-badge"
-                  data-testid="revenue-action-status"
                 >
                   {activeRevenueAction.status}
                 </span>
@@ -1281,6 +1335,13 @@ export default function OpportunityCommandCenter({
         </div>
       </section>
 
+      <details
+        className="oc-additional-context"
+        aria-label="Additional opportunity context"
+        open={!focusRevenueAction}
+      >
+        <summary>Inspect additional opportunity context</summary>
+        <div className="oc-additional-context-body">
       <section className="oc-panel">
         <div className="oc-card-label">
           ACTION CENTRE
@@ -1765,6 +1826,8 @@ export default function OpportunityCommandCenter({
           </div>
         </div>
       </section>
+        </div>
+      </details>
     </div>
   );
 }

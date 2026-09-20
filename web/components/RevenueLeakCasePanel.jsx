@@ -208,6 +208,7 @@ export default function RevenueLeakCasePanel({
     if (isCurrentRequest(targetOpportunityId, generation)) {
       setHistoryState("LOADING");
       setHistoryError(null);
+      onFocusedCaseResolved?.(null, "LOADING", null);
     }
     try {
       const result = await getOpportunityRevenueLeakCases(targetOpportunityId);
@@ -227,7 +228,7 @@ export default function RevenueLeakCasePanel({
           || cases[0]?.id
           || null;
       });
-      onFocusedCaseResolved?.(focusedCase, "READY");
+      onFocusedCaseResolved?.(focusedCase, "READY", null);
       setHistoryState("READY");
       return cases;
     } catch (error) {
@@ -235,9 +236,15 @@ export default function RevenueLeakCasePanel({
         !isCurrentRequest(targetOpportunityId, generation)
         || requestId !== historyRequest.current
       ) return null;
-      setHistoryError(errorCopy(error));
+      const presentedError = errorCopy(error);
+      setHistoryError(presentedError);
       setHistoryState("ERROR");
-      onFocusedCaseResolved?.(null, "ERROR");
+      onFocusedCaseResolved?.(null, "ERROR", {
+        ...presentedError,
+        retry: presentedError.kind === "UNAUTHORIZED"
+          ? null
+          : () => loadHistory(targetOpportunityId, generation)
+      });
       return null;
     }
   }

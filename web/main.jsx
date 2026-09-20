@@ -39,10 +39,11 @@ import {
 } from "./lib/commercialValue";
 
 const nav = [
-  ["dashboard", "Dashboard"],
-  ["prospects", "Prospects"],
-  ["opportunities", "Revenue leaks"],
+  ["opportunities", "Revenue attention"],
+  ["all-opportunities", "All opportunities"],
+  ["dashboard", "Pipeline overview"],
   ["pipeline", "Pipeline"],
+  ["prospects", "Prospects"],
   ["imports", "Imports"]
 ];
 
@@ -76,7 +77,7 @@ function pageFromHash() {
 
   return nav.some(([id]) => id === route)
     ? route
-    : "dashboard";
+    : "opportunities";
 }
 
 function importRouteFromHash() {
@@ -115,16 +116,19 @@ function opportunityRouteFromHash() {
     focusAction: params.getAll("focus").length === 1
       && params.get("focus") === "action",
     caseId: boundedIdentity("case"),
-    actionId: boundedIdentity("action")
+    actionId: boundedIdentity("action"),
+    returnPage: params.getAll("return").length === 1
+      && params.get("return") === "all-opportunities"
+      ? "all-opportunities"
+      : "opportunities"
   };
 }
 
 function pageTitle(page, route) {
-  if (page === "dashboard") return "Command Center";
   if (page === "opportunities") {
     return route.startsWith("opportunities/")
       ? "Opportunity Action"
-      : "Revenue Leak Queue";
+      : "Revenue attention";
   }
   return nav.find(item => item[0] === page)?.[1] || page;
 }
@@ -144,12 +148,14 @@ function App() {
   const [importRoute, setImportRoute] = useState(importRouteFromHash);
   const [importRouteVersion, setImportRouteVersion] = useState(0);
   const [route, setRoute] = useState(routeFromHash);
+  const [importArrivalContext, setImportArrivalContext] = useState(null);
 
   useEffect(() => {
     const syncPageFromHash = () => {
       const nextPage = pageFromHash();
       setRoute(routeFromHash());
       setPage(nextPage);
+      if (nextPage !== "opportunities") setImportArrivalContext(null);
       if (nextPage === "imports") {
         setImportRoute(importRouteFromHash());
         setImportRouteVersion(current => current + 1);
@@ -238,6 +244,7 @@ function App() {
             </h1>
           </div>
 
+          {page === "prospects" && (
           <div className="top-actions">
 
             <div className="search">
@@ -258,6 +265,7 @@ function App() {
             </div>
 
           </div>
+          )}
 
         </header>
 
@@ -274,13 +282,23 @@ function App() {
         )}
 
         {page === "opportunities" && (
-          <Opportunities />
+          <RevenueAttention
+            importArrivalContext={importArrivalContext}
+            onDismissImportArrival={() => setImportArrivalContext(null)}
+          />
+        )}
+
+        {page === "all-opportunities" && (
+          <AllOpportunities />
         )}
 
         {page === "imports" && (
           <ImportWorkspace
             key={importRouteVersion}
-            onContinueToCommandCenter={() => navigatePage("opportunities")}
+            onContinueToCommandCenter={arrivalContext => {
+              setImportArrivalContext(arrivalContext);
+              navigatePage("opportunities");
+            }}
             onResumeRouteChange={setImportRoute}
           />
         )}
@@ -470,7 +488,7 @@ function Dashboard({ onNavigate }) {
 
             <button
               className="text-button"
-              onClick={() => onNavigate("opportunities")}
+              onClick={() => onNavigate("all-opportunities")}
             >
               View all →
             </button>
@@ -1350,7 +1368,25 @@ function Pipeline() {
   );
 }
 
-function Opportunities() {
+function RevenueAttention({ importArrivalContext, onDismissImportArrival }) {
+  return (
+    <OpportunityWorkspace
+      view="attention"
+      importArrivalContext={importArrivalContext}
+      onDismissImportArrival={onDismissImportArrival}
+    />
+  );
+}
+
+function AllOpportunities() {
+  return <OpportunityWorkspace view="portfolio" />;
+}
+
+function OpportunityWorkspace({
+  view,
+  importArrivalContext = null,
+  onDismissImportArrival = null
+}) {
   const {
     opportunities = [],
     revenue,
@@ -1367,6 +1403,7 @@ function Opportunities() {
   const [focusRevenueAction, setFocusRevenueAction] = useState(false);
   const [focusRevenueLeakCaseId, setFocusRevenueLeakCaseId] = useState(null);
   const [focusRevenueActionId, setFocusRevenueActionId] = useState(null);
+  const [returnPage, setReturnPage] = useState("opportunities");
 
   useEffect(() => {
     const selectFromHash = () => {
@@ -1377,6 +1414,7 @@ function Opportunities() {
         setFocusRevenueAction(false);
         setFocusRevenueLeakCaseId(null);
         setFocusRevenueActionId(null);
+        setReturnPage("opportunities");
         return;
       }
 
@@ -1389,6 +1427,7 @@ function Opportunities() {
         setFocusRevenueAction(route.focusAction);
         setFocusRevenueLeakCaseId(route.caseId);
         setFocusRevenueActionId(route.actionId);
+        setReturnPage(route.returnPage);
       }
     };
 
@@ -1419,16 +1458,18 @@ function Opportunities() {
     if (focusAction) params.set("focus", "action");
     if (caseId) params.set("case", caseId);
     if (actionId) params.set("action", actionId);
+    if (view === "portfolio") params.set("return", "all-opportunities");
     const query = params.toString();
     window.location.hash = `opportunities/${encodeURIComponent(opportunity.id)}${query ? `?${query}` : ""}`;
   };
 
   const closeOpportunity = () => {
-    window.location.hash = "opportunities";
+    window.location.hash = returnPage;
     setSelected(null);
     setFocusRevenueAction(false);
     setFocusRevenueLeakCaseId(null);
     setFocusRevenueActionId(null);
+    setReturnPage("opportunities");
   };
 
   /*
@@ -1462,10 +1503,11 @@ function Opportunities() {
    * ----------------------------------------------------------
    */
 
-  return (
+  if (view === "attention") return (
     <div className="page">
 
       <RevenueCommandCenter
+        importArrivalContext={importArrivalContext}
         revenue={revenue}
         loading={revenueLoading}
         error={revenueError}
@@ -1473,6 +1515,7 @@ function Opportunities() {
           loading || Boolean(error)
         }
         onRefresh={refreshRevenue}
+        onDismissImportArrival={onDismissImportArrival}
         onOpenOpportunity={(opportunityId, options) => {
           const opportunity = opportunities.find(
             item => item.id === opportunityId
@@ -1484,16 +1527,22 @@ function Opportunities() {
         }}
       />
 
-      <div className="page-actions">
+    </div>
+  );
+
+  return (
+    <div className="page all-opportunities-page">
+      <div className="page-actions opportunity-portfolio-heading">
 
         <div>
 
           <h2>
-            Opportunity Intelligence
+            Complete opportunity portfolio
           </h2>
 
           <p>
-            Opportunities and their commercial potential.
+            Inspect the complete tenant-visible portfolio. Revenue attention stays
+            focused on the cases that currently need a human decision.
           </p>
 
         </div>
@@ -1540,9 +1589,9 @@ function Opportunities() {
 
         ) : (
 
-          <div className="opportunity-table">
+          <div className="opportunity-portfolio" aria-label="All opportunities portfolio">
 
-            <div className="opportunity-table-header">
+            <div className="opportunity-portfolio-header" aria-hidden="true">
 
               <span>
                 Business
@@ -1590,7 +1639,7 @@ function Opportunities() {
                 return (
 
                   <button
-                    className="opportunity-table-row"
+                    className="opportunity-portfolio-card"
                     data-testid={`opportunity-row-${opportunity.id}`}
                     key={
                       opportunity.id
@@ -1600,7 +1649,7 @@ function Opportunities() {
                     }
                   >
 
-                    <div>
+                    <div className="opportunity-portfolio-identity">
 
                       <strong>
                         {
@@ -1618,31 +1667,31 @@ function Opportunities() {
 
                     </div>
 
-                    <strong>
-                      {score}
-                    </strong>
-
-                    <span>
-                      {money(opportunity.value, opportunity.currency)}
+                    <span className="opportunity-portfolio-fact">
+                      <small>Score</small><strong>{score}</strong>
                     </span>
 
-                    <span>
-                      {probability === null
+                    <span className="opportunity-portfolio-fact">
+                      <small>Commercial value</small><strong>{money(opportunity.value, opportunity.currency)}</strong>
+                    </span>
+
+                    <span className="opportunity-portfolio-fact">
+                      <small>Probability</small><strong>{probability === null
                         ? "Unknown"
                         : `${Math.round(
                             probability * 100
-                          )}%`}
+                          )}%`}</strong>
                     </span>
 
-                    <span>
-                      {money(weighted, opportunity.currency)}
+                    <span className="opportunity-portfolio-fact">
+                      <small>Weighted value</small><strong>{money(weighted, opportunity.currency)}</strong>
                     </span>
 
-                    <span className="stage">
-                      {
+                    <span className="opportunity-portfolio-fact">
+                      <small>Stage</small><strong className="stage">{
                         opportunity.stage ||
                         "UNKNOWN"
-                      }
+                      }</strong>
                     </span>
 
                   </button>

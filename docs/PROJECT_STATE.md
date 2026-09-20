@@ -1,9 +1,157 @@
 # Project State
 
-_Last locally audited on 2026-09-15. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
+_Last locally audited on 2026-09-20. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
-Pilot Zero Business-First Presentation is the active approved browser-only
-mission under GitHub Issue #39. It starts from exact clean `origin/main`
+PR #42 received one bounded responsive-geometry remediation after GitHub Verify
+runs `35168466481` and `35168486302` exposed the same Linux-only failure at
+exact HEAD `a14d91c033c6933d67ee255be39958fdcfad20c8`: the primary `Prepare
+action` control fell below the first 390×844 focused-action viewport while the
+return control, workflow heading, status, exact value, and why-now evidence
+remained visible. The mobile focused workflow now places active action controls
+immediately after their status and title, ahead of repeated reason/proposal
+detail. This changes presentation order only; originating evidence, the
+human-controlled Review → Approve → Execute sequence, no-send truth, and every
+RevenueAction authority boundary remain unchanged.
+
+The exact journey was RED **0/1** on `a14d91c` under an Arial/system-font
+fallback plus one-pixel text-metric stress: the action control bottom was
+**850.28125px**. It is GREEN **3/3** under repeated stress after the fix, with
+full-viewport visibility and center-point hit testing. The affected first-value,
+Opportunity Action, queue, RevenueLeakCase lifecycle, and focused 403/503 retry
+managed Chromium boundary passes **44/44**; relevant source contracts pass
+**27/27**. The Vite production build passes with **35 modules** and the existing
+chunk warning, the engineering harness passes, and `src` plus migrations remain
+unchanged from exact base `9c78d196708585201ae0fa4400cdd4df28a1a833`.
+PostgreSQL and full integration were not repeated because this bounded change is
+CSS plus its browser regression only.
+
+Exceptional Revenue Operating Home remediation cycle **2/3** closes independent
+review finding `C2-P2-FOCUSED-HISTORY-RECOVERY` at product/test checkpoint
+`5e05320bc7012ffa58f63a0b3c5c1fd3738b93b8`. Focused Opportunity Action routes
+now keep classified originating-case history failures in the primary workflow
+even while general opportunity intelligence remains closed. An authorization
+denial explains the missing access without offering a misleading retry; a
+persistence/service failure preserves the no-empty/no-leak truth and exposes
+`Retry history` in the primary workflow.
+
+That control delegates to the existing authoritative `RevenueLeakCasePanel`
+loader rather than creating a second read or mutation state machine. A successful
+retry replaces the failure with the exact linked originating case, including its
+detection-time money and why-now evidence, and does not write or duplicate a
+RevenueAction. Server authorization, case history, RevenueAction authority,
+money, ordering, detector, tenant, API, persistence, schema, and migration
+contracts are unchanged.
+
+The exact 390px regressions were intentionally RED **0/3** on Candidate 2 HEAD
+`88fd98ef81a9636b59377775fa1559c85b367672` and are GREEN **3/3** after the
+fix: focused 403, focused 503 with discoverable recovery, and 503 retry to
+authoritative evidence with exactly two history reads and zero action writes.
+The affected Opportunity Action, queue-handoff/reconciliation, and first-value
+managed Chromium boundary passes **34/34**; direct RevenueLeakCase Chromium
+passes **10/10**; focused source contracts pass **17/17**. The production build
+passes with **35 modules** and the existing chunk warning, and the engineering
+harness and diff hygiene pass. `src` and migrations remain unchanged from exact
+base `9c78d196708585201ae0fa4400cdd4df28a1a833`; PostgreSQL was not run. Full
+integration and complete Chromium were not repeated for this browser-only
+remediation because the focused and affected gates cover the changed boundary.
+Generated build output is outside the repository under
+`tge-focused-history-build.uGSgcZ`.
+
+Exceptional Revenue Operating Home Candidate 2 is now checkpointed locally at
+product/test commit `d87e0b6da8e59136a4e0790ff11599739cdd7646` on
+`feat/exceptional-revenue-operating-home`, building on independently accepted
+Candidate 1 HEAD `33a4acf072e378d6703430aa207443c6bead7d33`. It closes authorized
+Issue #41 backlog E–I in browser composition only. Optional Pilot instrumentation
+is isolated under labelled diagnostics and cannot displace usable customer queue
+or readiness truth; genuine authorization, integrity, persistence, readiness, and
+limit blockers remain primary.
+
+A committed import may now carry only an in-memory count and closed collection
+label into Revenue attention. Server reads re-resolve readiness, cases, money,
+and action truth; reload, direct navigation, or navigation away removes the note,
+and neither query parameters nor browser storage gain authority. Every customer
+queue now leads with the same first server-ordered non-sample case economic brief,
+including known positive, known zero, and unknown money. Sample-only and empty
+queues name the missing customer evidence without inferring zero or a synthetic
+aggregate.
+
+Bounded case/action links now render a compact Opportunity Action mode. It leads
+with originating business/value/why evidence, current authoritative action status,
+the type-specific human sequence and primary control, while keeping general
+opportunity intelligence inspectable under disclosures. At 390px the return
+control, workflow heading, exact value, status, and next action are all inside the
+first stable viewport; back/forward restores the exact bounded route. Existing
+prepare → approve → internal task or manual communication completion, current
+versus historical workflow, ambiguous/failure reconciliation, and no-send/no-
+recovered-revenue semantics remain unchanged.
+
+Candidate 2 contracts were RED **11/17** for six intended gaps and are GREEN
+**18/18**. Complete integration is **492/492** and complete managed Chromium is
+**81/81**. The production build passes with **35 modules** and the existing chunk
+warning; the engineering harness and diff hygiene pass. Aggregate `src` and
+migrations `001`–`016` are unchanged from exact base
+`9c78d196708585201ae0fa4400cdd4df28a1a833`, so PostgreSQL was not run. Exact
+desktop/390px evidence is retained outside the repository under external evidence
+directory `tge-candidate2-evidence.Lk8s8o`. The focused
+first-value test took 1.3–1.4 seconds of deterministic test execution and 3.17
+seconds wall time with managed startup; this is internal harness timing only.
+Backlog J/demo route remains unstarted and outside Candidate 2.
+
+Exceptional Revenue Operating Home candidate 1 is the accepted foundation for
+the active browser-only product sprint under GitHub Issue #41. It starts from merged Pilot Zero
+base `9c78d196708585201ae0fa4400cdd4df28a1a833` on
+`feat/exceptional-revenue-operating-home`. The accepted Pilot Zero truth
+boundaries remain unchanged: exact server money and currency, known zero versus
+unknown, server case order, sample isolation, explicit scans, bounded case/action
+identity, type-specific RevenueAction execution, historical/current workflow
+separation, and human approval remain authoritative.
+
+This candidate makes `Revenue attention` the default operating home, renames the
+generic dashboard `Pipeline overview`, and moves the complete tenant-visible
+portfolio to an explicit `All opportunities` destination. The queue and
+portfolio no longer render as competing stacked command centers. At 390px the
+first server-ordered customer case appears before a collapsed filter control;
+the complete portfolio uses labelled cards rather than a wide six-column table;
+and route-irrelevant prospect search is absent from revenue/action surfaces.
+Already-durable cases are described as the last validated queue truth, while
+the explicit scan is described as a human-triggered refresh of current canonical
+evidence. Focused action navigation accounts for sticky chrome and keeps the
+workflow heading, originating value, and current action status in the first
+stable mobile viewport.
+
+Dependency-free candidate contracts were intentionally RED **0/6** at base and
+are GREEN **6/6**. The focused truth set passes **21/21**, focused managed
+Chromium passes **5/5**, and the affected import/readiness/queue/portfolio/action
+managed Chromium set passes **49/49**. Complete integration passes **485/485**,
+complete managed Chromium passes **77/77**, and the production build passes
+with **34 modules** and the existing chunk-size warning. The engineering
+harness, diff hygiene, aggregate `src` comparison, and migration `001`-`016`
+byte comparison against exact base pass. No API, backend, persistence, schema,
+migration, detector, tenancy/RLS, monetary calculation, queue ordering, or
+RevenueAction authority changed. Exact-candidate screenshots are retained
+outside the repository under `artifacts/tge-sprint-candidate1`.
+
+Fresh independent review of exact candidate `c14ccc9` found one bounded P2 in
+the new portfolio presentation: at 820px and 1024px viewports, the fixed sidebar
+and page padding left less space than the six-column grid required, while the
+card's overflow boundary silently hid probability, weighted value, or stage.
+The related non-blocking P3 was that `display: none` removed desktop field
+labels from the accessibility tree. Remediation cycle **1/3** is limited to
+these presentation findings. A deterministic managed-browser regression was
+RED **0/2** on `c14ccc9`, proving containment false at both intermediate widths
+while 390px and 1280px remained correct and proving the missing accessible
+labels. The corrected CSS activates the existing labelled card layout at
+`1120px`, based on the fixed-sidebar content-width boundary, and visually hides
+rather than accessibility-hides desktop labels. The focused regressions are
+GREEN **2/2**; source truth contracts pass **15/15**, the complete product-truth
+and Opportunity Action Chromium specifications pass **22/22**, monetary truth
+passes **4/4**, and the engineering harness and production build pass. Product
+logic, exact money/currency semantics, known-zero/unknown truth, navigation,
+server ordering, sample isolation, explicit scanning, and RevenueAction
+authority are unchanged.
+
+Pilot Zero Business-First Presentation is the merged historical browser-only
+baseline authorized under GitHub Issue #39. It started from exact clean `origin/main`
 `c6cb6a7752fc68361498052b7a884cdb2cb93e74` on
 `feat/pilot-zero-business-first-presentation`. The bounded objective is to make
 the existing supported journey immediately legible as existing business data →

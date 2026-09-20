@@ -51,20 +51,103 @@ function expectOnlyExpectedFailedResourceError(browserErrors, status) {
   ]);
 }
 
+function focusedHistoryCase({
+  caseId = "review-case",
+  actionId = "review-action"
+} = {}) {
+  const detected = buildRevenueLeakCaseDetection({
+    leak_type: "STALLED_OPPORTUNITY",
+    source: {
+      system: "TGE",
+      entity_type: "OPPORTUNITY",
+      entity_id: "e2e-opp-stalled",
+      observed_at: "2026-09-08T08:00:00.000Z",
+      observed_version: "focused-history-source"
+    },
+    detector: { id: "stalled-opportunity", version: "1" },
+    reason_code: "STALE_WITHOUT_NEXT_ACTION",
+    evidence_classification: "MIXED",
+    evidence: {
+      criteria: {
+        stale_after_days: 14,
+        stale_boundary: "AT_OR_AFTER",
+        source_freshness_days: 90,
+        source_freshness_boundary: "AT_OR_BEFORE"
+      },
+      opportunity_stage: "PROPOSAL",
+      activity_baseline: {
+        kind: "ACTIVITY",
+        entity_id: "focused-history-activity",
+        at: "2026-08-15T08:00:00.000Z"
+      },
+      stalled_since: "2026-08-29T08:00:00.000Z",
+      next_action: {
+        present: false,
+        source: "NONE",
+        opportunity_value: null,
+        active_task_ids: []
+      },
+      source_freshness: {
+        observed_at: "2026-09-08T08:00:00.000Z",
+        maximum_age_days: 90
+      },
+      commercial_value_basis: {
+        classification: "KNOWN",
+        amount_source: "opportunity.value",
+        currency_source: "opportunity.currency"
+      }
+    },
+    commercial_value: {
+      classification: "KNOWN",
+      amount: "2500.000000",
+      currency: "AUD"
+    },
+    recommended_action_type: "FOLLOW_UP",
+    due_at: null,
+    supersession_condition: {
+      kind: "CANONICAL_EVIDENCE_CHANGED",
+      detector_id: "stalled-opportunity",
+      detector_version: "1"
+    }
+  }, {
+    id: caseId,
+    detectedAt: "2026-09-08T08:00:00.000Z",
+    subjectId: "auth0|pilot-e2e"
+  });
+  const linkedAt = "2026-09-09T07:00:00.000Z";
+  const fingerprint = "e".repeat(64);
+  return {
+    ...detected,
+    revenue_action_id: actionId,
+    revenue_action_fingerprint: fingerprint,
+    revenue_action_status_at_link: "RECOMMENDED",
+    revenue_action_linked_at: linkedAt,
+    updated_at: linkedAt,
+    audit: [...detected.audit, {
+      transition: "REVENUE_ACTION_LINKED",
+      at: linkedAt,
+      subject_id: "auth0|pilot-e2e",
+      revenue_action_id: actionId,
+      revenue_action_fingerprint: fingerprint,
+      revenue_action_status: "RECOMMENDED"
+    }]
+  };
+}
+
 test("opens exact seeded opportunity, closes the intelligence loop, and preserves hash navigation", async ({ page }) => {
   const browserErrors = watchUnexpectedBrowserErrors(page);
 
-  await page.goto("/#opportunities");
+  await page.goto("/#all-opportunities");
 
   const row = page.getByTestId(`opportunity-row-${opportunityId}`);
   await expect(row).toContainText(businessName);
   await row.click();
 
-  await expect(page).toHaveURL(new RegExp(`#opportunities/${opportunityId}$`));
+  await expect(page).toHaveURL(new RegExp(`#opportunities/${opportunityId}\\?return=all-opportunities$`));
   await expect(page.getByTestId("opportunity-command-center")).toContainText(businessName);
   await expect(page.getByText("OPPORTUNITY COMMAND CENTER")).toBeVisible();
 
-  await page.goto(`/#opportunities/${opportunityId}`);
+  await page.goto(`/#opportunities/${opportunityId}?return=all-opportunities`);
   await expect(page.getByRole("heading", { name: businessName })).toBeVisible();
   await expect(page.getByText("This is not a probability of closing.")).toBeVisible();
   await expect(page.getByTestId("opportunity-value")).toHaveText(
@@ -102,11 +185,11 @@ test("opens exact seeded opportunity, closes the intelligence loop, and preserve
   expect(after.data.intelligence.health.status).not.toBe("UNKNOWN");
 
   await page.getByRole("button", { name: "← Back to opportunities" }).click();
-  await expect(page).toHaveURL(/#opportunities$/);
+  await expect(page).toHaveURL(/#all-opportunities$/);
   await expect(page.getByTestId(`opportunity-row-${opportunityId}`)).toBeVisible();
 
   await page.goBack();
-  await expect(page).toHaveURL(new RegExp(`#opportunities/${opportunityId}$`));
+  await expect(page).toHaveURL(new RegExp(`#opportunities/${opportunityId}\\?return=all-opportunities$`));
   await expect(page.getByRole("heading", { name: businessName })).toBeVisible();
 
   expect(browserErrors).toEqual([]);
@@ -147,7 +230,7 @@ test("shows a practical API failure state without crashing", async ({ page }) =>
     });
   });
 
-  await page.goto("/#opportunities");
+  await page.goto("/#all-opportunities");
 
   await expect(page.getByText("E2E_FORCED_FAILURE")).toBeVisible();
   await expect(
@@ -176,10 +259,8 @@ test("keeps opportunity data available when only revenue intelligence is unavail
     });
   });
 
-  await page.goto("/#opportunities");
+  await page.goto("/#all-opportunities");
 
-  await page.getByText("Operator diagnostics · Legacy opportunity guidance").click();
-  await expect(page.getByText("Unable to load revenue intelligence.")).toBeVisible();
   await expect(page.getByTestId(`opportunity-row-${opportunityId}`)).toContainText(businessName);
 
   // Chromium reports a native console diagnostic for the intentionally mocked
@@ -332,7 +413,7 @@ test("prepares, approves, and manually confirms a ranked communication action wi
   await expect(execution.getByLabel("Human-controlled action steps"))
     .toContainText("Complete manually");
   await expect(execution.getByLabel("Human-controlled action steps"))
-    .toContainText("No message is sent by TGE");
+    .toContainText("TGE does not send.");
 
   await page.getByTestId("approve-revenue-action").click();
   await expect(page.getByTestId("revenue-action-status")).toHaveText("APPROVED");
@@ -534,6 +615,118 @@ test("keeps originating case known zero separate from current opportunity intell
   await expect(originatingCase).toContainText("AUD 0");
   await expect(originatingCase).toContainText("Current opportunity intelligence");
   await expect(page.getByTestId("opportunity-value")).toHaveText("Unknown");
+});
+
+test("keeps a focused case-history authorization denial in the primary 390px workflow", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases?opportunity_id=e2e-opp-stalled`,
+    route => route.fulfill({
+      status: 403,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: false,
+        error: "FORBIDDEN",
+        message: "Revenue leak case history is not authorized."
+      })
+    })
+  );
+
+  await page.goto(
+    "/#opportunities/e2e-opp-stalled?focus=action&case=review-case&action=review-action"
+  );
+
+  const execution = page.getByTestId("revenue-action-execution");
+  const historyFailure = execution.getByTestId("focused-originating-history-error");
+  await expect(historyFailure).toBeVisible();
+  await expect(historyFailure).toContainText("Revenue leak review unauthorized");
+  await expect(historyFailure).toContainText(
+    "You are not authorized to review revenue leak cases for this opportunity."
+  );
+  await expect(historyFailure.getByRole("button", { name: "Retry history" })).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "General opportunity intelligence" }))
+    .not.toHaveAttribute("open", "");
+});
+
+test("keeps a retryable focused case-history persistence failure in the primary 390px workflow", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases?opportunity_id=e2e-opp-stalled`,
+    route => route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: false,
+        error: "REVENUE_LEAK_CASE_PERSISTENCE_UNAVAILABLE"
+      })
+    })
+  );
+
+  await page.goto(
+    "/#opportunities/e2e-opp-stalled?focus=action&case=review-case&action=review-action"
+  );
+
+  const execution = page.getByTestId("revenue-action-execution");
+  const historyFailure = execution.getByTestId("focused-originating-history-error");
+  await expect(historyFailure).toBeVisible();
+  await expect(historyFailure).toContainText("Revenue leak case persistence unavailable");
+  await expect(historyFailure).toContainText(
+    "No empty or no-leak conclusion was inferred. Retry when durable case state is available."
+  );
+  await expect(historyFailure.getByRole("button", { name: "Retry history" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "General opportunity intelligence" }))
+    .not.toHaveAttribute("open", "");
+});
+
+test("retries focused case history through its authoritative loader without action writes", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const recoveredCase = focusedHistoryCase();
+  let historyReads = 0;
+  let actionWrites = 0;
+
+  await page.route(`${apiBaseUrl}/api/revenue-actions**`, async route => {
+    if (route.request().method() !== "GET") actionWrites += 1;
+    await route.continue();
+  });
+  await page.route(
+    `${apiBaseUrl}/api/revenue-leak-cases?opportunity_id=e2e-opp-stalled`,
+    route => {
+      historyReads += 1;
+      if (historyReads === 1) {
+        return route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({
+            ok: false,
+            error: "REVENUE_LEAK_CASE_PERSISTENCE_UNAVAILABLE"
+          })
+        });
+      }
+      return route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, data: [recoveredCase], count: 1 })
+      });
+    }
+  );
+
+  await page.goto(
+    "/#opportunities/e2e-opp-stalled?focus=action&case=review-case&action=review-action"
+  );
+
+  const execution = page.getByTestId("revenue-action-execution");
+  const historyFailure = execution.getByTestId("focused-originating-history-error");
+  await expect(historyFailure.getByRole("button", { name: "Retry history" })).toBeVisible();
+  await historyFailure.getByRole("button", { name: "Retry history" }).click();
+
+  const originatingCase = execution.getByLabel("Originating revenue leak case");
+  await expect(originatingCase).toContainText("E2E Stalled Roofing");
+  await expect(originatingCase).toContainText("AUD 2,500");
+  await expect(originatingCase).toContainText(
+    "The opportunity reached the stalled threshold without a meaningful next action."
+  );
+  await expect(historyFailure).toHaveCount(0);
+  expect(historyReads).toBe(2);
+  expect(actionWrites).toBe(0);
 });
 
 test("keeps a prepared draft visible when approval fails without crashing", async ({ page }) => {
