@@ -32,6 +32,13 @@ and membership lookup usability. It does not close any provider, topology,
 backup, privacy, production-maintenance, provisioning, or real Auth0/SMTP/OTP
 gate below.
 
+The credential-independent [backup, restore, and tenant proof](BACKUP_RESTORE_TENANT_PROOF.md)
+provides a real local PostgreSQL 16.15 `pg_dump`/`pg_restore` rehearsal, a
+privacy-minimized logical tenant manifest, restored-boundary verification, and
+safe local teardown. Its evidence is labelled local synthetic proof and does
+not close the required full isolated Cloud SQL AU restore, provider backup,
+regional-retention, or live RPO/RTO gates.
+
 ## Provisioning and vendor gates
 
 - **Static hosting:** Cloudflare Pages is recommended, subject to static-host vendor/privacy approval.

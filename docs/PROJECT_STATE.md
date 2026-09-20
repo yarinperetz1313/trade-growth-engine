@@ -2,6 +2,60 @@
 
 _Last locally audited on 2026-09-20. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
+PR #46's first Verify failure at exact candidate `654a65c` was a
+`TEST_OR_CI_HARNESS_DEFECT`, reproduced locally with PostgreSQL 16.15,
+Node 22.22.3, and lockfile-installed dependencies. Both push run `35502589796`
+and pull-request run `35502603705` failed in the positive backup/restore test.
+The inner `BACKUP` failure was the test's hard-coded `PGHOST=127.0.0.1`
+assertion rejecting CI's configured `localhost`, before `pg_dump` started.
+The drill correctly preserved its validated endpoint; no product fix was needed.
+
+The test now compares each command's host to its configured source or target URL.
+An explicit full-rehearsal matrix covers `localhost` and `127.0.0.1` regardless
+of the caller's test-server URL: RED **1/2** before the assertion fix, GREEN
+**2/2** afterward. The full focused proof passes **13/13**, the complete real
+PostgreSQL suite passes **104/104**, and the engineering harness and diff hygiene
+pass. Existing privilege, isolation, cleanup, evidence, and recovery assertions
+remain intact. Production scripts, application code, and migrations are unchanged;
+integration, browser, and build were not repeated for this test-only correction.
+These are local results; replacement GitHub Verify and review remain delivery
+gates, not established outcomes.
+
+External Pilot One backup/restore proof remediation cycle **3/3** closes the
+remaining runtime-column privilege finding on top of checkpoint `0ba7a05`.
+The drill now compares effective `SELECT`, `INSERT`, `UPDATE`, and `REFERENCES`
+authority for every live column of every `tge` table, in addition to its existing
+table, sequence, function, schema, and ownership contracts. Expected column
+authority is derived from the migration-defined table contract; the bounded
+RevenueAction update-column allowlist remains the only explicit exception. The
+same comparison runs for both group roles and the dedicated runtime/maintenance
+logins, so direct, inherited, excess, and missing grants fail closed.
+
+Real PostgreSQL 16.15 regressions were intentionally RED **0/4** at `0ba7a05`:
+group and dedicated-login `UPDATE (commit_metadata)` on `import_batches`, plus
+group and dedicated-login `SELECT (raw_payload)` on `import_staging_records`,
+all escaped certification. The granted runtime login performed one actual
+committed-batch metadata update inside a rolled-back transaction while the proof
+incorrectly returned `VERIFIED`. They are GREEN **4/4** after the fix. Without
+the adversarial grants, the same runtime write and maintenance raw read are both
+rejected with PostgreSQL `42501`; all four prior table/function/catalog attacks
+still fail closed; and the unchanged positive dump/restore proof passes. The
+focused real-database boundary is **11/11** and configuration/lifecycle remains
+**36/36**.
+
+Cycle 2's tenant-table discovery remains independent of RLS; manifest membership
+and forced RLS are still validated separately. Its cleanup behavior is unchanged:
+the lifecycle retains every PostgreSQL child until confirmed exit, sends one
+bounded `SIGTERM`, escalates to `SIGKILL` when necessary, and does not remove the
+archive or disposable target while a child remains alive.
+
+A cleanup deadline
+now emits only `BACKUP_RESTORE_CLEANUP_FAILED` before re-raising the original
+`SIGINT` or `SIGTERM`. The real-subprocess lifecycle roots were RED **0/2** at
+`3010dd3`; focused lifecycle/configuration is GREEN **36/36**, complete
+integration is **528/528**, and PostgreSQL 16.15 is **96/96**. No product,
+authentication, browser, schema, migration, or provider operation changed.
+
 PR #42 received one bounded responsive-geometry remediation after GitHub Verify
 runs `35168466481` and `35168486302` exposed the same Linux-only failure at
 exact HEAD `a14d91c033c6933d67ee255be39958fdcfad20c8`: the primary `Prepare
