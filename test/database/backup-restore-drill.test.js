@@ -335,20 +335,60 @@ if (!testDatabaseUrl) {
     await operator.query(`drop database ${quoteIdentifier(cleanupFailedTargetDatabase)}`);
     fs.rmSync(cleanupFailedEvidenceDirectory, { recursive: true, force: true });
 
-    const observedCommands = [];
-    const result = await runBackupRestoreDrill({
-      env,
-      commandRunner: (executable, args, options) => {
+    const observeCommands = (drillEnv, observedCommands) =>
+      (executable, args, options) => {
         observedCommands.push({ executable, args: [...args] });
         for (const argument of args) {
           assert.equal(argument.includes("postgresql://"), false);
           assert.equal(argument.includes(adminPassword), false);
         }
-        assert.equal(options.env.PGHOST, "127.0.0.1");
+        const expectedEndpoint = new URL(executable === "pg_dump"
+          ? drillEnv.TGE_BACKUP_SOURCE_ADMIN_URL
+          : drillEnv.TGE_RESTORE_TARGET_ADMIN_URL);
+        assert.equal(options.env.PGHOST, expectedEndpoint.hostname);
         assert.equal(options.env.PGDATABASE,
           executable === "pg_dump" ? sourceDatabase : targetDatabase);
         return runCommand(executable, args, options);
-      }
+      };
+
+    // Exercise CI's hostname as well as the numeric loopback used locally,
+    // regardless of which spelling the caller used for the test server.
+    for (const hostname of ["localhost", "127.0.0.1"]) {
+      await t.test(`full restore preserves configured ${hostname} endpoint`, async () => {
+        const endpointEvidence = temporaryAbsentDirectory();
+        const endpointEnv = { ...env, TGE_BACKUP_RESTORE_EVIDENCE_DIR: endpointEvidence };
+        for (const key of [
+          "TGE_BACKUP_SOURCE_ADMIN_URL",
+          "TGE_RESTORE_TARGET_ADMIN_URL",
+          "TGE_RESTORE_TARGET_RUNTIME_URL",
+          "TGE_RESTORE_TARGET_MAINTENANCE_URL"
+        ]) {
+          const endpoint = new URL(endpointEnv[key]);
+          endpoint.hostname = hostname;
+          endpointEnv[key] = endpoint.toString();
+        }
+        const endpointCommands = [];
+        try {
+          const endpointResult = await runBackupRestoreDrill({
+            env: endpointEnv,
+            commandRunner: observeCommands(endpointEnv, endpointCommands)
+          });
+          assert.equal(endpointResult.status, "VERIFIED");
+          assert.deepEqual(endpointCommands.map(command => command.executable), ["pg_dump", "pg_restore"]);
+          assert.equal(await databaseExists(operator, targetDatabase), false);
+        } finally {
+          fs.rmSync(endpointEvidence, { recursive: true, force: true });
+          if (!await databaseExists(operator, targetDatabase)) {
+            await operator.query(`create database ${quoteIdentifier(targetDatabase)}`);
+          }
+        }
+      });
+    }
+
+    const observedCommands = [];
+    const result = await runBackupRestoreDrill({
+      env,
+      commandRunner: observeCommands(env, observedCommands)
     });
     assert.deepEqual(result, {
       status: "VERIFIED",

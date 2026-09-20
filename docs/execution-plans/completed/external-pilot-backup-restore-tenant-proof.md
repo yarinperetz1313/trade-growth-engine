@@ -100,6 +100,32 @@ same operations without the grants fail with `42501`, the prior four adversarial
 contracts remain closed, and the positive full dump/restore proof passes. The
 focused database proof is **11/11** and configuration/lifecycle is **36/36**.
 
+## Bounded CI harness recovery
+
+The first push/pull-request Verify attempts for exact candidate `654a65c`
+(`35502589796` and `35502603705`) each passed integration **528/528** and
+failed PostgreSQL **101/102** at the same positive proof call. Authoritative
+Actions run/log inspection and a disposable PostgreSQL 16.15 reproduction with
+Node 22.22.3 and `npm ci` dependencies classify this as
+`TEST_OR_CI_HARNESS_DEFECT`. A redacted diagnostic recovered phase `BACKUP`
+and inner `ERR_ASSERTION`: the test expected `PGHOST=127.0.0.1`, while CI
+correctly supplied `localhost`. The assertion ran before invoking `pg_dump`.
+
+The exact unmodified candidate reproduced the CI failure (**10/11** focused).
+Before fixing the assertion, a new full-rehearsal endpoint matrix was RED
+**1/2**: explicit `localhost` failed even with a numeric caller URL, while
+explicit `127.0.0.1` succeeded. The harness now compares the command host with
+its configured source or target URL, preserving endpoint-identity verification.
+Both regressions are GREEN **2/2**, the complete focused proof is **13/13**,
+and `npm run test:db` against the disposable server using CI's `localhost`
+spelling is **104/104**. `npm run test:harness` and `git diff --check` pass.
+
+All prior privilege, isolation, recovery, cleanup, and evidence assertions remain.
+No production script, application, migration, CI configuration, or external
+provider operation changed. Integration/build/browser gates were not repeated
+for this test-only correction. GitHub push, independent review, and replacement
+Verify remain coordinator-owned; these local results do not claim green CI.
+
 ## Privacy and safety contract
 
 Durable evidence contains table row counts, SHA-256 digests, bounded statuses,

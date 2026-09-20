@@ -2,6 +2,25 @@
 
 _Last locally audited on 2026-09-20. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
+PR #46's first Verify failure at exact candidate `654a65c` was a
+`TEST_OR_CI_HARNESS_DEFECT`, reproduced locally with PostgreSQL 16.15,
+Node 22.22.3, and lockfile-installed dependencies. Both push run `35502589796`
+and pull-request run `35502603705` failed in the positive backup/restore test.
+The inner `BACKUP` failure was the test's hard-coded `PGHOST=127.0.0.1`
+assertion rejecting CI's configured `localhost`, before `pg_dump` started.
+The drill correctly preserved its validated endpoint; no product fix was needed.
+
+The test now compares each command's host to its configured source or target URL.
+An explicit full-rehearsal matrix covers `localhost` and `127.0.0.1` regardless
+of the caller's test-server URL: RED **1/2** before the assertion fix, GREEN
+**2/2** afterward. The full focused proof passes **13/13**, the complete real
+PostgreSQL suite passes **104/104**, and the engineering harness and diff hygiene
+pass. Existing privilege, isolation, cleanup, evidence, and recovery assertions
+remain intact. Production scripts, application code, and migrations are unchanged;
+integration, browser, and build were not repeated for this test-only correction.
+These are local results; replacement GitHub Verify and review remain delivery
+gates, not established outcomes.
+
 External Pilot One backup/restore proof remediation cycle **3/3** closes the
 remaining runtime-column privilege finding on top of checkpoint `0ba7a05`.
 The drill now compares effective `SELECT`, `INSERT`, `UPDATE`, and `REFERENCES`
