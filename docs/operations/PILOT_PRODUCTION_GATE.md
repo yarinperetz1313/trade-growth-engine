@@ -6,7 +6,7 @@ Do not provision or invite external users until every applicable gate below has 
 
 | Gate | Required evidence |
 | --- | --- |
-| Australian topology | Cloud Run and Cloud SQL PostgreSQL are in australia-southeast2 (Melbourne); any Sydney use has a written exception. The deployable container passes portability checks. |
+| Australian topology | Cloud Run and Cloud SQL PostgreSQL are in australia-southeast2 (Melbourne); any Sydney use has a written exception. PostgreSQL 16 explicitly uses reviewed Enterprise/non-shared-core `db-custom-1-3840`, never a provider edition default or no-SLA shared-core tier. The deployable container passes portability checks. |
 | Backup and recovery | Cloud SQL uses an explicit Australian regional backup location, not the provider default, with **14 daily backups**. Runbook evidence proves **RPO <= 24 hours** and **RTO <= 4 business hours**. |
 | Tenant recovery | Restore the complete database to a temporary AU instance, then logically export and restore the selected tenant. Record checkpoints, timing, validation, cleanup, and owner. Do not represent this as native tenant restore. |
 | Identity and tenancy | Auth0 Australia (AU) configuration is verified. The server validates issuer/audience/JWKS and resolves membership-backed `TenantContext`; OWNER/ADMIN/MEMBER policy, tenant-scoped repositories, transaction-local RLS, nonprivileged runtime role, migration-capable `tge_migrator`, processor-only `tge_maintenance`, and cross-tenant negative tests have reviewed evidence. |
@@ -19,9 +19,13 @@ the local database authority, exact 168-elapsed-hour denial, retry-safe physical
 terminal tenant/import write barriers, and minimized deletion evidence. The
 offboarding contract changes only tenant `slug`, `name`, and
 `metadata.offboarding_state`; all other tenant metadata and canonical/audit
-evidence are preserved. Production scheduling, separate maintenance
-credentials, monitoring, alerting, and observed cleanup execution are not yet
-proven. Canonical tenant-data deletion also remains blocked on approved
+evidence are preserved. The repository now has a credential-independent,
+validated template for separate runtime, migrator, maintenance, and scheduler
+identities plus a bounded maintenance job, schedule, diagnostics, and alert
+contracts in the [External Pilot Deployment and Operations
+runbook](EXTERNAL_PILOT_DEPLOYMENT.md). Production IAM, scheduling, secrets,
+alert delivery, and observed cleanup execution are not yet proven. Canonical
+tenant-data deletion also remains blocked on approved
 legal/contractual retention policy; access/raw-evidence offboarding must not be
 represented as full tenant deletion.
 

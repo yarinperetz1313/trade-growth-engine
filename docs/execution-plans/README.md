@@ -2,6 +2,7 @@
 
 ## Active plan
 
+- [`active/external-pilot-deployment-operations.md`](active/external-pilot-deployment-operations.md) — **Issue #43 deployment/operations foundation from exact base `44ebebb`: inert Melbourne templates, deterministic release validation, and bounded maintenance execution only.**
 - [`active/pilot-zero-business-first-presentation.md`](active/pilot-zero-business-first-presentation.md) — **Issue #39's approved browser-only presentation pass starts from exact clean `origin/main` `c6cb6a7`; product implementation begins only after its clean planning checkpoint.**
 
 ## Completed plans

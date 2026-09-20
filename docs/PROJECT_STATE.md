@@ -2,6 +2,56 @@
 
 _Last locally audited on 2026-09-20. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
+External Pilot One deployment/operations foundation is active from exact clean
+Issue #43 base `44ebebb8da92c8493985e9160d96ba836cba1f8f` on
+`feat/external-pilot-deployment-operations`. The slice is limited to an inert,
+credential-independent Melbourne deployment contract, API/jobs packaging,
+release validation, bounded maintenance operations, and operator runbooks. It
+does not provision or mutate cloud resources and does not change authentication,
+tenant/domain, browser, monetary, RLS, detector, RevenueAction, import, schema,
+or migration behavior.
+
+The candidate pins a Node 22 multi-stage non-root image, preserves direct Node
+signal ownership and liveness semantics, and packages the existing Pilot API,
+migrator, and maintenance entrypoints without environment or credential files.
+The sanitized GCP template fixes Cloud Run and Cloud SQL PostgreSQL 16 in
+`australia-southeast2`, explicitly selects Enterprise/non-shared-core
+`db-custom-1-3840` instead of inheriting the PostgreSQL 16 Enterprise Plus
+default, specifies 14 Melbourne backups plus point-in-time recovery, HTTPS-only
+public API ingress, no-traffic-before-readiness release policy, separate
+runtime/migrator/maintenance/scheduler identities, pinned Secret Manager
+references, a bounded maintenance job, and a Melbourne-time scheduler.
+Validation is local and makes no provider call; provider cost/SLA approval
+remains a human gate.
+
+Maintenance now drains a bounded number of committed cleanup/offboarding rounds
+instead of one batch. Its JSON output omits item, tenant, subject, request, and
+database identifiers; it reports minimized first-ordered processed state and
+bounded backlog truth. Retryable/failed work exits 2 and possible remaining or
+locked backlog at the round ceiling exits 3, while fully drained/idempotent work
+exits 0. Existing raw-cleanup-before-offboarding commit ordering remains intact.
+
+The release gate validates the exact HTTPS browser/API origin, deletes stale
+`dist/`, runs the Pilot production build, checks the resulting origin, and
+validates container and deployment contracts. The production lock advances only
+transitive `qs` from 6.15.3 to 6.16.0 after a release-image audit identified its
+moderate denial-of-service advisory; the production audit is then zero known
+vulnerabilities. GitHub Verify now runs the release gate with fixed synthetic
+origins and performs a real credential-free Docker image build. Red-first
+deployment/maintenance contracts were **0/6** before
+implementation, with separate lock and provider-default regressions red before
+their bounded corrections. Final gate counts and checkpoint identity are
+retained in the active [execution
+plan](execution-plans/active/external-pilot-deployment-operations.md).
+
+No Docker executable or PostgreSQL test URL is available in this worktree host,
+so an actual local image build and the real PostgreSQL maintenance concurrency
+gate remain unexecuted here. No browser/product source changed, so browser E2E is
+outside this slice. Provider accounts/payment/IAM, secret values, deployment,
+real Auth0/SMTP, DNS, privacy/DPA and retention decisions, alert-channel wiring,
+observed backups, restore rehearsal, destructive actions, and real-customer
+evidence remain explicit external gates.
+
 PR #42 received one bounded responsive-geometry remediation after GitHub Verify
 runs `35168466481` and `35168486302` exposed the same Linux-only failure at
 exact HEAD `a14d91c033c6933d67ee255be39958fdcfad20c8`: the primary `Prepare

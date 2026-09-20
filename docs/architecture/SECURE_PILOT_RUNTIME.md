@@ -127,7 +127,9 @@ fresh bearer on the existing complete import and Command Center requests. No
 browser-supplied tenant identity is introduced.
 
 `npm start` starts only the supported pilot API bootstrap and works with a
-portable Node package install. Cloud vendor infrastructure, secret creation,
+portable Node package install. The credential-independent container and release
+contract is documented in the [External Pilot Deployment and Operations
+runbook](../operations/EXTERNAL_PILOT_DEPLOYMENT.md). Cloud vendor infrastructure, secret creation,
 database migration execution, static-host provisioning, and identity
 provisioning remain operator prerequisites.
 
