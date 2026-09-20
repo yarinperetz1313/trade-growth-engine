@@ -1746,7 +1746,7 @@ function IdentityAccess({ auth, initialState, invitation }) {
     }
   };
 
-  if (invitation && state.kind === "SIGNED_OUT") {
+  if (invitation && state.kind === "INVITATION_PENDING") {
     return (
       <main className="identity-page">
         <section className="identity-card">
@@ -1798,7 +1798,9 @@ function IdentityAccess({ auth, initialState, invitation }) {
         <p className="eyebrow">ACCESS NOT COMPLETED</p>
         <h1>{interrupted ? "Sign-in was interrupted" : "Access is unavailable"}</h1>
         <p>{interrupted
-          ? "Return to the original invitation link and begin again."
+          ? state.recovery === "RESTART_INVITATION"
+            ? "Return to the original invitation link and begin again."
+            : "Return to sign in and try again."
           : "This invitation may be expired, already used, revoked, or prepared for another identity."}</p>
         <button className="secondary" disabled={working} onClick={() => act(() => logoutUser(auth))}>
           Sign out and try again
@@ -1821,13 +1823,24 @@ async function bootstrapApplication() {
       });
     }
     if (auth) {
+      const invitation = invitationFromLocation(window.location);
+      if (invitation) {
+        root.render(
+          <IdentityAccess
+            auth={auth}
+            initialState={{ kind: "INVITATION_PENDING" }}
+            invitation={invitation}
+          />
+        );
+        return;
+      }
       const identityState = await resolveIdentityState({ auth, apiBase: API_BASE });
       if (identityState.kind !== "AUTHENTICATED") {
         root.render(
           <IdentityAccess
             auth={auth}
             initialState={identityState}
-            invitation={invitationFromLocation(window.location)}
+            invitation={null}
           />
         );
         return;

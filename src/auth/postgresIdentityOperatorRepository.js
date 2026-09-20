@@ -192,6 +192,33 @@ class PostgresIdentityOperatorRepository {
     });
   }
 
+  async preflightProvisionedInvitation(input) {
+    return this.transaction(async client => {
+      const tenantResult = await client.query(
+        `select id, metadata,
+           metadata->>'offboarding_state' = 'OFFBOARDED_ACCESS_REVOKED' as terminal
+         from tge.tenants where id = $1 for update`,
+        [input.tenantId]
+      );
+      if (!tenantResult.rows[0] || terminalTenant(tenantResult.rows[0])) deny();
+
+      const actorResult = await client.query(
+        `select tenant_id, identity_issuer, subject_id, role, status
+         from tge.tenant_memberships
+         where identity_issuer = $1 and subject_id = $2
+         order by tenant_id for update`,
+        [input.actor.issuer, input.actor.subject]
+      );
+      if (
+        actorResult.rows.length !== 1
+        || actorResult.rows[0].tenant_id !== input.tenantId
+        || actorResult.rows[0].role !== "OWNER"
+        || actorResult.rows[0].status !== "ACTIVE"
+      ) deny();
+      return { status: "AUTHORIZED", tenantId: input.tenantId };
+    });
+  }
+
   async createProvisionedInvitation(input) {
     return this.transaction(async client => {
       const tenantResult = await client.query(

@@ -98,4 +98,11 @@ test("returning login/logout and uninvited, expired, replayed, wrong-user, and i
       async isAuthenticated() { return true; }
     }
   }), { kind: "INTERRUPTED", recovery: "RESTART_INVITATION" });
+
+  assert.deepEqual(await resolveIdentityState({
+    auth: {
+      takeCallbackState() { return { callbackConsumed: true }; },
+      async isAuthenticated() { return true; }
+    }
+  }), { kind: "INTERRUPTED", recovery: "SIGN_IN_AGAIN" });
 });

@@ -180,6 +180,30 @@ test("PostgreSQL provisioned invitation persists expected identity in the initia
   assert.equal((await repository.createProvisionedInvitation(input)).status, "RECONCILED");
 });
 
+test("PostgreSQL invitation preflight requires one exact active same-tenant OWNER before provider access", async () => {
+  const fixture = fakePool(text => {
+    if (/rolsuper/.test(text)) return { rows: [{ authorized: true }] };
+    if (/from tge\.tenants/.test(text)) return { rows: [{ id: TENANT_ID, terminal: false }] };
+    if (/from tge\.tenant_memberships/.test(text)) return { rows: [{
+      tenant_id: TENANT_ID,
+      identity_issuer: ISSUER,
+      subject_id: "auth0|owner",
+      role: "MEMBER",
+      status: "ACTIVE"
+    }] };
+    return { rows: [] };
+  });
+  const repository = new PostgresIdentityOperatorRepository({ pool: fixture.pool });
+  await assert.rejects(repository.preflightProvisionedInvitation({
+    tenantId: TENANT_ID,
+    actor: { issuer: ISSUER, subject: "auth0|owner" }
+  }));
+  assert.equal(
+    fixture.calls.some(call => /^\s*(insert|update|delete)\b/i.test(call.text)),
+    false
+  );
+});
+
 test("PostgreSQL invitation revocation requires the exact active OWNER and only mutates pending same-tenant invitations", async () => {
   const invitationId = "20000000-0000-4000-8000-000000000002";
   const fixture = fakePool(text => {

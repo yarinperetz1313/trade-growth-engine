@@ -8,6 +8,7 @@ const {
 
 const APPLY_CONFIRMATIONS = Object.freeze({
   BOOTSTRAP: "BOOTSTRAP_FIRST_TENANT",
+  INVITE: "CREATE_PROVISIONED_INVITATION",
   INVITATION_REVOKE: "REVOKE_INVITATION",
   REVOKE: "REVOKE_MEMBERSHIP"
 });
@@ -231,18 +232,35 @@ class IdentityOperationsService {
 
   async createProvisionedInvitation(input = {}) {
     if (
-      !this.repository.createProvisionedInvitation
+      !this.repository.preflightProvisionedInvitation
+      || !this.repository.createProvisionedInvitation
       || !this.provisioner?.provisionIdentity
       || !exactUuid(input.operationId)
       || !exactUuid(input.tenantId)
       || !["ADMIN", "MEMBER"].includes(input.role)
     ) deny();
+    const apply = requireApplyConfirmation(
+      input.apply,
+      input.confirmation,
+      APPLY_CONFIRMATIONS.INVITE
+    );
+    if (!apply) deny();
     const actor = exactIdentity(input.actor);
     const email = normalizedEmail(input.email);
     const expiry = new Date(input.expiresAt);
     if (!Number.isFinite(expiry.getTime()) || expiry <= this.now()) deny();
 
     try {
+      const preflight = await this.repository.preflightProvisionedInvitation({
+        operationId: input.operationId,
+        tenantId: input.tenantId,
+        actor
+      });
+      if (
+        !preflight
+        || preflight.status !== "AUTHORIZED"
+        || preflight.tenantId !== input.tenantId
+      ) deny();
       const identity = await this.provisioner.provisionIdentity({
         normalizedEmail: email,
         operationId: input.operationId

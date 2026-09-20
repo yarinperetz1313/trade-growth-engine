@@ -15,6 +15,19 @@ const {
 const TENANT_ID = "10000000-0000-4000-8000-000000000001";
 const ISSUER = "https://pilot.au.auth0.com/";
 
+function auth0EmailUser(overrides = {}) {
+  return {
+    user_id: "email|provisioned",
+    email: "invited@example.test",
+    identities: [{
+      connection: "email",
+      provider: "email",
+      user_id: "provisioned"
+    }],
+    ...overrides
+  };
+}
+
 function denied(error) {
   return error instanceof IdentityOperationError
     && error.code === "IDENTITY_OPERATION_DENIED"
@@ -172,10 +185,10 @@ test("Auth0 provisioning reconciles one exact existing user and never exposes to
     accessTokenProvider: async () => "management-token-secret",
     fetchImpl: async (url, options) => {
       requests.push({ url, options });
-      return new Response(JSON.stringify([{
-        user_id: "email|provisioned",
-        email: "invited@example.test"
-      }]), { status: 200, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify([auth0EmailUser()]), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
     }
   });
 
@@ -214,10 +227,9 @@ test("Auth0 provisioning rejects malformed provider subjects before identity bin
       connection: "email"
     },
     accessTokenProvider: async () => "management-token-secret",
-    fetchImpl: async () => new Response(JSON.stringify([{
-      user_id: "email|invited\nspoofed",
-      email: "invited@example.test"
-    }]), { status: 200, headers: { "content-type": "application/json" } })
+    fetchImpl: async () => new Response(JSON.stringify([auth0EmailUser({
+      user_id: "email|invited\nspoofed"
+    })]), { status: 200, headers: { "content-type": "application/json" } })
   });
 
   await assert.rejects(adapter.provisionIdentity({
@@ -226,11 +238,97 @@ test("Auth0 provisioning rejects malformed provider subjects before identity bin
   }), error => error?.code === "IDENTITY_PROVISIONING_UNAVAILABLE");
 });
 
+test("Auth0 provisioning proves the exact configured connection on lookup, create, and conflict reconciliation", async () => {
+  const malformedUsers = [
+    auth0EmailUser({ identities: undefined }),
+    auth0EmailUser({ identities: [{ connection: "other-email", provider: "email", user_id: "provisioned" }] }),
+    auth0EmailUser({ identities: [
+      { connection: "email", provider: "email", user_id: "provisioned" },
+      { connection: "email", provider: "email", user_id: "provisioned" }
+    ] }),
+    auth0EmailUser({
+      user_id: "sms|provisioned",
+      identities: [{ connection: "email", provider: "sms", user_id: "provisioned" }]
+    }),
+    auth0EmailUser({ identities: [{ connection: "email", provider: "email", user_id: "different" }] })
+  ];
+
+  for (const providerPath of ["lookup", "create", "conflict"]) {
+    for (const malformed of malformedUsers) {
+      let call = 0;
+      const adapter = new Auth0ProvisioningAdapter({
+        config: {
+          issuer: ISSUER,
+          managementApiBaseUrl: "https://pilot.au.auth0.com/api/v2/",
+          connection: "email"
+        },
+        accessTokenProvider: async () => "management-token-secret",
+        fetchImpl: async () => {
+          call += 1;
+          if (providerPath === "lookup") {
+            return new Response(JSON.stringify([malformed]), { status: 200 });
+          }
+          if (call === 1) return new Response("[]", { status: 200 });
+          if (providerPath === "create") {
+            return new Response(JSON.stringify(malformed), { status: 201 });
+          }
+          if (call === 2) return new Response(null, { status: 409 });
+          return new Response(JSON.stringify([malformed]), { status: 200 });
+        }
+      });
+
+      await assert.rejects(adapter.provisionIdentity({
+        normalizedEmail: "invited@example.test",
+        operationId: "20000000-0000-4000-8000-000000000002"
+      }), error => error?.code === "IDENTITY_PROVISIONING_UNAVAILABLE");
+    }
+  }
+});
+
+test("Auth0 provisioning accepts the exact configured connection on every reconciliation path", async () => {
+  for (const providerPath of ["lookup", "create", "conflict"]) {
+    let call = 0;
+    const adapter = new Auth0ProvisioningAdapter({
+      config: {
+        issuer: ISSUER,
+        managementApiBaseUrl: "https://pilot.au.auth0.com/api/v2/",
+        connection: "email"
+      },
+      accessTokenProvider: async () => "management-token-secret",
+      fetchImpl: async () => {
+        call += 1;
+        if (providerPath === "lookup") {
+          return new Response(JSON.stringify([auth0EmailUser()]), { status: 200 });
+        }
+        if (call === 1) return new Response("[]", { status: 200 });
+        if (providerPath === "create") {
+          return new Response(JSON.stringify(auth0EmailUser()), { status: 201 });
+        }
+        if (call === 2) return new Response(null, { status: 409 });
+        return new Response(JSON.stringify([auth0EmailUser()]), { status: 200 });
+      }
+    });
+
+    assert.deepEqual(await adapter.provisionIdentity({
+      normalizedEmail: "invited@example.test",
+      operationId: "20000000-0000-4000-8000-000000000002"
+    }), {
+      issuer: ISSUER,
+      subject: "email|provisioned",
+      reconciled: providerPath !== "create"
+    });
+  }
+});
+
 test("provisioned invitation records exact issuer+subject atomically before it becomes usable and reconciles retries", async () => {
   const events = [];
   let recordCalls = 0;
   const service = new IdentityOperationsService({
     repository: {
+      async preflightProvisionedInvitation(input) {
+        events.push(["preflight", input]);
+        return { status: "AUTHORIZED", tenantId: input.tenantId };
+      },
       async createProvisionedInvitation(input) {
         events.push(["record", input]);
         recordCalls += 1;
@@ -254,18 +352,50 @@ test("provisioned invitation records exact issuer+subject atomically before it b
     actor: { issuer: ISSUER, subject: "auth0|owner" },
     email: "Invited@Example.Test",
     role: "MEMBER",
-    expiresAt: "2026-09-21T00:00:00.000Z"
+    expiresAt: "2026-09-21T00:00:00.000Z",
+    apply: true,
+    confirmation: "CREATE_PROVISIONED_INVITATION"
   };
 
   const created = await service.createProvisionedInvitation(input);
   assert.match(created.token, /^[A-Za-z0-9_-]{43}$/);
-  assert.equal(events[0][0], "provider");
-  assert.equal(events[1][0], "record");
-  assert.equal(events[1][1].expectedIssuer, ISSUER);
-  assert.equal(events[1][1].expectedSubject, "email|provisioned");
-  assert.equal(events[1][1].status, "PENDING");
-  assert.equal(JSON.stringify(events[1][1]).includes(created.token), false);
+  assert.equal(events[0][0], "preflight");
+  assert.equal(events[1][0], "provider");
+  assert.equal(events[2][0], "record");
+  assert.equal(events[2][1].expectedIssuer, ISSUER);
+  assert.equal(events[2][1].expectedSubject, "email|provisioned");
+  assert.equal(events[2][1].status, "PENDING");
+  assert.equal(JSON.stringify(events[2][1]).includes(created.token), false);
 
   const replay = await service.createProvisionedInvitation(input);
   assert.equal(replay.status, "RECONCILED");
+});
+
+test("provisioned invitation denies before provider access when exact operator authority preflight fails", async () => {
+  let providerCalls = 0;
+  let recordCalls = 0;
+  const service = new IdentityOperationsService({
+    repository: {
+      async preflightProvisionedInvitation() {
+        throw new IdentityOperationError();
+      },
+      async createProvisionedInvitation() { recordCalls += 1; }
+    },
+    provisioner: {
+      async provisionIdentity() { providerCalls += 1; }
+    }
+  });
+
+  await assert.rejects(service.createProvisionedInvitation({
+    operationId: "20000000-0000-4000-8000-000000000002",
+    tenantId: TENANT_ID,
+    actor: { issuer: ISSUER, subject: "auth0|owner" },
+    email: "invited@example.test",
+    role: "MEMBER",
+    expiresAt: "2099-09-21T00:00:00.000Z",
+    apply: true,
+    confirmation: "CREATE_PROVISIONED_INVITATION"
+  }), denied);
+  assert.equal(providerCalls, 0);
+  assert.equal(recordCalls, 0);
 });

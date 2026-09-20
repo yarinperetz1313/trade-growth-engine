@@ -43,12 +43,24 @@ export async function resolveIdentityState({
 } = {}) {
   if (!auth) return Object.freeze({ kind: "SIGNED_OUT" });
   const callbackState = auth.takeCallbackState?.() || null;
-  if (callbackState && (
-    typeof callbackState !== "object"
-    || callbackState.invitationToken !== undefined
-      && !INVITATION_TOKEN.test(callbackState.invitationToken)
-  )) {
+  if (callbackState && typeof callbackState !== "object") {
+    return Object.freeze({ kind: "INTERRUPTED", recovery: "SIGN_IN_AGAIN" });
+  }
+  if (callbackState?.appStateInvalid === true) {
+    return Object.freeze({ kind: "INTERRUPTED", recovery: "SIGN_IN_AGAIN" });
+  }
+  if (
+    callbackState?.invitationToken !== undefined
+    && !INVITATION_TOKEN.test(callbackState.invitationToken)
+  ) {
     return Object.freeze({ kind: "INTERRUPTED", recovery: "RESTART_INVITATION" });
+  }
+  if (
+    callbackState?.callbackConsumed === true
+    && callbackState.invitationToken === undefined
+    && callbackState.returnRoute === undefined
+  ) {
+    return Object.freeze({ kind: "INTERRUPTED", recovery: "SIGN_IN_AGAIN" });
   }
 
   let authenticated;

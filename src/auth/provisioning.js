@@ -52,7 +52,7 @@ function validateConfig(config) {
   });
 }
 
-function exactProvisionedUser(value, normalizedEmail, issuer) {
+function exactProvisionedUser(value, normalizedEmail, issuer, connection) {
   if (
     !value
     || typeof value.user_id !== "string"
@@ -62,6 +62,21 @@ function exactProvisionedUser(value, normalizedEmail, issuer) {
     || /[\u0000-\u001f\u007f]/.test(value.user_id)
     || typeof value.email !== "string"
     || value.email.normalize("NFKC").trim().toLowerCase() !== normalizedEmail
+    || !Array.isArray(value.identities)
+    || value.identities.length !== 1
+  ) throw new IdentityProvisioningError();
+
+  const identity = value.identities[0];
+  if (
+    !identity
+    || identity.connection !== connection
+    || identity.provider !== "email"
+    || typeof identity.user_id !== "string"
+    || !identity.user_id
+    || identity.user_id.length > 512
+    || identity.user_id.trim() !== identity.user_id
+    || /[\u0000-\u001f\u007f]/.test(identity.user_id)
+    || `${identity.provider}|${identity.user_id}` !== value.user_id
   ) throw new IdentityProvisioningError();
   return Object.freeze({ issuer, subject: value.user_id });
 }
@@ -90,7 +105,12 @@ class Auth0ProvisioningAdapter {
       const existing = await this.lookup(normalizedEmail);
       if (existing.length === 1) {
         return Object.freeze({
-          ...exactProvisionedUser(existing[0], normalizedEmail, this.config.issuer),
+          ...exactProvisionedUser(
+            existing[0],
+            normalizedEmail,
+            this.config.issuer,
+            this.config.connection
+          ),
           reconciled: true
         });
       }
@@ -109,13 +129,23 @@ class Auth0ProvisioningAdapter {
         const reconciled = await this.lookup(normalizedEmail);
         if (reconciled.length !== 1) throw new IdentityProvisioningError();
         return Object.freeze({
-          ...exactProvisionedUser(reconciled[0], normalizedEmail, this.config.issuer),
+          ...exactProvisionedUser(
+            reconciled[0],
+            normalizedEmail,
+            this.config.issuer,
+            this.config.connection
+          ),
           reconciled: true
         });
       }
       if (!created.response.ok) throw new IdentityProvisioningError();
       return Object.freeze({
-        ...exactProvisionedUser(created.body, normalizedEmail, this.config.issuer),
+        ...exactProvisionedUser(
+          created.body,
+          normalizedEmail,
+          this.config.issuer,
+          this.config.connection
+        ),
         reconciled: false
       });
     } catch (error) {

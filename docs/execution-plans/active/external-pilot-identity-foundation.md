@@ -28,6 +28,8 @@
 
 ## Review and handoff
 - Implementer self-check: complete; no migration, runtime grant, money, import, RevenueAction, provider-call-in-test, public signup, Organizations, tenant switching, local-storage authority, or application step-up expansion.
-- Fresh reviewer findings/resolution: pending coordinator-led Astra High review of the committed security boundary.
-- Final-review evidence: pending.
+- Fresh reviewer findings/resolution: Astra review of `6a050bd225e8f58b522955f2b028556c63a16c56` found three P2 roots. Remediation cycle 1/3 binds every Auth0 success to the exact passwordless-email connection and subject, recognizes authenticated invitation landings before membership resolution, and reserves capability output plus proves database/OWNER authority before provider access. The same pass distinguishes consumed callbacks with missing app state.
+- Remediation RED evidence on reviewed HEAD `6a050bd`: focused regressions were **17/24**, failing provider-connection, preflight-order/output-reservation, and missing-callback-state expectations; the overlaid managed Chromium identity specification was **4/6**, failing authenticated invitation precedence and missing-state recovery.
+- Remediation GREEN evidence: focused security/auth/operator tests **68/68**; PostgreSQL identity/offboarding **23/23**; managed Chromium identity **6/6**. Final full gate passes: harness; integration **520/520**; PostgreSQL **94/94**; managed Chromium **90/90**; production build **36 modules** with the existing chunk warning.
+- Final-review evidence: pending fresh Astra review of the remediation checkpoint.
 - Debt/follow-up: live Auth0 AU, Universal Login/SMTP/OTP, provider credentials/configuration, privacy/legal/customer identity, and production operator credential approval remain external gates.

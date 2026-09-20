@@ -8,7 +8,7 @@ async function installAuth(page, state = {}) {
   await page.addInitScript(initial => {
     const runtime = {
       authenticated: initial.authenticated === true,
-      callbackAppState: initial.callbackAppState || null,
+      callbackAppState: initial.callbackAppState ?? null,
       callbackReady: false,
       calls: []
     };
@@ -29,7 +29,7 @@ async function installAuth(page, state = {}) {
       takeCallbackState() {
         if (!runtime.callbackReady) return null;
         runtime.callbackReady = false;
-        return runtime.callbackAppState;
+        return runtime.callbackAppState ?? { callbackConsumed: true };
       }
     });
   }, state);
@@ -75,6 +75,40 @@ test("invitation landing requires an explicit begin before Auth0 redirect", asyn
     ["invitation", invitationToken]
   ]);
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([]);
+});
+
+test("an authenticated but unactivated invitee sees the invitation before membership resolution", async ({ page }) => {
+  await installAuth(page, { authenticated: true });
+  let beginCalls = 0;
+  let contextCalls = 0;
+  await page.route(`${apiBaseUrl}/api/auth/context`, route => {
+    contextCalls += 1;
+    return route.abort();
+  });
+  await page.route(`${apiBaseUrl}/api/auth/invitations/begin`, route => {
+    beginCalls += 1;
+    return route.fulfill({
+      contentType: "application/json",
+      status: 200,
+      body: JSON.stringify({
+        ok: true,
+        authorization: { redirectUri: `${webOrigin}/auth/callback` }
+      })
+    });
+  });
+
+  await page.goto(`/#/invite?token=${invitationToken}`);
+  await expect(page.getByRole("heading", { name: "Your Trade Growth invitation" })).toBeVisible();
+  expect(contextCalls).toBe(0);
+  expect(beginCalls).toBe(0);
+  expect(await page.evaluate(() => globalThis.__TGE_AUTH_E2E_STATE__.calls)).toEqual([]);
+
+  await page.getByRole("button", { name: "Continue to secure sign in" }).click();
+  await expect.poll(() => beginCalls).toBe(1);
+  await expect.poll(() => page.evaluate(() => globalThis.__TGE_AUTH_E2E_STATE__.calls)).toEqual([
+    ["invitation", invitationToken]
+  ]);
+  expect(contextCalls).toBe(0);
 });
 
 test("callback accepts invitation then enters the app; returning login and logout stay explicit", async ({ page }) => {
@@ -160,4 +194,18 @@ test("malformed callback appState reports interrupted recovery without accepting
   await expect(page.getByText(/original invitation link/)).toBeVisible();
   expect(acceptCalls).toBe(0);
   await expect(page.locator("body")).not.toContainText("client-tenant");
+});
+
+test("a consumed callback with missing appState reports truthful interrupted recovery", async ({ page }) => {
+  await installAuth(page, { callbackAppState: null });
+  let contextCalls = 0;
+  await page.route(`${apiBaseUrl}/api/auth/context`, route => {
+    contextCalls += 1;
+    return route.abort();
+  });
+
+  await page.goto("/auth/callback?code=bounded-code&state=bounded-state");
+  await expect(page.getByRole("heading", { name: "Sign-in was interrupted" })).toBeVisible();
+  await expect(page.getByText(/return to sign in and try again/i)).toBeVisible();
+  expect(contextCalls).toBe(0);
 });

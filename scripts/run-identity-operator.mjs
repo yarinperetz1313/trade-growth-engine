@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { open } from "node:fs/promises";
+import { lstat, open, unlink } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import pg from "pg";
 
@@ -42,10 +42,78 @@ export async function runIdentityOperator({
   logger = console,
   Pool = pg.Pool,
   fetchImpl = fetch,
-  writeInvitation = writeInvitationFile
+  reserveInvitation = reserveInvitationFile
 } = {}) {
   const args = parseOperatorArguments(argv);
   const databaseUrl = exactPostgresUrl(required(env, "TGE_IDENTITY_OPERATOR_DATABASE_URL"));
+  const common = {
+    tenantId: required(env, "TGE_IDENTITY_TENANT_ID"),
+    apply: args.apply,
+    confirmation: args.confirmation
+  };
+
+  if (args.command === "invite") {
+    validateInviteEnvironment(env, { apply: args.apply });
+    const input = invitationInput(env, common);
+    const publicAppUrl = exactHttpsOrigin(required(env, "TGE_PUBLIC_APP_URL"));
+    const outputFile = validateInvitationOutputPath(
+      required(env, "TGE_IDENTITY_INVITATION_OUTPUT_FILE")
+    );
+    const config = {
+      issuer: required(env, "TGE_AUTH0_ISSUER"),
+      managementApiBaseUrl: required(env, "TGE_AUTH0_MANAGEMENT_API_URL"),
+      connection: required(env, "TGE_AUTH0_EMAIL_CONNECTION")
+    };
+    const managementToken = args.apply
+      ? required(env, "TGE_AUTH0_MANAGEMENT_TOKEN")
+      : "dry-run-token";
+    const provisioner = new Auth0ProvisioningAdapter({
+      config,
+      accessTokenProvider: async () => managementToken,
+      fetchImpl
+    });
+    const plan = new IdentityOperationsService({ repository: {} })
+      .planProvisionedInvitation(input);
+
+    if (!args.apply) {
+      return emitEvidence({ args, result: plan, logger, invitationOutputWritten: false });
+    }
+
+    let reservation;
+    let pool;
+    try {
+      reservation = await reserveInvitation({ file: outputFile });
+      pool = new Pool({
+        connectionString: databaseUrl,
+        application_name: "tge-identity-operator",
+        max: 1
+      });
+      const repository = new PostgresIdentityOperatorRepository({ pool });
+      const service = new IdentityOperationsService({ repository, provisioner });
+      const result = await service.createProvisionedInvitation(input);
+      if (result.token) {
+        await reservation.commit({ publicAppUrl, token: result.token });
+      } else {
+        await reservation.abort();
+      }
+      return emitEvidence({
+        args,
+        result,
+        logger,
+        invitationOutputWritten: Boolean(result.token)
+      });
+    } catch (error) {
+      try {
+        await reservation?.abort();
+      } catch {
+        throw operatorError("INVITATION_OUTPUT_CLEANUP_FAILED");
+      }
+      throw error;
+    } finally {
+      await pool?.end().catch(() => {});
+    }
+  }
+
   const pool = new Pool({
     connectionString: databaseUrl,
     application_name: "tge-identity-operator",
@@ -53,11 +121,6 @@ export async function runIdentityOperator({
   });
   try {
     const repository = new PostgresIdentityOperatorRepository({ pool });
-    const common = {
-      tenantId: required(env, "TGE_IDENTITY_TENANT_ID"),
-      apply: args.apply,
-      confirmation: args.confirmation
-    };
     let result;
     if (args.command === "bootstrap") {
       const service = new IdentityOperationsService({ repository });
@@ -91,57 +154,28 @@ export async function runIdentityOperator({
           subject: required(env, "TGE_IDENTITY_ACTOR_SUBJECT")
         }
       });
-    } else if (!args.apply) {
-      validateInviteEnvironment(env);
-      new Auth0ProvisioningAdapter({
-        config: {
-          issuer: required(env, "TGE_AUTH0_ISSUER"),
-          managementApiBaseUrl: required(env, "TGE_AUTH0_MANAGEMENT_API_URL"),
-          connection: required(env, "TGE_AUTH0_EMAIL_CONNECTION")
-        },
-        accessTokenProvider: async () => "dry-run-token",
-        fetchImpl
-      });
-      exactHttpsOrigin(required(env, "TGE_PUBLIC_APP_URL"));
-      validateInvitationOutputPath(required(env, "TGE_IDENTITY_INVITATION_OUTPUT_FILE"));
-      result = new IdentityOperationsService({ repository })
-        .planProvisionedInvitation(invitationInput(env, common));
     } else {
-      const provisioner = new Auth0ProvisioningAdapter({
-        config: {
-          issuer: required(env, "TGE_AUTH0_ISSUER"),
-          managementApiBaseUrl: required(env, "TGE_AUTH0_MANAGEMENT_API_URL"),
-          connection: required(env, "TGE_AUTH0_EMAIL_CONNECTION")
-        },
-        accessTokenProvider: async () => required(env, "TGE_AUTH0_MANAGEMENT_TOKEN"),
-        fetchImpl
-      });
-      const service = new IdentityOperationsService({ repository, provisioner });
-      result = await service.createProvisionedInvitation(invitationInput(env, common));
-      if (result.token) {
-        await writeInvitation({
-          file: required(env, "TGE_IDENTITY_INVITATION_OUTPUT_FILE"),
-          publicAppUrl: exactHttpsOrigin(required(env, "TGE_PUBLIC_APP_URL")),
-          token: result.token
-        });
-      }
+      throw operatorError("COMMAND_INVALID");
     }
-
-    const evidence = {
-      ok: true,
-      operation: args.command,
-      mode: args.apply ? "apply" : "dry-run",
-      status: result.status,
-      invitation_output_written: Boolean(result.token)
-    };
-    logger.log(JSON.stringify(evidence));
-    return evidence;
+    return emitEvidence({ args, result, logger, invitationOutputWritten: false });
   } finally {
     await pool.end().catch(() => {});
   }
 }
 
-function validateInviteEnvironment(env) {
+function emitEvidence({ args, result, logger, invitationOutputWritten }) {
+  const evidence = {
+    ok: true,
+    operation: args.command,
+    mode: args.apply ? "apply" : "dry-run",
+    status: result.status,
+    invitation_output_written: invitationOutputWritten
+  };
+  logger.log(JSON.stringify(evidence));
+  return evidence;
+}
+
+function validateInviteEnvironment(env, { apply }) {
   for (const name of [
     "TGE_IDENTITY_TENANT_ID",
     "TGE_IDENTITY_OPERATION_ID",
@@ -156,23 +190,92 @@ function validateInviteEnvironment(env) {
     "TGE_AUTH0_MANAGEMENT_API_URL",
     "TGE_AUTH0_EMAIL_CONNECTION"
   ]) required(env, name);
+  if (apply) required(env, "TGE_AUTH0_MANAGEMENT_TOKEN");
 }
 
-async function writeInvitationFile({ file, publicAppUrl, token }) {
+export async function reserveInvitationFile({ file }) {
   validateInvitationOutputPath(file);
-  const handle = await open(file, "wx", 0o600);
+  let handle;
   try {
-    const invitationUrl = `${publicAppUrl}/#/invite?token=${encodeURIComponent(token)}`;
-    await handle.writeFile(`${JSON.stringify({ invitationUrl })}\n`, { encoding: "utf8" });
-  } finally {
-    await handle.close();
+    handle = await open(file, "wx", 0o600);
+  } catch {
+    throw operatorError("INVITATION_OUTPUT_UNAVAILABLE");
   }
+  let reserved;
+  let closed = false;
+  try {
+    await handle.chmod(0o600);
+    reserved = await handle.stat();
+    if (!reserved.isFile() || reserved.nlink !== 1 || (reserved.mode & 0o777) !== 0o600) {
+      throw operatorError("INVITATION_OUTPUT_INVALID");
+    }
+  } catch (error) {
+    await handle.close();
+    try {
+      await removeExactReservation(file, reserved);
+    } catch {
+      throw operatorError("INVITATION_OUTPUT_CLEANUP_FAILED");
+    }
+    throw error;
+  }
+
+  const close = async () => {
+    if (!closed) {
+      closed = true;
+      await handle.close();
+    }
+  };
+  return Object.freeze({
+    async commit({ publicAppUrl, token }) {
+      if (closed) throw operatorError("INVITATION_OUTPUT_INVALID");
+      await assertExactReservation(file, reserved);
+      const invitationUrl = `${publicAppUrl}/#/invite?token=${encodeURIComponent(token)}`;
+      await handle.writeFile(`${JSON.stringify({ invitationUrl })}\n`, { encoding: "utf8" });
+      await handle.sync();
+      await assertExactReservation(file, reserved);
+      await close();
+    },
+    async abort() {
+      await close();
+      await removeExactReservation(file, reserved);
+    }
+  });
+}
+
+async function assertExactReservation(file, reserved) {
+  const current = await lstat(file);
+  if (
+    !reserved
+    || !current.isFile()
+    || current.isSymbolicLink()
+    || current.dev !== reserved.dev
+    || current.ino !== reserved.ino
+    || current.nlink !== 1
+    || (current.mode & 0o777) !== 0o600
+  ) throw operatorError("INVITATION_OUTPUT_INVALID");
+}
+
+async function removeExactReservation(file, reserved) {
+  if (!reserved) return;
+  let current;
+  try {
+    current = await lstat(file);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  if (
+    current.isFile()
+    && !current.isSymbolicLink()
+    && current.dev === reserved.dev
+    && current.ino === reserved.ino
+  ) await unlink(file);
 }
 
 function invitationInput(env, common) {
   return {
+    ...common,
     operationId: required(env, "TGE_IDENTITY_OPERATION_ID"),
-    tenantId: common.tenantId,
     actor: {
       issuer: required(env, "TGE_IDENTITY_ACTOR_ISSUER"),
       subject: required(env, "TGE_IDENTITY_ACTOR_SUBJECT")

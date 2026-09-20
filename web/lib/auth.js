@@ -133,9 +133,12 @@ export async function createBrowserAuth({
   });
 }
 
-function boundedCallbackState(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const result = {};
+export function boundedCallbackState(value) {
+  const result = { callbackConsumed: true };
+  if (value === undefined || value === null) return Object.freeze(result);
+  if (typeof value !== "object" || Array.isArray(value)) {
+    return Object.freeze({ ...result, appStateInvalid: true });
+  }
   if (value.invitationToken !== undefined) {
     result.invitationToken = typeof value.invitationToken === "string"
       && /^[A-Za-z0-9_-]{43}$/.test(value.invitationToken)

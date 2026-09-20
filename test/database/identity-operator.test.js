@@ -127,7 +127,9 @@ if (!databaseUrl) {
       actor: { issuer, subject: "auth0|owner-one" },
       email: "invited@example.test",
       role: "MEMBER",
-      expiresAt: "2099-09-21T00:00:00.000Z"
+      expiresAt: "2099-09-21T00:00:00.000Z",
+      apply: true,
+      confirmation: "CREATE_PROVISIONED_INVITATION"
     };
     const created = await provisionedService.createProvisionedInvitation(input);
     assert.equal(created.status, "CREATED");
@@ -182,6 +184,28 @@ if (!databaseUrl) {
       "select status from tge.assisted_invitations where id = $1",
       [operationId]
     )).rows[0].status, "REVOKED");
+
+    let deniedProviderCalls = 0;
+    const deniedService = new IdentityOperationsService({
+      repository,
+      provisioner: {
+        async provisionIdentity() {
+          deniedProviderCalls += 1;
+          return { issuer, subject: "email|must-not-exist" };
+        }
+      },
+      now: () => new Date("2026-09-20T00:00:00.000Z")
+    });
+    await assert.rejects(deniedService.createProvisionedInvitation({
+      ...input,
+      operationId: randomUUID(),
+      actor: { issuer, subject: "auth0|not-an-owner" },
+      email: "denied@example.test"
+    }), error => error?.code === "IDENTITY_OPERATION_DENIED");
+    assert.equal(deniedProviderCalls, 0);
+    assert.equal(Number((await pool.query(
+      "select count(*) from tge.assisted_invitations where normalized_email = 'denied@example.test'"
+    )).rows[0].count), 0);
   });
 
   test("membership revocation is dry-run, audited, idempotent, cross-tenant safe, and protects last OWNER/terminal tenant", async () => {

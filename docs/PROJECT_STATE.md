@@ -1,5 +1,33 @@
 # Project State
 
+External Pilot One identity remediation cycle **1/3** addresses the three P2
+roots found by fresh review of `6a050bd225e8f58b522955f2b028556c63a16c56`.
+Auth0 lookup, create, and conflict reconciliation now require exactly one
+identity on the configured passwordless-email connection, the `email` provider,
+and an exact reconstructed authoritative subject. Invitation apply validates all
+inputs, reserves a new `0600` capability file, and proves privileged database plus
+exact active same-tenant OWNER authority before any provider access; the final
+transaction revalidates authority and terminal state. Invalid/existing output or
+denied authority leaves no provider or application-data mutation.
+
+A valid invitation fragment now precedes ordinary membership resolution even for
+an already-authenticated Auth0 session, while remaining passive until the user
+explicitly continues. Acceptance still uses a fresh bearer token and server-side
+issuer/subject binding before membership context. Consumed callbacks with missing
+state now report interrupted sign-in recovery rather than silently attempting
+membership lookup. No browser tenant authority, public signup, Organizations,
+tenant switching, application invitation administration, migration, RLS, money,
+import, or RevenueAction boundary changed.
+
+Cycle 1 regressions are RED **17/24** in the focused base reproduction and RED
+**4/6** in managed Chromium on reviewed HEAD `6a050bd`; they are GREEN **68/68**
+across the affected security/auth/operator set, **23/23** in focused real
+PostgreSQL identity/offboarding, and **6/6** in managed Chromium. The complete
+gate passes: integration **520/520**, PostgreSQL **94/94**, Chromium **90/90**,
+engineering harness, and the 36-module production build with the existing chunk
+warning. A fresh independent review of the remediation checkpoint remains
+required.
+
 External Pilot One identity foundation is implemented locally from exact base
 `44ebebb8da92c8493985e9160d96ba836cba1f8f` on
 `feat/external-pilot-identity-foundation`. It adds a dry-run/explicit-apply
