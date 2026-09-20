@@ -27,6 +27,7 @@
 | Diff/artifact hygiene | `git diff --check`; `git diff 44ebebb -- src database web`; status inspection | **PASS:** no product/runtime/auth/domain/migration/browser source change; generated `dist/` remains ignored. |
 
 ## Review and handoff
+- Implementation checkpoint: `aded1a83fac101a7a34f0fc7b769dac6aa99eaf0`.
 - Implementer self-check: scope, secret/reference separation, fail-closed provider defaults, maintenance exit semantics, and changed-file boundaries reviewed; no in-scope blocking finding remains.
 - Fresh reviewer findings/resolution: coordinator-owned after this checkpoint.
 - Final-review evidence: pending independent review of the pinned checkpoint.
