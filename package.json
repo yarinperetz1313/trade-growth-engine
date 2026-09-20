@@ -16,6 +16,7 @@
     "start": "node src/pilot/index.js",
     "db:migrate": "node scripts/migrate-db.mjs",
     "maintenance:cleanup": "node scripts/run-maintenance-cleanup.mjs",
+    "identity:operator": "node scripts/run-identity-operator.mjs",
     "acceptance:pilot": "node scripts/run-assisted-pilot-acceptance.mjs",
     "test:integration": "node --test test/*.test.js",
     "test:db": "node --test --test-concurrency=1 test/database/*.test.js",

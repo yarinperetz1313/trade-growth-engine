@@ -89,16 +89,35 @@ export async function createBrowserAuth({
     }
   });
   registerBrowserAccessTokenProvider(() => client.getTokenSilently());
+  let callbackState = null;
 
   return Object.freeze({
+    callbackUrl: redirectUri,
+    login(returnRoute = "opportunities") {
+      return client.loginWithRedirect({
+        authorizationParams: { redirect_uri: redirectUri },
+        appState: {
+          returnRoute: ["opportunities", "imports"].includes(returnRoute)
+            ? returnRoute
+            : "opportunities"
+        }
+      });
+    },
     loginWithInvitation(invitationToken) {
       return client.loginWithRedirect({
         authorizationParams: { redirect_uri: redirectUri },
-        appState: { invitationToken }
+        appState: { invitationToken, returnRoute: "opportunities" }
       });
     },
-    handleCallback() {
-      return client.handleRedirectCallback();
+    async handleCallback() {
+      const result = await client.handleRedirectCallback();
+      callbackState = boundedCallbackState(result?.appState);
+      return result;
+    },
+    takeCallbackState() {
+      const current = callbackState;
+      callbackState = null;
+      return current;
     },
     logout() {
       return client.logout({
@@ -107,8 +126,26 @@ export async function createBrowserAuth({
     },
     getAccessToken() {
       return client.getTokenSilently();
+    },
+    isAuthenticated() {
+      return client.isAuthenticated();
     }
   });
+}
+
+function boundedCallbackState(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const result = {};
+  if (value.invitationToken !== undefined) {
+    result.invitationToken = typeof value.invitationToken === "string"
+      && /^[A-Za-z0-9_-]{43}$/.test(value.invitationToken)
+      ? value.invitationToken
+      : "INVALID";
+  }
+  if (["opportunities", "imports"].includes(value.returnRoute)) {
+    result.returnRoute = value.returnRoute;
+  }
+  return Object.freeze(result);
 }
 
 function allowedUrlForOrigin(urls, origin, label) {

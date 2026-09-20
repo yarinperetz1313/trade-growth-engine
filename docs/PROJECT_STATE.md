@@ -1,5 +1,25 @@
 # Project State
 
+External Pilot One identity foundation is implemented locally from exact base
+`44ebebb8da92c8493985e9160d96ba836cba1f8f` on
+`feat/external-pilot-identity-foundation`. It adds a dry-run/explicit-apply
+operator boundary for exact first-tenant/OWNER bootstrap, server-only Auth0 user
+provisioning plus atomically identity-bound invitations, pending-invitation
+revocation, and individual membership revocation with terminal-tenant,
+cross-tenant, multiple-membership, and last-OWNER guards. Application invitation
+administration remains fail-closed without a real step-up policy.
+
+The production browser now composes explicit invitation begin, Auth0 redirect,
+bounded callback `appState`, callback scrubbing, invitation acceptance, returning
+login, logout, and generic wrong-user/expired/replayed/interrupted recovery. It
+adds no public signup, Organizations, tenant switching, browser tenant claims,
+or local-storage token authority. Local provider behavior uses an injected fake;
+no test calls Auth0. Exact verification evidence and checkpoint are recorded in
+the active identity plan. Live Auth0 AU/plan entitlement, exact issuer/audience/
+allowlists, Management API `read:users` plus `create:users`, custom-domain card
+verification, SMTP/OTP, operator credentials, privacy/legal/customer approval,
+and real external acceptance remain gates rather than shipped evidence.
+
 _Last locally audited on 2026-09-20. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
 External Pilot One deployment/operations foundation is active from exact clean

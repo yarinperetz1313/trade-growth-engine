@@ -94,6 +94,14 @@ same bounded `SECURE_RUNTIME_NOT_READY` response without attempting partial
 work. Once ready, every business API still crosses normal authentication,
 membership authorization, tenant predicates, transactions, and forced RLS.
 
+Readiness does not enable application invitation administration. The Pilot
+composition deliberately injects an unavailable sensitive-action and
+provisioning policy: application invitation creation/revocation returns generic
+`ACCESS_DENIED`, and no provider-provisioning route exists. The separately
+reviewed [identity operator runbook](../operations/IDENTITY_OPERATOR_RUNBOOK.md)
+is the assisted External Pilot One boundary until a genuine application step-up
+policy is approved and implemented.
+
 The readiness probe is bounded by configured timeouts and proves:
 
 - the process constructed the exact Auth0 verifier configuration (not that the
