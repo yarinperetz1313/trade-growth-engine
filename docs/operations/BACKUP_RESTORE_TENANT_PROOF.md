@@ -7,9 +7,10 @@ Cloud SQL provider drill. A successful local run is labelled
 ## Local PostgreSQL 16.15 rehearsal
 
 Prepare two fresh loopback databases on one isolated PostgreSQL 16.15 server.
-The source must have migrations `001`–`016`, at least two synthetic tenants, an
-active selected-tenant membership, a due raw-import cleanup case, and an
-offboarded unrelated tenant. The restore target must be empty. Create distinct
+The source must have the complete ordered repository migration ledger `001`–`016`,
+an active selected tenant, an active unrelated tenant with actual data, a due
+raw-import cleanup case, and a third tenant with pending offboarding, stale
+membership/invitation access, and expired raw evidence. The restore target must be empty. Create distinct
 nonprivileged login roles which inherit only `tge_runtime` and
 `tge_maintenance`, respectively.
 
@@ -17,6 +18,14 @@ Set only the purpose-specific variables below. The command rejects generic
 `DATABASE_URL`, production-like database names, a reused source/target, unsafe
 identifiers, non-loopback local URLs, and an inexact disposable-target
 acknowledgement.
+
+Every PostgreSQL URL is parsed into one canonical endpoint used identically by
+`pg.Client`, `pg_dump`, and `pg_restore`. URL query parameters are rejected
+except the exact safe values `application_name=tge-backup-restore-proof` and
+`sslmode=verify-full`; routing, service-file, password-file, client-certificate,
+session-option, and credential overrides fail closed. Credentials are supplied
+to PostgreSQL child processes only through a sanitized environment, never in
+arguments or evidence. Ambient `PG*` routing variables are not inherited.
 
 ```sh
 export TGE_BACKUP_RESTORE_MODE=LOCAL_LOGICAL_REHEARSAL
@@ -35,13 +44,18 @@ npm run proof:backup-restore
 
 The command performs a full `pg_dump` custom-format backup, restores it with
 `pg_restore`, runs due raw cleanup and pending offboarding **before traffic**,
-verifies the complete migration ledger/checksums, and compares a logical tenant
+verifies every ordered migration filename and repository-computed checksum, and compares a logical tenant
 manifest across source and restore. It verifies exact monetary/currency and
-known-zero/unknown classifications by digest without persisting the values. It
+known-zero/unknown classifications through the existing tenant-scoped
+repositories without persisting the values. It
 also verifies relationship constraints, no external send claim, nonprivileged
-runtime and forced RLS, own-tenant visibility, forged cross-tenant write denial,
-unrelated-tenant isolation, expired raw scrubbing, and denial of offboarded
-access reopening.
+runtime readiness and forced RLS, prohibited transitive membership and `SET
+ROLE`, object ownership and required/prohibited grants, own-tenant repository
+reads, forged cross-tenant read/write denial, active unrelated-tenant data
+isolation, expired raw scrubbing, and offboarded authentication lookup/reopen
+denial. The manifest inventory is also checked against every current `tge` table
+with a `tenant_id` column so a newly added tenant table cannot be silently
+omitted.
 
 The durable logical tenant manifest contains only table row counts and
 deterministic SHA-256 digests. It contains no subjects, emails, filenames,
@@ -51,7 +65,16 @@ portable tenant-data import package.
 
 The sensitive full archive is removed, the local disposable restore database
 is dropped, and the evidence records cleanup. The source is never dropped or
-modified.
+modified. One idempotent lifecycle owns clients, PostgreSQL children, the
+archive, temporary directory, and the preflight-validated target. It performs
+bounded cleanup on `SIGINT`/`SIGTERM` before preserving the original signal;
+cleanup failure is reported and never hidden behind the primary command error.
+
+This local rehearsal uses one PostgreSQL cluster whose global roles already
+exist. It fail-closes unless the owner/migrator/runtime/maintenance role graph is
+correct, but it **does not prove role recreation on a fresh Cloud SQL cluster**.
+The provider drill must reconstruct and validate those global roles before the
+restore can be considered usable.
 
 ## Recovery objectives
 
@@ -74,8 +97,13 @@ operator approval. They remain an **external provider action**:
    instance; never restore over the live instance or point application traffic
    at it.
 5. Provision separate target admin, runtime, and maintenance credentials. Run
-   due cleanup before traffic, then execute the same ledger, manifest, money,
+   the reviewed cluster-role reconstruction/preflight. Run due cleanup before
+   traffic, then execute the same ledger, manifest, money,
    relationship, RLS, isolation, raw-expiry, offboarding, and no-send checks.
+   A backup may restore memberships or invitations that were revoked after the
+   backup time: reconcile the restored access state against the current
+   authoritative identity/membership source and apply every later revocation
+   before any application traffic is permitted.
 6. Record provider-observed backup age for RPO and restore start through verified
    completion for RTO. Label provider evidence separately from local proof.
 7. After evidence review, revoke temporary credentials and delete the isolated

@@ -1,13 +1,17 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { readMigrations } from "./migrate-db.mjs";
 
-const { Client } = pg;
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const { Client, Pool } = pg;
+const require = createRequire(import.meta.url);
+const { createPostgresRepositories } = require("../src/persistence/postgres/repositories");
+const { createTenantContext } = require("../src/persistence/tenantContext");
 const LOCAL_MODE = "LOCAL_LOGICAL_REHEARSAL";
 const PROVIDER_MODE = "CLOUD_SQL_AU_ISOLATED_VERIFICATION";
 const DISPOSABLE_ACK = "I_ACKNOWLEDGE_TARGET_DATABASE_IS_DISPOSABLE";
@@ -39,8 +43,24 @@ const MANIFEST_TABLES = Object.freeze([
   ["data_deletion_evidence", "tenant_id", "id"],
   ["tenant_offboarding_requests", "tenant_id", "tenant_id"]
 ]);
+const RUNTIME_SELECT_TABLES = Object.freeze(
+  MANIFEST_TABLES.map(([table]) => table).filter(table => table !== "data_deletion_evidence")
+);
+const RUNTIME_SEQUENCE_NAMES = Object.freeze([
+  "prospects_live_ordinal_seq",
+  "opportunities_live_ordinal_seq",
+  "tasks_live_ordinal_seq",
+  "activities_live_ordinal_seq",
+  "revenue_actions_live_ordinal_seq"
+]);
 const RPO_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 const RTO_THRESHOLD_MS = 4 * 60 * 60 * 1000;
+const SIGNALS = Object.freeze(["SIGINT", "SIGTERM"]);
+const DEFAULT_SIGNAL_CLEANUP_TIMEOUT_MS = 10_000;
+const SAFE_URL_PARAMETERS = Object.freeze({
+  application_name: new Set(["tge-backup-restore-proof"]),
+  sslmode: new Set(["verify-full"])
+});
 
 export class BackupRestoreConfigurationError extends Error {
   constructor() {
@@ -63,10 +83,10 @@ export function readBackupRestoreConfig(env = process.env) {
   if (!env || GENERIC_DATABASE_VARIABLES.some(name => present(env[name]))) invalid();
   const mode = exact(env.TGE_BACKUP_RESTORE_MODE);
   if (![LOCAL_MODE, PROVIDER_MODE].includes(mode)) invalid();
-  const source = parseDatabaseUrl(env.TGE_BACKUP_SOURCE_ADMIN_URL);
-  const target = parseDatabaseUrl(env.TGE_RESTORE_TARGET_ADMIN_URL);
-  const runtime = parseDatabaseUrl(env.TGE_RESTORE_TARGET_RUNTIME_URL);
-  const maintenance = parseDatabaseUrl(env.TGE_RESTORE_TARGET_MAINTENANCE_URL);
+  const source = buildPostgresAuthority(env.TGE_BACKUP_SOURCE_ADMIN_URL);
+  const target = buildPostgresAuthority(env.TGE_RESTORE_TARGET_ADMIN_URL);
+  const runtime = buildPostgresAuthority(env.TGE_RESTORE_TARGET_RUNTIME_URL);
+  const maintenance = buildPostgresAuthority(env.TGE_RESTORE_TARGET_MAINTENANCE_URL);
   if (databaseIdentity(source) === databaseIdentity(target)) invalid();
   if (mode === LOCAL_MODE && source.database === target.database) invalid();
   if (databaseIdentity(runtime) !== databaseIdentity(target)) invalid();
@@ -99,13 +119,13 @@ export function readBackupRestoreConfig(env = process.env) {
     source: publicDatabaseIdentity(source),
     target: publicDatabaseIdentity(target)
   };
-  Object.defineProperty(config, "urls", {
+  Object.defineProperty(config, "authorities", {
     enumerable: false,
     value: Object.freeze({
-      sourceAdmin: env.TGE_BACKUP_SOURCE_ADMIN_URL,
-      targetAdmin: env.TGE_RESTORE_TARGET_ADMIN_URL,
-      targetRuntime: env.TGE_RESTORE_TARGET_RUNTIME_URL,
-      targetMaintenance: env.TGE_RESTORE_TARGET_MAINTENANCE_URL
+      sourceAdmin: source,
+      targetAdmin: target,
+      targetRuntime: runtime,
+      targetMaintenance: maintenance
     })
   });
   return Object.freeze(config);
@@ -114,7 +134,11 @@ export function readBackupRestoreConfig(env = process.env) {
 export async function runBackupRestoreDrill({
   env = process.env,
   commandRunner = runCommand,
-  now = () => new Date()
+  now = () => new Date(),
+  signalTarget = null,
+  signalCleanupTimeoutMs = DEFAULT_SIGNAL_CLEANUP_TIMEOUT_MS,
+  teardown = teardownLocalTarget,
+  remove = rm
 } = {}) {
   const config = readBackupRestoreConfig(env);
   if (config.mode === PROVIDER_MODE) {
@@ -125,41 +149,66 @@ export async function runBackupRestoreDrill({
 
   const startedAt = now();
   let phase = "PREFLIGHT";
-  let temporaryDirectory;
-  let archivePath;
-  let archiveDeleted = false;
-  let targetRemoved = false;
-  let targetValidatedDisposable = false;
+  const lifecycle = createDrillResourceLifecycle({ config, teardown, remove });
+  const signalLifecycle = signalTarget
+    ? installBackupRestoreSignalLifecycle({
+        target: signalTarget,
+        cleanupOnce: lifecycle.cleanupOnce,
+        timeoutMs: signalCleanupTimeoutMs
+      })
+    : null;
+  let result;
+  let primaryError;
   try {
+    const repositoryLedger = await readMigrations();
+    const terminalMigration = repositoryLedger.at(-1);
+    if (terminalMigration?.id !== config.expectedMigration.id
+      || terminalMigration?.checksum !== config.expectedMigration.checksum) {
+      fail("REPOSITORY_MIGRATION_IDENTITY");
+    }
     await mkdir(config.evidenceDirectory, { recursive: false, mode: 0o700 });
-    temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "tge-backup-restore-"));
-    archivePath = path.join(temporaryDirectory, "full-database.dump");
+    const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "tge-backup-restore-"));
+    const archivePath = path.join(temporaryDirectory, "full-database.dump");
+    lifecycle.setTemporaryDirectory(temporaryDirectory, archivePath);
 
-    const sourceClient = await connect(config.urls.sourceAdmin);
-    const targetClient = await connect(config.urls.targetAdmin);
+    const sourceClient = await connect(config.authorities.sourceAdmin, lifecycle);
+    const targetClient = await connect(config.authorities.targetAdmin, lifecycle);
     let sourceLedger;
     let sourceManifest;
     let sourceObservedAt;
     let unrelatedTenantId;
+    let unrelatedMembership;
     let selectedMembership;
-    let expiredBatchId;
+    let committedBatchId;
+    let offboardingTenantId;
+    let offboardingMembership;
+    let offboardingRequestId;
     try {
       await assertServerVersion(sourceClient);
       await assertServerVersion(targetClient);
       await assertTargetEmpty(targetClient);
-      targetValidatedDisposable = true;
+      lifecycle.validateDisposableTarget();
+      await assertClusterRoleContract(sourceClient);
+      await assertManifestCatalog(sourceClient);
       sourceLedger = await readAndVerifyLedger(
         sourceClient,
-        config.expectedMigration
+        repositoryLedger
       );
       const sourceContext = await readSourceContext(sourceClient, config.tenantId);
       sourceObservedAt = sourceContext.observedAt;
       unrelatedTenantId = sourceContext.unrelatedTenantId;
+      unrelatedMembership = sourceContext.unrelatedMembership;
       selectedMembership = sourceContext.selectedMembership;
-      expiredBatchId = sourceContext.expiredBatchId;
+      committedBatchId = sourceContext.committedBatchId;
+      offboardingTenantId = sourceContext.offboardingTenantId;
+      offboardingMembership = sourceContext.offboardingMembership;
+      offboardingRequestId = sourceContext.offboardingRequestId;
       sourceManifest = await buildTenantManifest(sourceClient, config.tenantId);
     } finally {
-      await Promise.allSettled([sourceClient.end(), targetClient.end()]);
+      await Promise.all([
+        closeTrackedClient(lifecycle, sourceClient),
+        closeTrackedClient(lifecycle, targetClient)
+      ]);
     }
 
     phase = "BACKUP";
@@ -168,8 +217,8 @@ export async function runBackupRestoreDrill({
       "--compress=9",
       "--no-password",
       `--file=${archivePath}`,
-      `--dbname=${passwordlessConnectionUrl(config.urls.sourceAdmin)}`
-    ], { env: postgresCommandEnvironment(config.urls.sourceAdmin) });
+      `--dbname=${config.authorities.sourceAdmin.database}`
+    ], { env: postgresCommandEnvironment(config.authorities.sourceAdmin), lifecycle });
     const archive = await readFile(archivePath);
     const archiveSha256 = sha256(archive);
     const backupCompletedAt = now();
@@ -179,53 +228,65 @@ export async function runBackupRestoreDrill({
     await commandRunner("pg_restore", [
       "--exit-on-error",
       "--no-password",
-      `--dbname=${passwordlessConnectionUrl(config.urls.targetAdmin)}`,
+      `--dbname=${config.authorities.targetAdmin.database}`,
       archivePath
-    ], { env: postgresCommandEnvironment(config.urls.targetAdmin) });
+    ], { env: postgresCommandEnvironment(config.authorities.targetAdmin), lifecycle });
 
     phase = "VERIFY_FULL_RESTORE_BEFORE_TRAFFIC";
-    const restoredAdmin = await connect(config.urls.targetAdmin);
+    const restoredAdmin = await connect(config.authorities.targetAdmin, lifecycle);
     try {
       const restoredLedger = await readAndVerifyLedger(
         restoredAdmin,
-        config.expectedMigration
+        repositoryLedger
       );
       assertSameLedger(sourceLedger, restoredLedger);
+      await assertClusterRoleContract(restoredAdmin);
+      await assertManifestCatalog(restoredAdmin);
       const restoredManifest = await buildTenantManifest(
         restoredAdmin,
         config.tenantId
       );
       assertSameManifest(sourceManifest, restoredManifest);
     } finally {
-      await restoredAdmin.end();
+      await closeTrackedClient(lifecycle, restoredAdmin);
     }
 
     phase = "DUE_CLEANUP_BEFORE_TRAFFIC";
-    const cleanup = await runDueCleanup(config.urls.targetMaintenance);
+    const cleanup = await runDueCleanup(
+      config.authorities.targetMaintenance,
+      offboardingRequestId,
+      lifecycle
+    );
 
     phase = "VERIFY_RESTORED_DATABASE";
-    const targetAdmin = await connect(config.urls.targetAdmin);
+    const targetAdmin = await connect(config.authorities.targetAdmin, lifecycle);
     let targetLedger;
     let targetManifest;
     let adminChecks;
     try {
-      targetLedger = await readAndVerifyLedger(targetAdmin, config.expectedMigration);
+      targetLedger = await readAndVerifyLedger(targetAdmin, repositoryLedger);
       assertSameLedger(sourceLedger, targetLedger);
       targetManifest = await buildTenantManifest(targetAdmin, config.tenantId);
       adminChecks = await runAdministrativeVerification(
         targetAdmin,
         config.tenantId,
-        unrelatedTenantId
+        unrelatedTenantId,
+        offboardingTenantId,
+        offboardingRequestId
       );
     } finally {
-      await targetAdmin.end();
+      await closeTrackedClient(lifecycle, targetAdmin);
     }
     const runtimeChecks = await runRuntimeVerification({
-      runtimeUrl: config.urls.targetRuntime,
+      runtimeAuthority: config.authorities.targetRuntime,
       tenantId: config.tenantId,
       unrelatedTenantId,
+      unrelatedMembership,
       selectedMembership,
-      expiredBatchId
+      committedBatchId,
+      offboardingTenantId,
+      offboardingMembership,
+      lifecycle
     });
     const verifiedAt = now();
     const backupAgeMs = verifiedAt.getTime() - sourceObservedAt.getTime();
@@ -233,10 +294,9 @@ export async function runBackupRestoreDrill({
     if (backupAgeMs < 0 || backupAgeMs > RPO_THRESHOLD_MS) fail("RPO");
     if (restoreToVerifiedMs < 0 || restoreToVerifiedMs > RTO_THRESHOLD_MS) fail("RTO");
 
-    await rm(archivePath, { force: true });
-    archiveDeleted = true;
-    await teardownLocalTarget(config.urls.targetAdmin, config.target.database);
-    targetRemoved = true;
+    phase = "SAFE_TEARDOWN";
+    await lifecycle.deleteArchive();
+    await lifecycle.removeTarget();
 
     phase = "RECORD_REDACTED_EVIDENCE";
     const tenantReference = sha256(config.tenantId);
@@ -259,7 +319,7 @@ export async function runBackupRestoreDrill({
         kind: "FULL_POSTGRESQL_CUSTOM_ARCHIVE",
         sha256: archiveSha256,
         created_at: backupCompletedAt.toISOString(),
-        sensitive_archive_deleted: archiveDeleted
+        sensitive_archive_deleted: lifecycle.archiveDeleted
       },
       recovery_objectives: {
         rpo_threshold_hours: 24,
@@ -286,8 +346,8 @@ export async function runBackupRestoreDrill({
         tenant_export_kind: "LOGICAL_MANIFEST_NOT_NATIVE_TENANT_RESTORE"
       },
       cleanup: {
-        restored_database: targetRemoved ? "REMOVED" : "FAILED",
-        sensitive_archive: archiveDeleted ? "REMOVED" : "FAILED",
+        restored_database: lifecycle.targetRemoved ? "REMOVED" : "FAILED",
+        sensitive_archive: lifecycle.archiveDeleted ? "REMOVED" : "FAILED",
         source_database: "UNCHANGED"
       },
       remaining_external_action:
@@ -295,31 +355,39 @@ export async function runBackupRestoreDrill({
     });
     await writeJson(path.join(config.evidenceDirectory, "tenant-manifest.json"), manifest);
     await writeJson(path.join(config.evidenceDirectory, "drill-evidence.json"), proof);
-    return Object.freeze({
+    result = Object.freeze({
       status: "VERIFIED",
       proofLabel: proof.proof_label,
       evidenceDirectory: config.evidenceDirectory
     });
   } catch (error) {
-    if (error instanceof BackupRestoreConfigurationError) throw error;
-    throw new BackupRestoreDrillError(error?.phase || phase);
+    primaryError = error instanceof BackupRestoreConfigurationError
+      ? error
+      : new BackupRestoreDrillError(error?.phase || phase);
   } finally {
-    if (!archiveDeleted && archivePath) await rm(archivePath, { force: true }).catch(() => {});
-    if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => {});
-    if (!targetRemoved && targetValidatedDisposable && config.mode === LOCAL_MODE) {
-      await teardownLocalTarget(config.urls.targetAdmin, config.target.database).catch(() => {});
+    signalLifecycle?.dispose();
+    try {
+      await lifecycle.cleanupOnce();
+    } catch {
+      throw new BackupRestoreDrillError(`CLEANUP_AFTER_${primaryError?.phase || phase}`);
     }
   }
+  if (primaryError) throw primaryError;
+  return result;
 }
 
 async function readSourceContext(client, tenantId) {
   const result = await client.query(
     `select clock_timestamp() observed_at,
        exists (select 1 from tge.tenants where id = $1::uuid) selected_exists,
-       (select id from tge.tenants
-         where id <> $1::uuid
-           and metadata->>'offboarding_state' = 'OFFBOARDED_ACCESS_REVOKED'
-         order by id limit 1) unrelated_tenant_id,
+       (select tenant.id from tge.tenants tenant
+         where tenant.id <> $1::uuid
+           and tenant.metadata->>'offboarding_state' is distinct from 'OFFBOARDED_ACCESS_REVOKED'
+           and exists (select 1 from tge.opportunities opportunity
+             where opportunity.tenant_id = tenant.id)
+           and not exists (select 1 from tge.tenant_offboarding_requests request
+             where request.tenant_id = tenant.id)
+         order by tenant.id limit 1) unrelated_tenant_id,
        (select identity_issuer from tge.tenant_memberships
          where tenant_id = $1::uuid and status = 'ACTIVE'
          order by identity_issuer, subject_id limit 1) identity_issuer,
@@ -328,14 +396,39 @@ async function readSourceContext(client, tenantId) {
          order by identity_issuer, subject_id limit 1) subject_id,
        (select id from tge.import_batches
          where tenant_id = $1::uuid and raw_expires_at <= clock_timestamp()
-         order by raw_expires_at, id limit 1) expired_batch_id`,
+         order by raw_expires_at, id limit 1) expired_batch_id,
+       (select id from tge.import_batches
+         where tenant_id = $1::uuid and status = 'COMMITTED'
+         order by id limit 1) committed_batch_id,
+       (select tenant_id from tge.tenant_offboarding_requests
+         where state = 'PENDING' order by tenant_id limit 1) offboarding_tenant_id,
+       (select request_id from tge.tenant_offboarding_requests
+         where state = 'PENDING' order by tenant_id limit 1) offboarding_request_id,
+       exists(select 1 from tge.assisted_invitations invitation
+         join tge.tenant_offboarding_requests request on request.tenant_id = invitation.tenant_id
+         where request.state = 'PENDING' and invitation.status = 'PENDING') offboarding_invitation,
+       exists(select 1 from tge.import_staging_records staging
+         join tge.tenant_offboarding_requests request on request.tenant_id = staging.tenant_id
+         where request.state = 'PENDING'
+           and (staging.raw_payload is not null or staging.conflict_details is not null)) offboarding_raw`,
     [tenantId]
   );
   if (!result.rows[0].selected_exists || !result.rows[0].unrelated_tenant_id
     || !result.rows[0].identity_issuer || !result.rows[0].subject_id
-    || !result.rows[0].expired_batch_id) {
+    || !result.rows[0].expired_batch_id || !result.rows[0].committed_batch_id
+    || !result.rows[0].offboarding_tenant_id || !result.rows[0].offboarding_request_id
+    || !result.rows[0].offboarding_invitation || !result.rows[0].offboarding_raw) {
     fail("SOURCE_FIXTURE");
   }
+  const memberships = await client.query(
+    `select tenant_id, identity_issuer, subject_id from tge.tenant_memberships
+     where tenant_id = any($1::uuid[]) and status = 'ACTIVE' and role = 'OWNER'
+     order by tenant_id, identity_issuer, subject_id`,
+    [[result.rows[0].unrelated_tenant_id, result.rows[0].offboarding_tenant_id]]
+  );
+  const membershipFor = id => memberships.rows.find(row => row.tenant_id === id);
+  if (!membershipFor(result.rows[0].unrelated_tenant_id)
+    || !membershipFor(result.rows[0].offboarding_tenant_id)) fail("SOURCE_FIXTURE");
   return {
     observedAt: new Date(result.rows[0].observed_at),
     unrelatedTenantId: result.rows[0].unrelated_tenant_id,
@@ -343,7 +436,17 @@ async function readSourceContext(client, tenantId) {
       identityIssuer: result.rows[0].identity_issuer,
       subjectId: result.rows[0].subject_id
     }),
-    expiredBatchId: result.rows[0].expired_batch_id
+    unrelatedMembership: Object.freeze({
+      identityIssuer: membershipFor(result.rows[0].unrelated_tenant_id).identity_issuer,
+      subjectId: membershipFor(result.rows[0].unrelated_tenant_id).subject_id
+    }),
+    offboardingMembership: Object.freeze({
+      identityIssuer: membershipFor(result.rows[0].offboarding_tenant_id).identity_issuer,
+      subjectId: membershipFor(result.rows[0].offboarding_tenant_id).subject_id
+    }),
+    committedBatchId: result.rows[0].committed_batch_id,
+    offboardingTenantId: result.rows[0].offboarding_tenant_id,
+    offboardingRequestId: result.rows[0].offboarding_request_id
   };
 }
 
@@ -372,16 +475,30 @@ async function readAndVerifyLedger(client, expected) {
     `select migration_id, file_name, checksum
      from tge_migration.schema_migrations order by migration_id`
   );
-  const last = result.rows.at(-1);
-  if (!last || last.migration_id !== expected.id || last.checksum !== expected.checksum) {
-    fail("MIGRATION_IDENTITY");
-  }
+  assertCompleteMigrationLedger(result.rows, expected);
   return result.rows;
 }
 
-async function runDueCleanup(url) {
-  const client = await connect(url);
+export function assertCompleteMigrationLedger(actual, expected) {
+  if (!Array.isArray(actual) || !Array.isArray(expected)
+    || actual.length !== expected.length) {
+    throw new Error("MIGRATION_LEDGER_INCOMPLETE");
+  }
+  for (let index = 0; index < expected.length; index += 1) {
+    const actualRow = actual[index];
+    const expectedRow = expected[index];
+    if (actualRow?.migration_id !== expectedRow?.id
+      || actualRow?.file_name !== expectedRow?.fileName
+      || actualRow?.checksum !== expectedRow?.checksum) {
+      throw new Error("MIGRATION_LEDGER_MISMATCH");
+    }
+  }
+}
+
+async function runDueCleanup(authority, expectedOffboardingRequestId, lifecycle) {
+  const client = await connect(authority, lifecycle);
   try {
+    await assertMaintenanceRole(client);
     await client.query("begin");
     const raw = await client.query(
       "select * from tge.process_due_raw_import_cleanup($1::integer)",
@@ -398,16 +515,25 @@ async function runDueCleanup(url) {
     if (offboarding.rows.some(row => row.state !== "OFFBOARDED_ACCESS_REVOKED")) {
       fail("OFFBOARDING_CLEANUP");
     }
+    if (!offboarding.rows.some(row => row.request_id === expectedOffboardingRequestId)) {
+      fail("OFFBOARDING_NOT_PROCESSED");
+    }
     return Object.freeze({ rawCleanup: "VERIFIED_BEFORE_TRAFFIC" });
   } catch (error) {
     await client.query("rollback").catch(() => {});
     throw error;
   } finally {
-    await client.end();
+    await closeTrackedClient(lifecycle, client);
   }
 }
 
-async function runAdministrativeVerification(client, tenantId, unrelatedTenantId) {
+async function runAdministrativeVerification(
+  client,
+  tenantId,
+  unrelatedTenantId,
+  offboardingTenantId,
+  offboardingRequestId
+) {
   const money = await client.query(
     `select encode(digest(coalesce(string_agg(value, E'\\n' order by value), ''), 'sha256'), 'hex') digest
      from (
@@ -459,6 +585,36 @@ async function runAdministrativeVerification(client, tenantId, unrelatedTenantId
              where invitation.tenant_id = tenant.id and invitation.status = 'PENDING'))`
   );
   if (offboarded.rows[0].unsafe !== 0) fail("OFFBOARDED_ACCESS");
+  const offboardingProof = await client.query(
+    `select request.state, request.request_id,
+       tenant.metadata->>'offboarding_state' offboarding_state,
+       (select count(*)::integer from tge.tenant_memberships membership
+         where membership.tenant_id = request.tenant_id and membership.status = 'ACTIVE') active_memberships,
+       (select count(*)::integer from tge.assisted_invitations invitation
+         where invitation.tenant_id = request.tenant_id and invitation.status = 'PENDING') pending_invitations,
+       (select count(*)::integer from tge.import_staging_records staging
+         where staging.tenant_id = request.tenant_id
+           and (staging.raw_payload is not null or staging.conflict_details is not null)) raw_rows
+     from tge.tenant_offboarding_requests request
+     join tge.tenants tenant on tenant.id = request.tenant_id
+     where request.tenant_id = $1::uuid`,
+    [offboardingTenantId]
+  );
+  const offboardedRow = offboardingProof.rows[0];
+  if (!offboardedRow || offboardedRow.request_id !== offboardingRequestId
+    || offboardedRow.state !== "OFFBOARDED_ACCESS_REVOKED"
+    || offboardedRow.offboarding_state !== "OFFBOARDED_ACCESS_REVOKED"
+    || offboardedRow.active_memberships !== 0 || offboardedRow.pending_invitations !== 0
+    || offboardedRow.raw_rows !== 0) fail("OFFBOARDING_PROOF");
+  const unrelated = await client.query(
+    `select exists(select 1 from tge.tenant_memberships
+       where tenant_id = $1::uuid and status = 'ACTIVE') active_access,
+       exists(select 1 from tge.opportunities where tenant_id = $1::uuid) actual_data`,
+    [unrelatedTenantId]
+  );
+  if (!unrelated.rows[0].active_access || !unrelated.rows[0].actual_data) {
+    fail("UNRELATED_TENANT_INTACT");
+  }
   const pendingOffboarding = await client.query(
     `select count(*)::integer pending
      from tge.tenant_offboarding_requests
@@ -486,13 +642,17 @@ async function runAdministrativeVerification(client, tenantId, unrelatedTenantId
 }
 
 async function runRuntimeVerification({
-  runtimeUrl,
+  runtimeAuthority,
   tenantId,
   unrelatedTenantId,
+  unrelatedMembership,
   selectedMembership,
-  expiredBatchId
+  committedBatchId,
+  offboardingTenantId,
+  offboardingMembership,
+  lifecycle
 }) {
-  const client = await connect(runtimeUrl);
+  const client = await connect(runtimeAuthority, lifecycle);
   try {
     const role = await client.query(
       `select rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls,
@@ -503,6 +663,51 @@ async function runRuntimeVerification({
     if (!attributes || attributes.rolsuper || attributes.rolcreatedb
       || attributes.rolcreaterole || attributes.rolreplication
       || attributes.rolbypassrls || !attributes.runtime_member) fail("RUNTIME_ROLE");
+    const readiness = await client.query("select * from tge.pilot_runtime_readiness()");
+    if (readiness.rows[0]?.schema_version !== "016"
+      || !readiness.rows[0]?.runtime_role_member
+      || !readiness.rows[0]?.login_nonprivileged
+      || !readiness.rows[0]?.required_relations_available) fail("RUNTIME_READINESS");
+    await assertNoSetRole(client, ["tge_owner", "tge_migrator", "tge_maintenance"]);
+    const privileges = await client.query(
+      `select
+        has_schema_privilege(session_user, 'tge', 'USAGE') schema_usage,
+        has_schema_privilege(session_user, 'tge', 'CREATE') schema_create,
+        has_table_privilege(session_user, 'tge.opportunities', 'SELECT') opportunity_select,
+        has_table_privilege(session_user, 'tge.opportunities', 'TRUNCATE') opportunity_truncate,
+        has_function_privilege(session_user, 'tge.set_request_context(uuid,text,text)', 'EXECUTE') context_execute,
+        has_function_privilege(session_user, 'tge.pilot_runtime_readiness()', 'EXECUTE') readiness_execute,
+        has_schema_privilege(session_user, 'tge_migration', 'USAGE') migration_schema_usage,
+        (select has_table_privilege(session_user, ledger.oid, 'SELECT')
+          from pg_class ledger join pg_namespace namespace on namespace.oid = ledger.relnamespace
+          where namespace.nspname = 'tge_migration'
+            and ledger.relname = 'schema_migrations') ledger_select,
+        has_function_privilege(session_user, 'tge.process_due_raw_import_cleanup(integer)', 'EXECUTE') maintenance_execute,
+        (select count(*)::integer from (values ${RUNTIME_SELECT_TABLES.map(table => `('${table}')`).join(",")}) required(relname)
+          where not has_table_privilege(session_user, format('tge.%I', required.relname), 'SELECT')) missing_select,
+        (select count(*)::integer from (values ${RUNTIME_SEQUENCE_NAMES.map(name => `('${name}')`).join(",")}) required(relname)
+          where not has_sequence_privilege(session_user, format('tge.%I', required.relname), 'USAGE')) missing_sequence_usage,
+        (select count(*)::integer from pg_class relation
+          join pg_namespace namespace on namespace.oid = relation.relnamespace
+          where namespace.nspname = 'tge' and relation.relkind in ('r','p')
+            and (has_table_privilege(session_user, relation.oid, 'TRUNCATE')
+              or has_table_privilege(session_user, relation.oid, 'REFERENCES')
+              or has_table_privilege(session_user, relation.oid, 'TRIGGER'))) prohibited_table_grants,
+        (select count(*)::integer from pg_class relation
+          join pg_namespace namespace on namespace.oid = relation.relnamespace
+          where namespace.nspname in ('tge', 'tge_migration')
+            and pg_get_userbyid(relation.relowner) = session_user) owned_relations`
+    );
+    const privilege = privileges.rows[0];
+    if (!privilege.schema_usage || !privilege.opportunity_select
+      || !privilege.context_execute || !privilege.readiness_execute
+      || privilege.missing_select !== 0 || privilege.missing_sequence_usage !== 0) {
+      fail("RUNTIME_REQUIRED_GRANTS");
+    }
+    if (privilege.schema_create || privilege.opportunity_truncate
+      || privilege.migration_schema_usage || privilege.ledger_select
+      || privilege.maintenance_execute || privilege.prohibited_table_grants !== 0
+      || privilege.owned_relations !== 0) fail("RUNTIME_PROHIBITED_GRANTS");
     const rls = await client.query(
       `select count(*)::integer missing
        from (values ${MANIFEST_TABLES.map(([table]) => `('${table}')`).join(",")}) required(relname)
@@ -528,12 +733,23 @@ async function runRuntimeVerification({
     if (own.rows[0].tenant_ids?.length !== 1 || own.rows[0].tenant_ids[0] !== tenantId) {
       fail("OWN_TENANT");
     }
-    const expiredRaw = await client.query(
-      `select count(*)::integer visible
-       from tge.import_staging_records where import_batch_id = $1`,
-      [expiredBatchId]
+    await client.query("commit");
+    const journey = await runRestoredRepositoryJourney({
+      runtimeAuthority,
+      tenantId,
+      selectedMembership,
+      unrelatedTenantId,
+      unrelatedMembership,
+      offboardingTenantId,
+      offboardingMembership,
+      committedBatchId,
+      lifecycle
+    });
+    await client.query("begin");
+    await client.query(
+      "select tge.set_request_context($1::uuid, $2::text, $3::text)",
+      [tenantId, selectedMembership.identityIssuer, selectedMembership.subjectId]
     );
-    if (expiredRaw.rows[0].visible !== 0) fail("EXPIRED_RAW_VISIBLE");
     await client.query("savepoint forged_write");
     let crossTenantDenied = false;
     try {
@@ -548,40 +764,252 @@ async function runRuntimeVerification({
     }
     if (!crossTenantDenied) fail("CROSS_TENANT");
     await client.query("rollback");
-
-    await client.query("begin");
-    await client.query(
-      "select tge.set_request_context($1::uuid, $2::text, $3::text)",
-      [unrelatedTenantId, "urn:tge:restore-proof", "revoked-proof-subject"]
-    );
-    await client.query("savepoint reopen_attempt");
-    let reopenDenied = false;
-    try {
-      await client.query(
-        `insert into tge.assisted_invitations (
-           tenant_id, token_hash, normalized_email, intended_role, status,
-           created_by_subject_id, expires_at
-         ) values ($1::uuid, $2, 'restore-proof@example.invalid', 'MEMBER',
-           'PENDING', 'revoked-proof-subject', clock_timestamp() + interval '1 hour')`,
-        [unrelatedTenantId, sha256("offboarded-reopen-attempt")]
-      );
-    } catch (error) {
-      reopenDenied = error.code === "42501" || error.code === "23514";
-      await client.query("rollback to savepoint reopen_attempt");
-    }
-    if (!reopenDenied) fail("OFFBOARD_REOPEN");
-    await client.query("rollback");
     return Object.freeze({
       roleAndRls: "VERIFIED",
       ownTenant: "VERIFIED",
       crossTenant: "DENIED",
-      unrelatedTenant: "ISOLATED",
-      offboarded: "REOPEN_DENIED"
+      unrelatedTenant: journey.unrelated,
+      offboarded: journey.offboarded
     });
   } finally {
     await client.query("rollback").catch(() => {});
-    await client.end();
+    await closeTrackedClient(lifecycle, client);
   }
+}
+
+async function runRestoredRepositoryJourney({
+  runtimeAuthority,
+  tenantId,
+  selectedMembership,
+  unrelatedTenantId,
+  unrelatedMembership,
+  offboardingTenantId,
+  offboardingMembership,
+  committedBatchId,
+  lifecycle
+}) {
+  const pool = new Pool(postgresClientOptions(runtimeAuthority));
+  lifecycle.trackClient(pool);
+  try {
+    const repositories = createPostgresRepositories({ pool });
+    const selected = createTenantContext({
+      tenantId,
+      identityIssuer: selectedMembership.identityIssuer,
+      subjectId: selectedMembership.subjectId
+    });
+    const unrelated = createTenantContext({
+      tenantId: unrelatedTenantId,
+      identityIssuer: unrelatedMembership.identityIssuer,
+      subjectId: unrelatedMembership.subjectId
+    });
+    const offboarded = createTenantContext({
+      tenantId: offboardingTenantId,
+      identityIssuer: offboardingMembership.identityIssuer,
+      subjectId: offboardingMembership.subjectId
+    });
+    const prospects = await repositories.prospects.list(selected);
+    const opportunities = await repositories.opportunities.list(selected);
+    const tasks = await repositories.tasks.list(selected);
+    const activities = await repositories.activities.list(selected);
+    const actions = await repositories.revenueActions.list(selected);
+    const cases = await repositories.revenueLeakCases.list(selected);
+    const evidence = await repositories.pilotEvidence.list(selected);
+    const committed = await repositories.imports.findCommit(selected, committedBatchId);
+    if (prospects.length !== 1 || tasks.length !== 1 || activities.length !== 1
+      || actions.length !== 1 || cases.length !== 2 || evidence.length !== 1
+      || committed?.outcome !== "COMMITTED") fail("RESTORED_REPOSITORY_JOURNEY");
+    const byId = new Map(opportunities.map(record => [record.id, record]));
+    if (opportunities.length !== 3
+      || byId.get("opp-known")?.value !== 123.45
+      || byId.get("opp-known")?.currency !== "AUD"
+      || byId.get("opp-zero")?.value !== 0
+      || byId.get("opp-zero")?.currency !== "AUD"
+      || Object.hasOwn(byId.get("opp-unknown") || {}, "value")
+      || Object.hasOwn(byId.get("opp-unknown") || {}, "currency")) {
+      fail("RESTORED_MONEY_CLASSIFICATION");
+    }
+    const caseById = new Map(cases.map(record => [record.id, record]));
+    if (caseById.get("case-zero")?.commercial_value?.classification !== "KNOWN"
+      || String(caseById.get("case-zero")?.commercial_value?.amount) !== "0"
+      || caseById.get("case-zero")?.commercial_value?.currency !== "AUD"
+      || caseById.get("case-unknown")?.commercial_value?.classification !== "UNKNOWN"
+      || caseById.get("case-unknown")?.commercial_value?.amount !== null
+      || caseById.get("case-unknown")?.commercial_value?.currency !== null) {
+      fail("RESTORED_CASE_CLASSIFICATION");
+    }
+    if (await repositories.opportunities.findById(selected, "opp-b") !== null) {
+      fail("FORGED_CROSS_TENANT_READ");
+    }
+    const unrelatedOpportunities = await repositories.opportunities.list(unrelated);
+    if (unrelatedOpportunities.length !== 1
+      || unrelatedOpportunities[0].id !== "opp-b"
+      || await repositories.opportunities.findById(unrelated, "opp-known") !== null) {
+      fail("UNRELATED_TENANT_JOURNEY");
+    }
+    const lookup = await pool.connect();
+    try {
+      await lookup.query("begin");
+      await lookup.query(
+        "select tge.set_identity_context($1::text, $2::text)",
+        [offboardingMembership.identityIssuer, offboardingMembership.subjectId]
+      );
+      const membership = await lookup.query(
+        `select count(*)::integer visible from tge.tenant_memberships
+         where identity_issuer = $1 and subject_id = $2 and status = 'ACTIVE'`,
+        [offboardingMembership.identityIssuer, offboardingMembership.subjectId]
+      );
+      if (membership.rows[0].visible !== 0) fail("OFFBOARD_AUTH_LOOKUP");
+      await lookup.query("rollback");
+    } finally {
+      lookup.release();
+    }
+    if ((await repositories.opportunities.list(offboarded)).length !== 0) {
+      fail("OFFBOARD_DATA_VISIBLE");
+    }
+    let offboardedDenied = false;
+    try {
+      await repositories.tenantOffboarding.request(offboarded, {
+        confirmation: "OFFBOARD_ACCESS_AND_RAW_EVIDENCE"
+      });
+    } catch (error) {
+      offboardedDenied = error?.code === "42501" || error?.code === "23514";
+    }
+    if (!offboardedDenied) fail("OFFBOARD_REOPEN");
+    return Object.freeze({ unrelated: "ACTIVE_DATA_ISOLATED", offboarded: "AUTH_LOOKUP_DENIED" });
+  } finally {
+    await closeTrackedClient(lifecycle, pool);
+  }
+}
+
+async function assertNoSetRole(client, roleNames) {
+  for (const roleName of roleNames) {
+    await client.query("begin");
+    let denied = false;
+    try {
+      await client.query(`set role ${quoteIdentifier(roleName)}`);
+    } catch (error) {
+      denied = error.code === "42501";
+    } finally {
+      await client.query("rollback");
+    }
+    if (!denied) fail("PROHIBITED_SET_ROLE");
+  }
+}
+
+async function assertMaintenanceRole(client) {
+  const role = await client.query(
+    `select rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls,
+       pg_has_role(session_user, 'tge_maintenance', 'member') maintenance_member,
+       pg_has_role(session_user, 'tge_runtime', 'member') runtime_member,
+       pg_has_role(session_user, 'tge_migrator', 'member') migrator_member,
+       pg_has_role(session_user, 'tge_owner', 'member') owner_member,
+       (select count(*)::integer from pg_roles granted_role
+         where granted_role.rolname not in (session_user, 'tge_maintenance')
+           and pg_has_role(session_user, granted_role.oid, 'member')) other_memberships
+     from pg_roles where rolname = session_user`
+  );
+  const row = role.rows[0];
+  if (!row || row.rolsuper || row.rolcreatedb || row.rolcreaterole
+    || row.rolreplication || row.rolbypassrls || !row.maintenance_member
+    || row.runtime_member || row.migrator_member || row.owner_member
+    || row.other_memberships !== 0) {
+    fail("MAINTENANCE_ROLE");
+  }
+  await assertNoSetRole(client, ["tge_owner", "tge_migrator", "tge_runtime"]);
+  const grants = await client.query(
+    `select
+       has_schema_privilege(session_user, 'tge', 'USAGE') schema_usage,
+       has_schema_privilege(session_user, 'tge', 'CREATE') schema_create,
+       has_table_privilege(session_user, 'tge.opportunities', 'SELECT') opportunity_select,
+       (select count(*)::integer from pg_class relation
+         join pg_namespace namespace on namespace.oid = relation.relnamespace
+         where namespace.nspname in ('tge', 'tge_migration')
+           and pg_get_userbyid(relation.relowner) = session_user) owned_relations,
+       has_function_privilege(session_user, 'tge.process_due_raw_import_cleanup(integer)', 'EXECUTE') raw_execute,
+       has_function_privilege(session_user, 'tge.process_pending_tenant_offboarding(integer)', 'EXECUTE') offboard_execute`
+  );
+  const grant = grants.rows[0];
+  if (!grant.schema_usage || grant.schema_create || grant.opportunity_select
+    || grant.owned_relations !== 0 || !grant.raw_execute
+    || !grant.offboard_execute) fail("MAINTENANCE_PRIVILEGES");
+}
+
+async function assertClusterRoleContract(client) {
+  const roles = await client.query(
+    `select rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
+       rolreplication, rolbypassrls
+     from pg_roles where rolname = any($1::text[]) order by rolname`,
+    [["tge_owner", "tge_migrator", "tge_runtime", "tge_maintenance"]]
+  );
+  if (roles.rows.length !== 4 || roles.rows.some(role => role.rolcanlogin
+    || role.rolsuper || role.rolcreatedb || role.rolcreaterole
+    || role.rolreplication || role.rolbypassrls)) fail("CLUSTER_ROLE_PREREQUISITES");
+  const memberships = await client.query(
+    `select
+       pg_has_role('tge_migrator', 'tge_owner', 'member') migrator_owner,
+       pg_has_role('tge_runtime', 'tge_owner', 'member') runtime_owner,
+       pg_has_role('tge_runtime', 'tge_migrator', 'member') runtime_migrator,
+       pg_has_role('tge_runtime', 'tge_maintenance', 'member') runtime_maintenance,
+       pg_has_role('tge_maintenance', 'tge_owner', 'member') maintenance_owner,
+       pg_has_role('tge_maintenance', 'tge_migrator', 'member') maintenance_migrator,
+       pg_has_role('tge_maintenance', 'tge_runtime', 'member') maintenance_runtime,
+       (select count(*)::integer from pg_roles granted_role
+         where granted_role.rolname not in ('tge_migrator', 'tge_owner')
+           and pg_has_role('tge_migrator', granted_role.oid, 'member')) migrator_other,
+       (select count(*)::integer from pg_roles granted_role
+         where granted_role.rolname <> 'tge_owner'
+           and pg_has_role('tge_owner', granted_role.oid, 'member')) owner_other`
+  );
+  const member = memberships.rows[0];
+  if (!member.migrator_owner || member.runtime_owner || member.runtime_migrator
+    || member.runtime_maintenance || member.maintenance_owner
+    || member.maintenance_migrator || member.maintenance_runtime
+    || member.migrator_other !== 0 || member.owner_other !== 0) {
+    fail("CLUSTER_ROLE_MEMBERSHIP");
+  }
+  const ownership = await client.query(
+    `select count(*)::integer incorrect from (
+       select pg_get_userbyid(relation.relowner) owner
+       from pg_class relation join pg_namespace namespace on namespace.oid = relation.relnamespace
+       where namespace.nspname = 'tge' and relation.relkind in ('r','p','S','v','m')
+       union all
+       select pg_get_userbyid(routine.proowner) owner
+       from pg_proc routine join pg_namespace namespace on namespace.oid = routine.pronamespace
+       where namespace.nspname = 'tge'
+     ) owned where owner <> 'tge_owner'`
+  );
+  if (ownership.rows[0].incorrect !== 0) fail("OBJECT_OWNERSHIP");
+  const migrator = await client.query(
+    `select
+       pg_get_userbyid(namespace.nspowner) migration_schema_owner,
+       pg_get_userbyid(ledger.relowner) ledger_owner,
+       has_schema_privilege('tge_migrator', 'tge_migration', 'USAGE') schema_usage,
+       has_schema_privilege('tge_migrator', 'tge_migration', 'CREATE') schema_create
+     from pg_namespace namespace
+     join pg_class ledger on ledger.relnamespace = namespace.oid
+       and ledger.relname = 'schema_migrations'
+     where namespace.nspname = 'tge_migration'`
+  );
+  const migrationRole = migrator.rows[0];
+  if (!migrationRole || migrationRole.migration_schema_owner !== "tge_migrator"
+    || migrationRole.ledger_owner !== "tge_migrator"
+    || !migrationRole.schema_usage || !migrationRole.schema_create) {
+    fail("MIGRATOR_PRIVILEGES");
+  }
+}
+
+async function assertManifestCatalog(client) {
+  const result = await client.query(
+    `select table_record.relname table_name
+     from pg_class table_record
+     join pg_namespace namespace on namespace.oid = table_record.relnamespace
+     where namespace.nspname = 'tge' and table_record.relkind in ('r','p')
+       and table_record.relrowsecurity
+     order by table_record.relname`
+  );
+  const actual = result.rows.map(row => row.table_name);
+  const expected = MANIFEST_TABLES.map(([table]) => table).sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) fail("MANIFEST_CATALOG_INCOMPLETE");
 }
 
 async function assertServerVersion(client) {
@@ -600,10 +1028,9 @@ async function assertTargetEmpty(client) {
   if (result.rows[0].relations !== 0) fail("TARGET_NOT_EMPTY");
 }
 
-async function teardownLocalTarget(targetUrl, targetDatabase) {
-  const maintenance = new URL(targetUrl);
-  maintenance.pathname = "/postgres";
-  const client = await connect(maintenance.toString());
+async function teardownLocalTarget(targetAuthority, targetDatabase) {
+  const maintenance = clonePostgresAuthority(targetAuthority, { database: "postgres" });
+  const client = await connect(maintenance);
   try {
     const current = await client.query("select current_database() database");
     if (current.rows[0].database !== "postgres" || UNSAFE_DATABASE_NAMES.test(targetDatabase)) {
@@ -619,50 +1046,135 @@ async function teardownLocalTarget(targetUrl, targetDatabase) {
   }
 }
 
-async function connect(connectionString) {
-  const client = new Client({ connectionString });
+async function connect(authority, lifecycle) {
+  const client = new Client(postgresClientOptions(authority));
+  lifecycle?.trackClient(client);
   await client.connect();
   return client;
 }
 
-function runCommand(command, args, options = {}) {
+async function closeTrackedClient(lifecycle, client) {
+  await client.end();
+  lifecycle?.releaseClient(client);
+}
+
+export function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
+    const lifecycle = options.lifecycle;
+    const spawnOptions = { ...options };
+    delete spawnOptions.lifecycle;
     const child = spawn(command, args, {
       stdio: ["ignore", "ignore", "pipe"],
-      ...options
+      ...spawnOptions
     });
+    lifecycle?.trackChild(child);
     let stderr = "";
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", chunk => {
       if (stderr.length < 8192) stderr += chunk;
     });
-    child.on("error", reject);
+    child.on("error", error => {
+      lifecycle?.releaseChild(child);
+      reject(error);
+    });
     child.on("close", code => {
+      lifecycle?.releaseChild(child);
       if (code === 0) resolve();
       else reject(new Error(`${command} exited ${code}: ${stderr.slice(0, 256)}`));
     });
   });
 }
 
-function postgresCommandEnvironment(connectionString) {
-  const url = new URL(connectionString);
-  const environment = {
-    ...process.env,
-    PGHOST: url.hostname,
-    PGPORT: url.port || "5432",
-    PGUSER: decodeURIComponent(url.username),
-    PGPASSWORD: decodeURIComponent(url.password),
-    PGDATABASE: decodeURIComponent(url.pathname.slice(1))
+export function createDrillResourceLifecycle({ config, teardown, remove }) {
+  const clients = new Set();
+  const children = new Set();
+  let temporaryDirectory;
+  let archivePath;
+  let targetValidatedDisposable = false;
+  let targetRemoved = false;
+  let archiveDeleted = false;
+  let cleanupPromise;
+
+  const api = {
+    get targetRemoved() { return targetRemoved; },
+    get archiveDeleted() { return archiveDeleted; },
+    setTemporaryDirectory(directory, archive) {
+      temporaryDirectory = directory;
+      archivePath = archive;
+    },
+    validateDisposableTarget() { targetValidatedDisposable = true; },
+    trackClient(client) { clients.add(client); },
+    releaseClient(client) { clients.delete(client); },
+    trackChild(child) { children.add(child); },
+    releaseChild(child) { children.delete(child); },
+    async deleteArchive() {
+      if (!archivePath || archiveDeleted) return;
+      await remove(archivePath, { force: true });
+      archiveDeleted = true;
+    },
+    async removeTarget() {
+      if (!targetValidatedDisposable || targetRemoved) return;
+      await teardown(config.authorities.targetAdmin, config.target.database);
+      targetRemoved = true;
+    },
+    cleanupOnce() {
+      if (cleanupPromise) return cleanupPromise;
+      cleanupPromise = (async () => {
+        const failures = [];
+        for (const child of children) {
+          try { child.kill("SIGTERM"); } catch (error) { failures.push(error); }
+        }
+        children.clear();
+        const closing = [...clients].map(async client => {
+          try { await client.end(); } catch (error) { failures.push(error); }
+        });
+        await Promise.all(closing);
+        clients.clear();
+        try { await api.deleteArchive(); } catch (error) { failures.push(error); }
+        try { await api.removeTarget(); } catch (error) { failures.push(error); }
+        if (temporaryDirectory) {
+          try { await remove(temporaryDirectory, { recursive: true, force: true }); }
+          catch (error) { failures.push(error); }
+        }
+        if (failures.length > 0) throw new AggregateError(failures, "Backup/restore cleanup failed.");
+      })();
+      return cleanupPromise;
+    }
   };
-  const sslmode = url.searchParams.get("sslmode");
-  if (sslmode) environment.PGSSLMODE = sslmode;
+  return Object.freeze(api);
+}
+
+export function postgresCommandEnvironment(authority, baseEnv = process.env) {
+  const environment = {
+    ...(baseEnv.PATH ? { PATH: baseEnv.PATH } : {}),
+    ...(baseEnv.TMPDIR ? { TMPDIR: baseEnv.TMPDIR } : {}),
+    ...(baseEnv.LANG ? { LANG: baseEnv.LANG } : {}),
+    ...(baseEnv.LC_ALL ? { LC_ALL: baseEnv.LC_ALL } : {}),
+    PGHOST: authority.hostname,
+    PGPORT: String(authority.port),
+    PGUSER: authority.username,
+    PGPASSWORD: authority.password,
+    PGDATABASE: authority.database
+  };
+  if (authority.sslmode) environment.PGSSLMODE = authority.sslmode;
+  if (authority.applicationName) environment.PGAPPNAME = authority.applicationName;
   return environment;
 }
 
-function passwordlessConnectionUrl(connectionString) {
-  const url = new URL(connectionString);
-  url.password = "";
-  return url.toString();
+export function postgresClientOptions(authority) {
+  return Object.freeze({
+    host: authority.hostname,
+    port: authority.port,
+    user: authority.username,
+    password: authority.password,
+    database: authority.database,
+    ...(authority.applicationName
+      ? { application_name: authority.applicationName }
+      : {}),
+    ...(authority.sslmode === "verify-full"
+      ? { ssl: Object.freeze({ rejectUnauthorized: true }) }
+      : {})
+  });
 }
 
 async function writeJson(file, value) {
@@ -681,7 +1193,7 @@ function assertSameManifest(source, target) {
   if (JSON.stringify(source) !== JSON.stringify(target)) fail("MANIFEST_MISMATCH");
 }
 
-function parseDatabaseUrl(value) {
+export function buildPostgresAuthority(value) {
   const raw = exact(value);
   let url;
   try {
@@ -692,15 +1204,90 @@ function parseDatabaseUrl(value) {
   if (!["postgres:", "postgresql:"].includes(url.protocol)
     || !url.hostname || !url.username || !url.password
     || url.hash || url.pathname.split("/").length !== 2) invalid();
+  const seenParameters = new Set();
+  for (const [name, parameterValue] of url.searchParams) {
+    if (seenParameters.has(name)
+      || !Object.hasOwn(SAFE_URL_PARAMETERS, name)
+      || !SAFE_URL_PARAMETERS[name].has(parameterValue)) invalid();
+    seenParameters.add(name);
+  }
   const database = decodeURIComponent(url.pathname.slice(1));
   if (!/^[a-z][a-z0-9_]{2,62}$/.test(database)) invalid();
-  return {
-    raw,
-    hostname: url.hostname,
-    port: url.port || "5432",
-    username: url.username,
-    database
+  const username = decodeURIComponent(url.username);
+  const password = decodeURIComponent(url.password);
+  if (!/^[a-zA-Z_][a-zA-Z0-9_-]{0,62}$/.test(username) || password.length === 0) invalid();
+  const authority = {
+    hostname: url.hostname.toLowerCase(),
+    port: Number(url.port || 5432),
+    username,
+    database,
+    sslmode: url.searchParams.get("sslmode") || null,
+    applicationName: url.searchParams.get("application_name") || null
   };
+  if (!Number.isInteger(authority.port) || authority.port < 1 || authority.port > 65535) invalid();
+  Object.defineProperty(authority, "password", {
+    enumerable: false,
+    value: password
+  });
+  return Object.freeze(authority);
+}
+
+function clonePostgresAuthority(authority, overrides) {
+  const clone = {
+    hostname: overrides.hostname || authority.hostname,
+    port: overrides.port || authority.port,
+    username: overrides.username || authority.username,
+    database: overrides.database || authority.database,
+    sslmode: authority.sslmode,
+    applicationName: authority.applicationName
+  };
+  Object.defineProperty(clone, "password", {
+    enumerable: false,
+    value: authority.password
+  });
+  return Object.freeze(clone);
+}
+
+export function installBackupRestoreSignalLifecycle({
+  target,
+  cleanupOnce,
+  timeoutMs = DEFAULT_SIGNAL_CLEANUP_TIMEOUT_MS
+}) {
+  if (!target || typeof target.once !== "function"
+    || typeof target.removeListener !== "function"
+    || typeof target.kill !== "function"
+    || typeof cleanupOnce !== "function"
+    || !Number.isInteger(timeoutMs) || timeoutMs < 1) {
+    throw new TypeError("Invalid signal lifecycle configuration.");
+  }
+  let handling = false;
+  const handlers = new Map();
+  const dispose = () => {
+    for (const [signal, handler] of handlers) target.removeListener(signal, handler);
+    handlers.clear();
+  };
+  for (const signal of SIGNALS) {
+    const handler = async () => {
+      if (handling) return;
+      handling = true;
+      let timer;
+      try {
+        await Promise.race([
+          Promise.resolve().then(cleanupOnce),
+          new Promise(resolve => { timer = setTimeout(resolve, timeoutMs); })
+        ]);
+      } catch (error) {
+        target.stderr?.write?.("BACKUP_RESTORE_CLEANUP_FAILED\n");
+      } finally {
+        if (timer) clearTimeout(timer);
+        dispose();
+        target.kill(target.pid, signal);
+      }
+    };
+    handlers.set(signal, handler);
+    target.once(signal, handler);
+  }
+  return Object.freeze({ dispose });
 }
 
 function publicDatabaseIdentity(value) {
@@ -752,7 +1339,7 @@ const invokedAsScript = process.argv[1]
   && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (invokedAsScript) {
-  runBackupRestoreDrill().then(result => {
+  runBackupRestoreDrill({ signalTarget: process }).then(result => {
     console.log(JSON.stringify(result));
   }).catch(error => {
     console.error(error?.code || "BACKUP_RESTORE_DRILL_FAILED");

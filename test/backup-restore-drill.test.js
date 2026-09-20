@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { EventEmitter } = require("node:events");
 const test = require("node:test");
 const { pathToFileURL } = require("node:url");
 
@@ -118,6 +119,148 @@ test("non-loopback provider verification needs the exact external-action approva
       "APPROVED_CLOUD_SQL_AU_ISOLATED_RESTORE_TARGET"
   });
   assert.equal(accepted.mode, "CLOUD_SQL_AU_ISOLATED_VERIFICATION");
+});
+
+for (const query of [
+  "host=attacker.invalid",
+  "hostaddr=203.0.113.10",
+  "port=6543",
+  "user=attacker",
+  "password=override",
+  "dbname=production",
+  "service=production",
+  "servicefile=/tmp/pg_service.conf",
+  "passfile=/tmp/.pgpass",
+  "sslcert=/tmp/client.crt",
+  "sslkey=/tmp/client.key",
+  "sslrootcert=/tmp/ca.crt",
+  "options=-c%20search_path%3Dattacker",
+  "target_session_attrs=read-write"
+]) {
+  test(`database URLs reject routing/auth override ${query.split("=")[0]}`, async () => {
+    const { readBackupRestoreConfig, BackupRestoreConfigurationError } =
+      await import(`${pathToFileURL(command).href}?url-${encodeURIComponent(query)}`);
+    assert.throws(() => readBackupRestoreConfig({
+      ...validEnvironment,
+      TGE_BACKUP_SOURCE_ADMIN_URL:
+        `${validEnvironment.TGE_BACKUP_SOURCE_ADMIN_URL}?${query}`
+    }), BackupRestoreConfigurationError);
+  });
+}
+
+test("validated endpoints drive pg.Client and command environments identically", async () => {
+  const {
+    buildPostgresAuthority,
+    postgresClientOptions,
+    postgresCommandEnvironment
+  } = await import(`${pathToFileURL(command).href}?effective-authority`);
+  const authority = buildPostgresAuthority(
+    "postgresql://proof-user:proof-secret@127.0.0.1:55432/proof_db" +
+      "?application_name=tge-backup-restore-proof&sslmode=verify-full"
+  );
+  const client = postgresClientOptions(authority);
+  const environment = postgresCommandEnvironment(authority, {
+    PATH: "/safe/bin",
+    PGHOSTADDR: "203.0.113.10",
+    PGSERVICE: "production",
+    PGOPTIONS: "-c search_path=attacker"
+  });
+
+  assert.deepEqual(
+    { host: client.host, port: client.port, user: client.user, database: client.database },
+    { host: "127.0.0.1", port: 55432, user: "proof-user", database: "proof_db" }
+  );
+  assert.equal(client.password, "proof-secret");
+  assert.equal(environment.PGHOST, client.host);
+  assert.equal(environment.PGPORT, String(client.port));
+  assert.equal(environment.PGUSER, client.user);
+  assert.equal(environment.PGDATABASE, client.database);
+  assert.equal(environment.PGPASSWORD, client.password);
+  assert.equal(environment.PGHOSTADDR, undefined);
+  assert.equal(environment.PGSERVICE, undefined);
+  assert.equal(environment.PGOPTIONS, undefined);
+  assert.equal(environment.PGAPPNAME, "tge-backup-restore-proof");
+  assert.equal(environment.PGSSLMODE, "verify-full");
+  assert.deepEqual(client.ssl, { rejectUnauthorized: true });
+  assert.equal(JSON.stringify(authority).includes("proof-secret"), false);
+  for (const unsafe of [
+    "sslmode=require",
+    "application_name=another-client",
+    "sslmode=verify-full&sslmode=verify-full"
+  ]) assert.throws(
+    () => buildPostgresAuthority(`postgresql://proof-user:proof-secret@127.0.0.1:55432/proof_db?${unsafe}`),
+    /invalid/i
+  );
+});
+
+test("complete migration ledger rejects missing, extra, reordered, and altered rows", async () => {
+  const { assertCompleteMigrationLedger } = await import(
+    `${pathToFileURL(command).href}?complete-ledger`
+  );
+  const expected = [
+    { id: "001", fileName: "001_initial_schema.sql", checksum: "a".repeat(64) },
+    { id: "002", fileName: "002_tenant_domain_schema.sql", checksum: "b".repeat(64) }
+  ];
+  const actual = expected.map(row => ({
+    migration_id: row.id,
+    file_name: row.fileName,
+    checksum: row.checksum
+  }));
+  assert.doesNotThrow(() => assertCompleteMigrationLedger(actual, expected));
+  for (const invalid of [
+    actual.slice(0, 1),
+    [...actual, { migration_id: "003", file_name: "003_extra.sql", checksum }],
+    [...actual].reverse(),
+    [{ ...actual[0], checksum: "c".repeat(64) }, actual[1]],
+    [{ ...actual[0], file_name: "001_drift.sql" }, actual[1]]
+  ]) assert.throws(() => assertCompleteMigrationLedger(invalid, expected), /MIGRATION_LEDGER/);
+});
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  test(`signal lifecycle cleans once before preserving ${signal} termination`, async () => {
+    const { installBackupRestoreSignalLifecycle } = await import(
+      `${pathToFileURL(command).href}?signal-lifecycle-${signal}`
+    );
+    const target = new EventEmitter();
+    target.pid = 4321;
+    const kills = [];
+    target.kill = (pid, deliveredSignal) => kills.push([pid, deliveredSignal]);
+    let cleanups = 0;
+    const lifecycle = installBackupRestoreSignalLifecycle({
+      target,
+      cleanupOnce: async () => { cleanups += 1; },
+      timeoutMs: 100
+    });
+
+    target.emit(signal);
+    target.emit(signal);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(cleanups, 1);
+    assert.deepEqual(kills, [[4321, signal]]);
+    lifecycle.dispose();
+  });
+}
+
+test("signal cleanup failure is reported before preserving termination", async () => {
+  const { installBackupRestoreSignalLifecycle } = await import(
+    `${pathToFileURL(command).href}?signal-cleanup-failure`
+  );
+  const target = new EventEmitter();
+  target.pid = 9876;
+  const kills = [];
+  let stderr = "";
+  target.kill = (pid, signal) => kills.push([pid, signal]);
+  target.stderr = { write: value => { stderr += value; } };
+  installBackupRestoreSignalLifecycle({
+    target,
+    cleanupOnce: async () => { throw new Error("secret teardown detail"); },
+    timeoutMs: 100
+  });
+  target.emit("SIGTERM");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(stderr, "BACKUP_RESTORE_CLEANUP_FAILED\n");
+  assert.equal(stderr.includes("secret teardown detail"), false);
+  assert.deepEqual(kills, [[9876, "SIGTERM"]]);
 });
 
 test("CLI emits only the stable configuration error for unsafe input", () => {

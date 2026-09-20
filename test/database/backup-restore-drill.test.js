@@ -27,6 +27,7 @@ if (!testDatabaseUrl) {
   const maintenancePassword = randomUUID();
   const tenantA = randomUUID();
   const tenantB = randomUUID();
+  const tenantC = randomUUID();
   const operatorUrl = replaceDatabase(testDatabaseUrl, "postgres");
   const sourceUrl = replaceCredentials(
     replaceDatabase(testDatabaseUrl, sourceDatabase),
@@ -76,7 +77,7 @@ if (!testDatabaseUrl) {
         await source.query(statement.rows[0].sql);
         await source.query(`grant ${group} to ${quoteIdentifier(role)}`);
       }
-      await seedSource(source, tenantA, tenantB);
+      await seedSource(source, tenantA, tenantB, tenantC);
     } finally {
       await source.end();
     }
@@ -112,7 +113,7 @@ if (!testDatabaseUrl) {
 
   test("full backup, isolated restore, verification, evidence, and teardown are real", async () => {
     const command = path.join(repositoryRoot, "scripts", "run-backup-restore-drill.mjs");
-    const { runBackupRestoreDrill } = await import(pathToFileURL(command).href);
+    const { runBackupRestoreDrill, runCommand } = await import(pathToFileURL(command).href);
     const migration = fs.readFileSync(
       path.join(repositoryRoot, "database", "migrations", "016_authoritative_opportunity_currency.sql")
     );
@@ -131,16 +132,78 @@ if (!testDatabaseUrl) {
       TGE_BACKUP_RESTORE_EVIDENCE_DIR: evidenceDirectory
     };
 
-    const result = await runBackupRestoreDrill({ env });
+    const failedTargetDatabase = `tge_restore_failed_${compactUuid()}`;
+    await operator.query(`create database ${quoteIdentifier(failedTargetDatabase)}`);
+    const failedEvidenceDirectory = temporaryAbsentDirectory();
+    await assert.rejects(
+      runBackupRestoreDrill({
+        env: {
+          ...env,
+          TGE_RESTORE_TARGET_ADMIN_URL: replaceDatabase(targetUrl, failedTargetDatabase),
+          TGE_RESTORE_TARGET_RUNTIME_URL: replaceDatabase(runtimeUrl, failedTargetDatabase),
+          TGE_RESTORE_TARGET_MAINTENANCE_URL: replaceDatabase(maintenanceUrl, failedTargetDatabase),
+          TGE_BACKUP_RESTORE_EVIDENCE_DIR: failedEvidenceDirectory
+        },
+        commandRunner: async () => { throw new Error("synthetic command failure"); }
+      }),
+      error => {
+        assert.equal(error?.phase, "BACKUP");
+        return true;
+      }
+    );
+    assert.equal(await databaseExists(operator, failedTargetDatabase), false);
+    fs.rmSync(failedEvidenceDirectory, { recursive: true, force: true });
+
+    const cleanupFailedTargetDatabase = `tge_restore_cleanup_failed_${compactUuid()}`;
+    await operator.query(`create database ${quoteIdentifier(cleanupFailedTargetDatabase)}`);
+    const cleanupFailedEvidenceDirectory = temporaryAbsentDirectory();
+    await assert.rejects(
+      runBackupRestoreDrill({
+        env: {
+          ...env,
+          TGE_RESTORE_TARGET_ADMIN_URL: replaceDatabase(targetUrl, cleanupFailedTargetDatabase),
+          TGE_RESTORE_TARGET_RUNTIME_URL: replaceDatabase(runtimeUrl, cleanupFailedTargetDatabase),
+          TGE_RESTORE_TARGET_MAINTENANCE_URL: replaceDatabase(maintenanceUrl, cleanupFailedTargetDatabase),
+          TGE_BACKUP_RESTORE_EVIDENCE_DIR: cleanupFailedEvidenceDirectory
+        },
+        commandRunner: async () => { throw new Error("synthetic command failure"); },
+        teardown: async () => { throw new Error("synthetic teardown failure"); }
+      }),
+      error => {
+        assert.equal(error?.phase, "CLEANUP_AFTER_BACKUP");
+        return true;
+      }
+    );
+    assert.equal(await databaseExists(operator, cleanupFailedTargetDatabase), true);
+    await operator.query(`drop database ${quoteIdentifier(cleanupFailedTargetDatabase)}`);
+    fs.rmSync(cleanupFailedEvidenceDirectory, { recursive: true, force: true });
+
+    const observedCommands = [];
+    const result = await runBackupRestoreDrill({
+      env,
+      commandRunner: (executable, args, options) => {
+        observedCommands.push({ executable, args: [...args] });
+        for (const argument of args) {
+          assert.equal(argument.includes("postgresql://"), false);
+          assert.equal(argument.includes(adminPassword), false);
+        }
+        assert.equal(options.env.PGHOST, "127.0.0.1");
+        assert.equal(options.env.PGDATABASE,
+          executable === "pg_dump" ? sourceDatabase : targetDatabase);
+        return runCommand(executable, args, options);
+      }
+    });
     assert.deepEqual(result, {
       status: "VERIFIED",
       proofLabel: "LOCAL_SYNTHETIC_LOGICAL_REHEARSAL",
       evidenceDirectory
     });
 
-    const manifest = JSON.parse(
-      fs.readFileSync(path.join(evidenceDirectory, "tenant-manifest.json"), "utf8")
+    const manifestText = fs.readFileSync(
+      path.join(evidenceDirectory, "tenant-manifest.json"),
+      "utf8"
     );
+    const manifest = JSON.parse(manifestText);
     const proofText = fs.readFileSync(
       path.join(evidenceDirectory, "drill-evidence.json"),
       "utf8"
@@ -152,10 +215,11 @@ if (!testDatabaseUrl) {
     assert.equal(manifest.tables.import_batches.row_count, 2);
     assert.equal(manifest.tables.data_deletion_evidence.row_count, 1);
     assert.equal(proof.verification.expired_raw_unavailable_scrubbed, "VERIFIED_BEFORE_TRAFFIC");
-    assert.equal(proof.verification.offboarded_access_cannot_reopen, "REOPEN_DENIED");
+    assert.equal(proof.verification.offboarded_access_cannot_reopen, "AUTH_LOOKUP_DENIED");
     assert.equal(proof.cleanup.restored_database, "REMOVED");
     assert.equal(proof.recovery_objectives.rpo_met, true);
     assert.equal(proof.recovery_objectives.rto_met, true);
+    assert.deepEqual(observedCommands.map(command => command.executable), ["pg_dump", "pg_restore"]);
     for (const forbidden of [
       runtimePassword,
       maintenancePassword,
@@ -167,7 +231,7 @@ if (!testDatabaseUrl) {
       "source-private.csv",
       sourceUrl,
       targetUrl
-    ]) assert.equal(proofText.includes(forbidden), false, forbidden);
+    ]) assert.equal(`${proofText}\n${manifestText}`.includes(forbidden), false, forbidden);
 
     const database = await operator.query(
       "select exists(select 1 from pg_database where datname = $1) present",
@@ -177,20 +241,23 @@ if (!testDatabaseUrl) {
   });
 }
 
-async function seedSource(client, tenantA, tenantB) {
+async function seedSource(client, tenantA, tenantB, tenantC) {
   const h = value => sha256(value);
   await client.query(
     `insert into tge.tenants (id, slug, name, metadata) values
        ($1, 'synthetic-a', 'Synthetic Customer A', '{}'::jsonb),
-       ($2, 'offboarded', 'Offboarded Synthetic',
-        '{"offboarding_state":"OFFBOARDED_ACCESS_REVOKED"}'::jsonb)`,
-    [tenantA, tenantB]
+       ($2, 'synthetic-b', 'Synthetic Customer B', '{}'::jsonb),
+       ($3, 'pending-offboard', 'Pending Offboard Synthetic', '{}'::jsonb)`,
+    [tenantA, tenantB, tenantC]
   );
   await client.query(
     `insert into tge.tenant_memberships
        (tenant_id, identity_issuer, subject_id, role, status)
-     values ($1, 'urn:tge:synthetic', 'owner-a-subject', 'OWNER', 'ACTIVE')`,
-    [tenantA]
+     values
+       ($1, 'urn:tge:synthetic', 'owner-a-subject', 'OWNER', 'ACTIVE'),
+       ($2, 'urn:tge:synthetic', 'owner-b-subject', 'OWNER', 'ACTIVE'),
+       ($3, 'urn:tge:synthetic', 'owner-c-stale', 'OWNER', 'ACTIVE')`,
+    [tenantA, tenantB, tenantC]
   );
   await client.query(
     `insert into tge.assisted_invitations (
@@ -202,9 +269,30 @@ async function seedSource(client, tenantA, tenantB) {
     [tenantA, h("revoked-invitation")]
   );
   await client.query(
+    `insert into tge.assisted_invitations (
+       tenant_id, token_hash, normalized_email, intended_role, status,
+       created_by_subject_id, expires_at
+     ) values ($1, $2, 'pending-offboard@example.invalid', 'MEMBER', 'PENDING',
+       'owner-c-stale', clock_timestamp() + interval '1 day')`,
+    [tenantC, h("pending-offboard-invitation")]
+  );
+  await client.query(
     `insert into tge.prospects (tenant_id, id, business_name, email)
      values ($1, 'prospect-a', 'Synthetic Prospect', 'contact@example.invalid')`,
     [tenantA]
+  );
+  await client.query(
+    `insert into tge.prospects (tenant_id, id, business_name, email)
+     values ($1, 'prospect-b', 'Unrelated Active Prospect', 'active-b@example.invalid')`,
+    [tenantB]
+  );
+  await client.query(
+    `insert into tge.opportunities (
+       tenant_id, id, prospect_id, business_name, stage,
+       commercial_value, commercial_value_state, commercial_value_raw, currency
+     ) values ($1, 'opp-b', 'prospect-b', 'Unrelated Active Opportunity',
+       'OPEN', 77.00, 'KNOWN', '77.00'::jsonb, 'AUD')`,
+    [tenantB]
   );
   await client.query(
     `insert into tge.opportunities (
@@ -287,7 +375,9 @@ async function seedSource(client, tenantA, tenantB) {
        raw_storage_key, raw_expires_at, metadata_retain_until,
        created_at, updated_at
      ) select $1, 'committed-batch', 'COMMITTED', 'committed-private.csv', $2,
-       'owner-a-subject', observed_at, 'commit-key', '{}'::jsonb, observed_at,
+       'owner-a-subject', observed_at, 'commit-key',
+       '{"result":{"outcome":"COMMITTED","summary":{"total":1,"committed":1,"skipped":0,"conflicted":0,"failed":0}}}'::jsonb,
+       observed_at,
        null, observed_at + interval '168 hours', observed_at + interval '12 months',
        observed_at, observed_at from moment`,
     [tenantA, h("committed-source")]
@@ -330,6 +420,40 @@ async function seedSource(client, tenantA, tenantB) {
        '2026-09-03T00:00:00Z')`,
     [tenantA, h("pilot-semantic")]
   );
+  await client.query(
+    `with moment as (select clock_timestamp() observed_at)
+     insert into tge.import_batches (
+       tenant_id, id, status, source_filename, source_sha256,
+       authorized_by_subject_id, authorization_verified_at,
+       raw_storage_key, raw_expires_at, metadata_retain_until,
+       created_at, updated_at
+     ) select $1, 'offboard-due-batch', 'PREVIEWED', 'offboard-private.csv', $2,
+       'owner-c-stale', observed_at - interval '8 days', 'private/offboard-raw',
+       observed_at - interval '1 day', observed_at + interval '12 months',
+       observed_at - interval '8 days', observed_at - interval '8 days'
+       from moment`,
+    [tenantC, h("offboard-due-source")]
+  );
+  await client.query(
+    `insert into tge.import_staging_records (
+       tenant_id, import_batch_id, id, source_collection, source_id,
+       source_ordinal, raw_payload, raw_payload_sha256, disposition,
+       conflict_details, idempotency_key
+     ) values ($1, 'offboard-due-batch', 'offboard-staging', 'prospects',
+       'offboard-source', 0, '{"email":"stale@example.invalid"}', $2,
+       'PENDING', '{"private":"stale"}', 'offboard-idempotency')`,
+    [tenantC, h("offboard-raw")]
+  );
+  await client.query(
+    `with moment as (select clock_timestamp() observed_at)
+     insert into tge.tenant_offboarding_requests (
+       tenant_id, state, scope, requested_by_subject_hash, requested_at,
+       retain_until, created_at, updated_at
+     ) select $1, 'PENDING', 'ACCESS_AND_RAW_EVIDENCE_ONLY', $2,
+       observed_at, observed_at + interval '12 months', observed_at, observed_at
+       from moment`,
+    [tenantC, h("urn:tge:synthetic:owner-c-stale")]
+  );
 }
 
 function replaceDatabase(connectionString, database) {
@@ -351,6 +475,20 @@ function quoteIdentifier(value) {
 
 function compactUuid() {
   return randomUUID().replaceAll("-", "");
+}
+
+function temporaryAbsentDirectory() {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tge-backup-restore-failure-"));
+  fs.rmdirSync(directory);
+  return directory;
+}
+
+async function databaseExists(client, database) {
+  const result = await client.query(
+    "select exists(select 1 from pg_database where datname = $1) present",
+    [database]
+  );
+  return result.rows[0].present;
 }
 
 function sha256(value) {
