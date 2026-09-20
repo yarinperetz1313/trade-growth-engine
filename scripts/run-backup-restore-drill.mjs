@@ -53,10 +53,78 @@ const RUNTIME_SEQUENCE_NAMES = Object.freeze([
   "activities_live_ordinal_seq",
   "revenue_actions_live_ordinal_seq"
 ]);
+const TABLE_PRIVILEGES = Object.freeze([
+  "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"
+]);
+const RUNTIME_TABLE_PRIVILEGES = Object.freeze({
+  tenants: Object.freeze(["SELECT"]),
+  tenant_memberships: Object.freeze(["SELECT"]),
+  assisted_invitations: Object.freeze(["SELECT", "INSERT", "UPDATE"]),
+  prospects: Object.freeze(["SELECT", "INSERT", "UPDATE", "DELETE"]),
+  opportunities: Object.freeze(["SELECT", "INSERT", "UPDATE", "DELETE"]),
+  revenue_actions: Object.freeze(["SELECT", "INSERT"]),
+  tasks: Object.freeze(["SELECT", "INSERT", "UPDATE", "DELETE"]),
+  activities: Object.freeze(["SELECT", "INSERT", "UPDATE", "DELETE"]),
+  revenue_leak_cases: Object.freeze(["SELECT", "INSERT", "UPDATE"]),
+  import_batches: Object.freeze(["SELECT", "INSERT"]),
+  import_staging_records: Object.freeze(["SELECT", "INSERT"]),
+  import_id_map: Object.freeze(["SELECT", "INSERT"]),
+  audit_events: Object.freeze(["SELECT", "INSERT"]),
+  pilot_evidence_events: Object.freeze(["SELECT", "INSERT"]),
+  data_deletion_evidence: Object.freeze([]),
+  tenant_offboarding_requests: Object.freeze(["SELECT"])
+});
+const RUNTIME_REVENUE_ACTION_UPDATE_COLUMNS = Object.freeze([
+  "status",
+  "proposed_execution",
+  "execution_request",
+  "execution_result",
+  "audit",
+  "execution_attempts",
+  "prepared_at",
+  "approved_at",
+  "executed_at",
+  "rejected_at",
+  "cancelled_at",
+  "failed_at",
+  "rejection_reason",
+  "resulting_task_id",
+  "resulting_activity_id",
+  "updated_at"
+]);
+const RUNTIME_FUNCTION_SIGNATURES = Object.freeze([
+  "consume_assisted_invitation(text, text, text, text, text)",
+  "current_tenant_id()",
+  "current_subject_id()",
+  "set_request_context(uuid, text)",
+  "current_identity_issuer()",
+  "current_invitation_token_hash()",
+  "set_identity_context(text, text)",
+  "set_request_context(uuid, text, text)",
+  "invitation_available(text)",
+  "lock_import_commit_batch(uuid, text)",
+  "lock_import_commit_records(uuid, text)",
+  "record_import_commit_outcome(uuid, text, text, text, timestamp with time zone, jsonb)",
+  "record_import_commit_attempt(uuid, text, jsonb, timestamp with time zone)",
+  "finalize_import_commit(uuid, text, text, jsonb, timestamp with time zone)",
+  "pilot_evidence_exact_keys(jsonb, text[])",
+  "pilot_evidence_count(jsonb)",
+  "pilot_evidence_bounded_id(jsonb, integer)",
+  "pilot_evidence_facts_valid(text, jsonb)",
+  "pilot_runtime_readiness()",
+  "request_tenant_offboarding(text)",
+  "lock_current_tenant_access_writable()",
+  "record_import_commit_lifecycle_conflict(uuid, text, jsonb, timestamp with time zone)"
+]);
+const MAINTENANCE_FUNCTION_SIGNATURES = Object.freeze([
+  "process_due_raw_import_cleanup(integer)",
+  "process_pending_tenant_offboarding(integer)"
+]);
 const RPO_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 const RTO_THRESHOLD_MS = 4 * 60 * 60 * 1000;
 const SIGNALS = Object.freeze(["SIGINT", "SIGTERM"]);
 const DEFAULT_SIGNAL_CLEANUP_TIMEOUT_MS = 10_000;
+const DEFAULT_CHILD_TERMINATION_TIMEOUT_MS = 2_000;
 const SAFE_URL_PARAMETERS = Object.freeze({
   application_name: new Set(["tge-backup-restore-proof"]),
   sslmode: new Set(["verify-full"])
@@ -708,6 +776,8 @@ async function runRuntimeVerification({
       || privilege.migration_schema_usage || privilege.ledger_select
       || privilege.maintenance_execute || privilege.prohibited_table_grants !== 0
       || privilege.owned_relations !== 0) fail("RUNTIME_PROHIBITED_GRANTS");
+    const identity = await client.query("select session_user role_name");
+    await assertEffectivePrivilegeContract(client, identity.rows[0].role_name, "runtime");
     const rls = await client.query(
       `select count(*)::integer missing
        from (values ${MANIFEST_TABLES.map(([table]) => `('${table}')`).join(",")}) required(relname)
@@ -932,6 +1002,8 @@ async function assertMaintenanceRole(client) {
   if (!grant.schema_usage || grant.schema_create || grant.opportunity_select
     || grant.owned_relations !== 0 || !grant.raw_execute
     || !grant.offboard_execute) fail("MAINTENANCE_PRIVILEGES");
+  const identity = await client.query("select session_user role_name");
+  await assertEffectivePrivilegeContract(client, identity.rows[0].role_name, "maintenance");
 }
 
 async function assertClusterRoleContract(client) {
@@ -996,20 +1068,134 @@ async function assertClusterRoleContract(client) {
     || !migrationRole.schema_usage || !migrationRole.schema_create) {
     fail("MIGRATOR_PRIVILEGES");
   }
+  await assertEffectivePrivilegeContract(client, "tge_runtime", "runtime");
+  await assertEffectivePrivilegeContract(client, "tge_maintenance", "maintenance");
 }
 
 async function assertManifestCatalog(client) {
   const result = await client.query(
-    `select table_record.relname table_name
+    `select table_record.relname table_name,
+       table_record.relrowsecurity,
+       table_record.relforcerowsecurity,
+       exists (
+         select 1 from pg_attribute attribute
+         where attribute.attrelid = table_record.oid
+           and attribute.attname = 'tenant_id'
+           and attribute.attnum > 0
+           and not attribute.attisdropped
+       ) tenant_bearing
      from pg_class table_record
      join pg_namespace namespace on namespace.oid = table_record.relnamespace
      where namespace.nspname = 'tge' and table_record.relkind in ('r','p')
-       and table_record.relrowsecurity
      order by table_record.relname`
   );
-  const actual = result.rows.map(row => row.table_name);
   const expected = MANIFEST_TABLES.map(([table]) => table).sort();
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) fail("MANIFEST_CATALOG_INCOMPLETE");
+  const tenantBearing = result.rows.filter(row => row.tenant_bearing)
+    .map(row => row.table_name).sort();
+  const expectedTenantBearing = expected.filter(table => table !== "tenants");
+  if (JSON.stringify(tenantBearing) !== JSON.stringify(expectedTenantBearing)) {
+    fail("MANIFEST_CATALOG_INCOMPLETE");
+  }
+  const expectedRows = result.rows.filter(row => expected.includes(row.table_name));
+  if (expectedRows.length !== expected.length
+    || expectedRows.some(row => !row.relrowsecurity || !row.relforcerowsecurity)) {
+    fail("MANIFEST_RLS_INCOMPLETE");
+  }
+}
+
+async function assertEffectivePrivilegeContract(client, roleName, kind) {
+  const expectedTables = kind === "runtime" ? RUNTIME_TABLE_PRIVILEGES : Object.freeze({});
+  const tables = await client.query(
+    `select relation.relname table_name,
+       ${TABLE_PRIVILEGES.map((privilege, index) =>
+         `has_table_privilege($1::text, relation.oid, '${privilege}') privilege_${index}`
+       ).join(",\n       ")}
+     from pg_class relation
+     join pg_namespace namespace on namespace.oid = relation.relnamespace
+     where namespace.nspname = 'tge' and relation.relkind in ('r','p')
+     order by relation.relname`,
+    [roleName]
+  );
+  for (const row of tables.rows) {
+    const allowed = new Set(expectedTables[row.table_name] || []);
+    for (const [index, privilege] of TABLE_PRIVILEGES.entries()) {
+      if (Boolean(row[`privilege_${index}`]) !== allowed.has(privilege)) {
+        fail(`${kind.toUpperCase()}_TABLE_PRIVILEGES`);
+      }
+    }
+  }
+
+  const sequences = await client.query(
+    `select relation.relname sequence_name,
+       has_sequence_privilege($1::text, relation.oid, 'USAGE') usage,
+       has_sequence_privilege($1::text, relation.oid, 'SELECT') select_privilege,
+       has_sequence_privilege($1::text, relation.oid, 'UPDATE') update_privilege
+     from pg_class relation
+     join pg_namespace namespace on namespace.oid = relation.relnamespace
+     where namespace.nspname = 'tge' and relation.relkind = 'S'
+     order by relation.relname`,
+    [roleName]
+  );
+  if (JSON.stringify(sequences.rows.map(row => row.sequence_name))
+      !== JSON.stringify([...RUNTIME_SEQUENCE_NAMES].sort())) {
+    fail("SEQUENCE_CATALOG");
+  }
+  for (const row of sequences.rows) {
+    if (row.usage !== (kind === "runtime")
+      || row.select_privilege || row.update_privilege) {
+      fail(`${kind.toUpperCase()}_SEQUENCE_PRIVILEGES`);
+    }
+  }
+
+  const routines = await client.query(
+    `select routine.proname,
+       pg_catalog.oidvectortypes(routine.proargtypes) identity_arguments,
+       has_function_privilege($1::text, routine.oid, 'EXECUTE') execute
+     from pg_proc routine
+     join pg_namespace namespace on namespace.oid = routine.pronamespace
+     where namespace.nspname = 'tge'
+     order by routine.proname, pg_catalog.oidvectortypes(routine.proargtypes)`,
+    [roleName]
+  );
+  const actualExecutable = routines.rows.filter(row => row.execute)
+    .map(row => `${row.proname}(${row.identity_arguments})`).sort();
+  const expectedExecutable = [...(kind === "runtime"
+    ? RUNTIME_FUNCTION_SIGNATURES
+    : MAINTENANCE_FUNCTION_SIGNATURES)].sort();
+  if (JSON.stringify(actualExecutable) !== JSON.stringify(expectedExecutable)) {
+    fail(`${kind.toUpperCase()}_FUNCTION_PRIVILEGES`);
+  }
+
+  const schemas = await client.query(
+    `select
+       has_schema_privilege($1::text, 'tge', 'USAGE') tge_usage,
+       has_schema_privilege($1::text, 'tge', 'CREATE') tge_create,
+       has_schema_privilege($1::text, 'tge_migration', 'USAGE') migration_usage,
+       has_schema_privilege($1::text, 'tge_migration', 'CREATE') migration_create`,
+    [roleName]
+  );
+  const schema = schemas.rows[0];
+  if (!schema.tge_usage || schema.tge_create || schema.migration_usage || schema.migration_create) {
+    fail(`${kind.toUpperCase()}_SCHEMA_PRIVILEGES`);
+  }
+
+  if (kind === "runtime") {
+    const columns = await client.query(
+      `select column_record.column_name,
+         has_column_privilege($1::text, 'tge.revenue_actions', column_record.column_name, 'UPDATE') update
+       from information_schema.columns column_record
+       where column_record.table_schema = 'tge'
+         and column_record.table_name = 'revenue_actions'
+       order by column_record.column_name`,
+      [roleName]
+    );
+    const actualUpdates = columns.rows.filter(row => row.update)
+      .map(row => row.column_name).sort();
+    if (JSON.stringify(actualUpdates)
+      !== JSON.stringify([...RUNTIME_REVENUE_ACTION_UPDATE_COLUMNS].sort())) {
+      fail("RUNTIME_REVENUE_ACTION_UPDATE_COLUMNS");
+    }
+  }
 }
 
 async function assertServerVersion(client) {
@@ -1085,7 +1271,15 @@ export function runCommand(command, args, options = {}) {
   });
 }
 
-export function createDrillResourceLifecycle({ config, teardown, remove }) {
+export function createDrillResourceLifecycle({
+  config,
+  teardown,
+  remove,
+  childTerminationTimeoutMs = DEFAULT_CHILD_TERMINATION_TIMEOUT_MS
+}) {
+  if (!Number.isInteger(childTerminationTimeoutMs) || childTerminationTimeoutMs < 1) {
+    throw new TypeError("Invalid child termination timeout.");
+  }
   const clients = new Set();
   const children = new Set();
   let temporaryDirectory;
@@ -1121,15 +1315,22 @@ export function createDrillResourceLifecycle({ config, teardown, remove }) {
       if (cleanupPromise) return cleanupPromise;
       cleanupPromise = (async () => {
         const failures = [];
-        for (const child of children) {
-          try { child.kill("SIGTERM"); } catch (error) { failures.push(error); }
-        }
-        children.clear();
+        await Promise.all([...children].map(async child => {
+          try {
+            await terminateTrackedChild(child, childTerminationTimeoutMs);
+            children.delete(child);
+          } catch (error) {
+            failures.push(error);
+          }
+        }));
         const closing = [...clients].map(async client => {
           try { await client.end(); } catch (error) { failures.push(error); }
         });
         await Promise.all(closing);
         clients.clear();
+        if (children.size > 0) {
+          throw new AggregateError(failures, "Backup/restore child cleanup failed.");
+        }
         try { await api.deleteArchive(); } catch (error) { failures.push(error); }
         try { await api.removeTarget(); } catch (error) { failures.push(error); }
         if (temporaryDirectory) {
@@ -1142,6 +1343,35 @@ export function createDrillResourceLifecycle({ config, teardown, remove }) {
     }
   };
   return Object.freeze(api);
+}
+
+async function terminateTrackedChild(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  try { child.kill("SIGTERM"); } catch (error) { throw error; }
+  if (await waitForChildClose(child, timeoutMs)) return;
+  try { child.kill("SIGKILL"); } catch (error) { throw error; }
+  if (!await waitForChildClose(child, timeoutMs)) {
+    throw new Error("Owned backup/restore child did not exit after escalation.");
+  }
+}
+
+function waitForChildClose(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise(resolve => {
+    let timer;
+    const settle = exited => {
+      if (timer) clearTimeout(timer);
+      child.removeListener?.("close", onClose);
+      child.removeListener?.("error", onError);
+      resolve(exited);
+    };
+    const onClose = () => settle(true);
+    const onError = () => settle(true);
+    child.once("close", onClose);
+    child.once("error", onError);
+    if (child.exitCode !== null || child.signalCode !== null) settle(true);
+    else timer = setTimeout(() => settle(false), timeoutMs);
+  });
 }
 
 export function postgresCommandEnvironment(authority, baseEnv = process.env) {
@@ -1274,7 +1504,12 @@ export function installBackupRestoreSignalLifecycle({
       try {
         await Promise.race([
           Promise.resolve().then(cleanupOnce),
-          new Promise(resolve => { timer = setTimeout(resolve, timeoutMs); })
+          new Promise((resolve, reject) => {
+            timer = setTimeout(
+              () => reject(new Error("Backup/restore cleanup deadline exceeded.")),
+              timeoutMs
+            );
+          })
         ]);
       } catch (error) {
         target.stderr?.write?.("BACKUP_RESTORE_CLEANUP_FAILED\n");

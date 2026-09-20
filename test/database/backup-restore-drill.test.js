@@ -111,7 +111,7 @@ if (!testDatabaseUrl) {
     }
   });
 
-  test("full backup, isolated restore, verification, evidence, and teardown are real", async () => {
+  test("full backup, isolated restore, verification, evidence, and teardown are real", async t => {
     const command = path.join(repositoryRoot, "scripts", "run-backup-restore-drill.mjs");
     const { runBackupRestoreDrill, runCommand } = await import(pathToFileURL(command).href);
     const migration = fs.readFileSync(
@@ -131,6 +131,64 @@ if (!testDatabaseUrl) {
         "I_ACKNOWLEDGE_TARGET_DATABASE_IS_DISPOSABLE",
       TGE_BACKUP_RESTORE_EVIDENCE_DIR: evidenceDirectory
     };
+
+    const adversarialContracts = [
+      {
+        name: "maintenance table privilege expansion",
+        mutate: "grant select on tge.import_staging_records to tge_maintenance",
+        repair: "revoke select on tge.import_staging_records from tge_maintenance",
+        expectedPhase: "MAINTENANCE_TABLE_PRIVILEGES"
+      },
+      {
+        name: "runtime maintenance processor execution",
+        mutate: "grant execute on function tge.process_pending_tenant_offboarding(integer) to tge_runtime",
+        repair: "revoke execute on function tge.process_pending_tenant_offboarding(integer) from tge_runtime",
+        expectedPhase: "RUNTIME_FUNCTION_PRIVILEGES"
+      },
+      {
+        name: "missing runtime opportunity mutations",
+        mutate: "revoke insert, update, delete on tge.opportunities from tge_runtime",
+        repair: "grant insert, update, delete on tge.opportunities to tge_runtime",
+        expectedPhase: "RUNTIME_TABLE_PRIVILEGES"
+      },
+      {
+        name: "unmanifested tenant table without RLS",
+        mutate: `set role tge_owner;
+          create table tge.unmanifested_tenant_records (tenant_id uuid not null);
+          reset role`,
+        repair: `set role tge_owner;
+          drop table if exists tge.unmanifested_tenant_records;
+          reset role`,
+        expectedPhase: "MANIFEST_CATALOG_INCOMPLETE"
+      }
+    ];
+    for (const contract of adversarialContracts) {
+      await t.test(`fails closed for ${contract.name}`, async () => {
+        const source = new Client({ connectionString: sourceUrl });
+        await source.connect();
+        const adversarialEvidence = temporaryAbsentDirectory();
+        try {
+          await source.query(contract.mutate);
+          await assert.rejects(
+            runBackupRestoreDrill({
+              env: { ...env, TGE_BACKUP_RESTORE_EVIDENCE_DIR: adversarialEvidence }
+            }),
+            error => {
+              assert.equal(error?.phase, contract.expectedPhase);
+              return true;
+            }
+          );
+          assert.equal(await databaseExists(operator, targetDatabase), false);
+        } finally {
+          await source.query(contract.repair);
+          await source.end();
+          fs.rmSync(adversarialEvidence, { recursive: true, force: true });
+          if (!await databaseExists(operator, targetDatabase)) {
+            await operator.query(`create database ${quoteIdentifier(targetDatabase)}`);
+          }
+        }
+      });
+    }
 
     const failedTargetDatabase = `tge_restore_failed_${compactUuid()}`;
     await operator.query(`create database ${quoteIdentifier(failedTargetDatabase)}`);

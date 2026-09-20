@@ -59,6 +59,28 @@ removed. A single idempotent lifecycle owns cleanup on success, command failure,
 and signals, and cleanup errors remain visible. Catalog inventory prevents a
 new tenant table from silently escaping the manifest.
 
+## Review remediation
+
+Fresh review of checkpoint `3010dd3` found that the proof sampled rather than
+fully compared the effective runtime/maintenance privilege contract and released
+PostgreSQL child ownership immediately after sending `SIGTERM`. Remediation
+cycle **2/3** adds exact catalog-derived table, sequence, function, schema, and
+RevenueAction-column privilege comparison. Tenant-bearing tables are discovered
+by their `tenant_id` column independently of RLS, after which manifest inclusion
+and forced RLS are separate requirements.
+
+Four real PostgreSQL mutations were RED **0/4** at the reviewed checkpoint: a
+maintenance read of `import_staging_records`, runtime execution of the
+offboarding processor, removal of required opportunity mutations, and an
+owner-created tenant table without RLS. The fixed proof rejects all four before
+backup, while the unchanged positive drill still restores and verifies. Child
+cleanup now waits for confirmed exit, escalates a SIGTERM-ignoring child with
+SIGKILL, and refuses archive/target removal if owned child shutdown cannot be
+confirmed. A never-settling cleanup emits one redacted failure before preserving
+the original SIGINT/SIGTERM semantics. Focused configuration/lifecycle tests
+pass **36/36**, integration passes **528/528**, and PostgreSQL 16.15 passes
+**96/96**. No schema or migration changed.
+
 ## Privacy and safety contract
 
 Durable evidence contains table row counts, SHA-256 digests, bounded statuses,

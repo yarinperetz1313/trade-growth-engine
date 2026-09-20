@@ -50,7 +50,9 @@ known-zero/unknown classifications through the existing tenant-scoped
 repositories without persisting the values. It
 also verifies relationship constraints, no external send claim, nonprivileged
 runtime readiness and forced RLS, prohibited transitive membership and `SET
-ROLE`, object ownership and required/prohibited grants, own-tenant repository
+ROLE`, object ownership and the exact migration-defined effective table,
+sequence, function, schema, and RevenueAction-column grants for both runtime and
+maintenance, own-tenant repository
 reads, forged cross-tenant read/write denial, active unrelated-tenant data
 isolation, expired raw scrubbing, and offboarded authentication lookup/reopen
 denial. The manifest inventory is also checked against every current `tge` table
@@ -66,9 +68,13 @@ portable tenant-data import package.
 The sensitive full archive is removed, the local disposable restore database
 is dropped, and the evidence records cleanup. The source is never dropped or
 modified. One idempotent lifecycle owns clients, PostgreSQL children, the
-archive, temporary directory, and the preflight-validated target. It performs
-bounded cleanup on `SIGINT`/`SIGTERM` before preserving the original signal;
-cleanup failure is reported and never hidden behind the primary command error.
+archive, temporary directory, and the preflight-validated target. It retains
+each child until confirmed exit, sends one bounded `SIGTERM`, escalates to
+`SIGKILL` when required, and only then removes the archive and target. It
+performs bounded cleanup on `SIGINT`/`SIGTERM` before preserving the original
+signal; an ordinary failure or cleanup deadline emits one redacted
+`BACKUP_RESTORE_CLEANUP_FAILED` line and is never hidden behind the primary
+command error.
 
 This local rehearsal uses one PostgreSQL cluster whose global roles already
 exist. It fail-closes unless the owner/migrator/runtime/maintenance role graph is

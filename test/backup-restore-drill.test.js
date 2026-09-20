@@ -3,7 +3,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const { EventEmitter } = require("node:events");
 const test = require("node:test");
 const { pathToFileURL } = require("node:url");
@@ -263,6 +263,75 @@ test("signal cleanup failure is reported before preserving termination", async (
   assert.deepEqual(kills, [[9876, "SIGTERM"]]);
 });
 
+test("resource cleanup waits for a SIGTERM-ignoring child and escalates before teardown", async t => {
+  const { createDrillResourceLifecycle } = await import(
+    `${pathToFileURL(command).href}?owned-child-escalation`
+  );
+  const events = [];
+  const child = spawn(process.execPath, [
+    "-e",
+    "process.on('SIGTERM',()=>{});process.stdout.write('READY\\n');setInterval(()=>{},1000)"
+  ], { stdio: ["ignore", "pipe", "pipe"] });
+  t.after(() => {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+  });
+  await waitForOutput(child.stdout, "READY\n");
+  child.once("exit", () => events.push("child-exit"));
+  const lifecycle = createDrillResourceLifecycle({
+    config: {
+      authorities: { targetAdmin: Object.freeze({}) },
+      target: { database: "disposable_restore" }
+    },
+    teardown: async () => { events.push("target-remove"); },
+    remove: async value => { events.push(`remove:${path.basename(value)}`); },
+    childTerminationTimeoutMs: 30
+  });
+  lifecycle.trackChild(child);
+  lifecycle.setTemporaryDirectory("/tmp/owned-restore-proof", "/tmp/owned-restore-proof/archive");
+  lifecycle.validateDisposableTarget();
+
+  await lifecycle.cleanupOnce();
+
+  assert.equal(child.signalCode, "SIGKILL");
+  assert.equal(events[0], "child-exit");
+  assert.deepEqual(events.slice(1), [
+    "remove:archive",
+    "target-remove",
+    "remove:owned-restore-proof"
+  ]);
+});
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  test(`signal cleanup timeout reports a redacted failure before preserving ${signal}`, async t => {
+    const moduleUrl = pathToFileURL(command).href;
+    const child = spawn(process.execPath, [
+      "--input-type=module",
+      "-e",
+      `import { installBackupRestoreSignalLifecycle } from ${JSON.stringify(moduleUrl)};
+installBackupRestoreSignalLifecycle({
+  target: process,
+  cleanupOnce: () => new Promise(() => {}),
+  timeoutMs: 30
+});
+process.stdout.write("READY\\n");
+setInterval(() => {}, 1000);`
+    ], { cwd: repositoryRoot, stdio: ["ignore", "pipe", "pipe"] });
+    t.after(() => {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    });
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", chunk => { stderr += chunk; });
+    await waitForOutput(child.stdout, "READY\n");
+
+    child.kill(signal);
+    const result = await waitForExit(child, 2_000);
+
+    assert.equal(result.signal, signal);
+    assert.equal(stderr, "BACKUP_RESTORE_CLEANUP_FAILED\n");
+  });
+}
+
 test("CLI emits only the stable configuration error for unsafe input", () => {
   const result = spawnSync(process.execPath, [command], {
     cwd: repositoryRoot,
@@ -294,4 +363,37 @@ test("runbook keeps Cloud SQL restore external and labels local evidence honestl
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function waitForOutput(stream, expected) {
+  return new Promise((resolve, reject) => {
+    let output = "";
+    const timeout = setTimeout(() => reject(new Error("subprocess output timeout")), 2_000);
+    stream.setEncoding("utf8");
+    stream.on("data", chunk => {
+      output += chunk;
+      if (output.includes(expected)) {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+    stream.once("error", error => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+  });
+}
+
+function waitForExit(child, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("subprocess exit timeout")), timeoutMs);
+    child.once("exit", (code, signal) => {
+      clearTimeout(timeout);
+      resolve({ code, signal });
+    });
+    child.once("error", error => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+  });
 }
