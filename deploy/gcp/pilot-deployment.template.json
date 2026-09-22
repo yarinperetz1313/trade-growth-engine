@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "templateOnly": true,
+  "region": "australia-southeast2",
+  "projectId": "${GCP_PROJECT_ID}",
+  "identities": {
+    "runtime": "tge-pilot-runtime",
+    "migrator": "tge-pilot-migrator",
+    "maintenance": "tge-pilot-maintenance",
+    "scheduler": "tge-pilot-scheduler"
+  },
+  "artifact": {
+    "image": "${MELBOURNE_IMAGE_URI_BY_DIGEST}",
+    "requiredFormat": "australia-southeast2-docker.pkg.dev/PROJECT/REPOSITORY/trade-growth-engine@sha256:64_HEX_CHARACTERS",
+    "mutableTagsAllowed": false
+  },
+  "cloudSql": {
+    "name": "tge-pilot-postgres",
+    "databaseVersion": "POSTGRES_16",
+    "region": "australia-southeast2",
+    "deletionProtection": true,
+    "settings": {
+      "edition": "ENTERPRISE",
+      "tier": "db-custom-1-3840",
+      "availabilityType": "ZONAL",
+      "authorizedNetworks": [],
+      "sslMode": "ENCRYPTED_ONLY",
+      "backupConfiguration": {
+        "enabled": true,
+        "location": "australia-southeast2",
+        "retainedBackups": 14,
+        "pointInTimeRecoveryEnabled": true,
+        "startTimeUtc": "15:00"
+      }
+    }
+  },
+  "cloudRun": {
+    "service": {
+      "name": "tge-pilot-api",
+      "region": "australia-southeast2",
+      "serviceAccountRef": "runtime",
+      "ingress": "INGRESS_TRAFFIC_ALL",
+      "httpsOnly": true,
+      "allowUnauthenticated": true,
+      "releaseTrafficPolicy": "NO_TRAFFIC_UNTIL_READY",
+      "cloudSqlInstanceRef": "tge-pilot-postgres",
+      "container": {
+        "image": "${MELBOURNE_IMAGE_URI_BY_DIGEST}",
+        "port": 8080,
+        "command": ["node", "src/pilot/index.js"]
+      },
+      "env": {
+        "NODE_ENV": "production",
+        "TGE_PUBLIC_APP_URL": "${TGE_PUBLIC_APP_URL}",
+        "TGE_PUBLIC_API_URL": "${TGE_PUBLIC_API_URL}",
+        "TGE_AUTH0_ISSUER": "${TGE_AUTH0_ISSUER}",
+        "TGE_AUTH0_AUDIENCE": "${TGE_AUTH0_AUDIENCE}",
+        "TGE_AUTH0_CLIENT_ID": "${TGE_AUTH0_CLIENT_ID}",
+        "TGE_AUTH0_CALLBACK_URL": "${TGE_AUTH0_CALLBACK_URL}",
+        "TGE_AUTH0_LOGOUT_URL": "${TGE_AUTH0_LOGOUT_URL}",
+        "TGE_RUNTIME_DATABASE_URL": {
+          "secretRef": "tge-pilot-runtime-database-url",
+          "version": "pinned-version"
+        }
+      },
+      "probes": {
+        "startup": { "path": "/health/live", "failureThreshold": 12, "periodSeconds": 5 },
+        "liveness": { "path": "/health/live", "failureThreshold": 3, "periodSeconds": 30 },
+        "releaseReadiness": { "path": "/health/ready", "expectedStatus": 200 }
+      }
+    },
+    "jobs": {
+      "migrator": {
+        "name": "tge-pilot-migrator",
+        "region": "australia-southeast2",
+        "serviceAccountRef": "migrator",
+        "cloudSqlInstanceRef": "tge-pilot-postgres",
+        "container": {
+          "image": "${MELBOURNE_IMAGE_URI_BY_DIGEST}",
+          "command": ["node", "scripts/migrate-db.mjs"]
+        },
+        "env": {
+          "TGE_DATABASE_URL": {
+            "secretRef": "tge-pilot-migrator-database-url",
+            "version": "pinned-version"
+          }
+        },
+        "maxRetries": 0,
+        "timeoutSeconds": 900
+      },
+      "maintenance": {
+        "name": "tge-pilot-maintenance",
+        "region": "australia-southeast2",
+        "serviceAccountRef": "maintenance",
+        "cloudSqlInstanceRef": "tge-pilot-postgres",
+        "container": {
+          "image": "${MELBOURNE_IMAGE_URI_BY_DIGEST}",
+          "command": ["node", "scripts/run-maintenance-cleanup.mjs"]
+        },
+        "env": {
+          "TGE_MAINTENANCE_DATABASE_URL": {
+            "secretRef": "tge-pilot-maintenance-database-url",
+            "version": "pinned-version"
+          },
+          "TGE_MAINTENANCE_BATCH_LIMIT": "25",
+          "TGE_MAINTENANCE_MAX_ROUNDS": "8"
+        },
+        "maxRetries": 0,
+        "timeoutSeconds": 900
+      }
+    }
+  },
+  "cloudScheduler": {
+    "name": "tge-pilot-maintenance",
+    "region": "australia-southeast2",
+    "schedule": "*/15 * * * *",
+    "timeZone": "Australia/Melbourne",
+    "target": "cloud-run-v2-job:tge-pilot-maintenance:run",
+    "httpMethod": "POST",
+    "oauthServiceAccountRef": "scheduler"
+  },
+  "operations": {
+    "structuredDiagnostics": {
+      "healthFields": ["ok", "service", "mode", "status", "checks", "limitations", "readiness", "uptime", "timestamp", "error", "message"],
+      "maintenanceFields": ["status", "rounds", "processed", "succeeded", "failed", "retryable", "backlogStatus", "oldestProcessed"],
+      "forbiddenFields": ["tenantId", "subjectId", "email", "token", "databaseUrl", "batchId", "requestId"]
+    },
+    "alerts": [
+      { "code": "PILOT_READINESS_UNAVAILABLE", "condition": "health_ready_non_200_for_5_minutes", "severity": "page" },
+      { "code": "PILOT_API_5XX", "condition": "api_5xx_rate_above_zero_for_5_minutes", "severity": "page" },
+      { "code": "PILOT_MAINTENANCE_ACTION_REQUIRED", "condition": "maintenance_job_exit_nonzero", "severity": "page" },
+      { "code": "PILOT_BACKUP_STALE", "condition": "latest_successful_backup_older_than_24_hours", "severity": "page" }
+    ]
+  }
+}

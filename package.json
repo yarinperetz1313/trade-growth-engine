@@ -8,6 +8,8 @@
     "dev": "node node_modules/vite/bin/vite.js",
     "build": "node node_modules/vite/bin/vite.js build",
     "build:pilot": "node scripts/build-pilot.mjs",
+    "validate:pilot-deployment": "node scripts/validate-pilot-deployment.mjs",
+    "verify:pilot-release": "node scripts/verify-pilot-release.mjs",
     "preview": "node node_modules/vite/bin/vite.js preview",
     "server": "node src/index.js",
     "server:pilot": "node src/pilot/index.js",
