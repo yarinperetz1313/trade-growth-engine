@@ -352,7 +352,7 @@ test("provisioned invitation records exact issuer+subject atomically before it b
     actor: { issuer: ISSUER, subject: "auth0|owner" },
     email: "Invited@Example.Test",
     role: "MEMBER",
-    expiresAt: "2026-09-21T00:00:00.000Z",
+    expiresAt: "2099-09-21T00:00:00.000Z",
     apply: true,
     confirmation: "CREATE_PROVISIONED_INVITATION"
   };

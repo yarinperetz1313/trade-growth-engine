@@ -1,5 +1,22 @@
 # Project State
 
+External Pilot One identity foundation is reconciled onto merged
+deployment/operations main `0787520d899e488bd17543270c644b989a27d38b`.
+The two reviewed identity commits rebased without textual conflict; semantic
+inspection confirms the combined tree retains the Node 22 non-root container,
+Melbourne deployment/release validation, hardened maintenance, Docker CI, and
+lockfile correction alongside every identity/operator/browser authority
+boundary. The only reconciliation-specific test change replaces an expired
+fixed invitation timestamp with a stable future fixture; production behavior is
+unchanged.
+
+The reconciled boundary passes focused identity, auth, runtime, deployment, and
+maintenance contracts **72/72**, complete dependency-free integration
+**528/528**, real PostgreSQL 16.15 **94/94**, managed identity Chromium **6/6**,
+the engineering harness, and the 36-module production Pilot release build with
+the existing chunk warning. Fresh independent security review and exact-head CI
+remain required because the reviewed identity head changed after the base merge.
+
 External Pilot One identity remediation cycle **1/3** addresses the three P2
 roots found by fresh review of `6a050bd225e8f58b522955f2b028556c63a16c56`.
 Auth0 lookup, create, and conflict reconciliation now require exactly one
@@ -25,11 +42,13 @@ across the affected security/auth/operator set, **23/23** in focused real
 PostgreSQL identity/offboarding, and **6/6** in managed Chromium. The complete
 gate passes: integration **520/520**, PostgreSQL **94/94**, Chromium **90/90**,
 engineering harness, and the 36-module production build with the existing chunk
-warning. A fresh independent review of the remediation checkpoint remains
-required.
+warning. The exact pre-reconciliation remediation head was independently
+approved with no P0-P3; the reconciled combined head still requires fresh
+review.
 
-External Pilot One identity foundation is implemented locally from exact base
-`44ebebb8da92c8493985e9160d96ba836cba1f8f` on
+External Pilot One identity foundation was originally implemented from exact
+base `44ebebb8da92c8493985e9160d96ba836cba1f8f` and is now reconciled onto
+`0787520d899e488bd17543270c644b989a27d38b` on
 `feat/external-pilot-identity-foundation`. It adds a dry-run/explicit-apply
 operator boundary for exact first-tenant/OWNER bootstrap, server-only Auth0 user
 provisioning plus atomically identity-bound invitations, pending-invitation
