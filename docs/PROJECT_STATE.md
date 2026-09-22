@@ -1,5 +1,72 @@
 # Project State
 
+External Pilot One identity foundation is reconciled onto merged
+deployment/operations main `0787520d899e488bd17543270c644b989a27d38b`.
+The two reviewed identity commits rebased without textual conflict; semantic
+inspection confirms the combined tree retains the Node 22 non-root container,
+Melbourne deployment/release validation, hardened maintenance, Docker CI, and
+lockfile correction alongside every identity/operator/browser authority
+boundary. The only reconciliation-specific test change replaces an expired
+fixed invitation timestamp with a stable future fixture; production behavior is
+unchanged.
+
+The reconciled boundary passes focused identity, auth, runtime, deployment, and
+maintenance contracts **72/72**, complete dependency-free integration
+**528/528**, real PostgreSQL 16.15 **94/94**, managed identity Chromium **6/6**,
+the engineering harness, and the 36-module production Pilot release build with
+the existing chunk warning. Fresh independent security review and exact-head CI
+remain required because the reviewed identity head changed after the base merge.
+
+External Pilot One identity remediation cycle **1/3** addresses the three P2
+roots found by fresh review of `6a050bd225e8f58b522955f2b028556c63a16c56`.
+Auth0 lookup, create, and conflict reconciliation now require exactly one
+identity on the configured passwordless-email connection, the `email` provider,
+and an exact reconstructed authoritative subject. Invitation apply validates all
+inputs, reserves a new `0600` capability file, and proves privileged database plus
+exact active same-tenant OWNER authority before any provider access; the final
+transaction revalidates authority and terminal state. Invalid/existing output or
+denied authority leaves no provider or application-data mutation.
+
+A valid invitation fragment now precedes ordinary membership resolution even for
+an already-authenticated Auth0 session, while remaining passive until the user
+explicitly continues. Acceptance still uses a fresh bearer token and server-side
+issuer/subject binding before membership context. Consumed callbacks with missing
+state now report interrupted sign-in recovery rather than silently attempting
+membership lookup. No browser tenant authority, public signup, Organizations,
+tenant switching, application invitation administration, migration, RLS, money,
+import, or RevenueAction boundary changed.
+
+Cycle 1 regressions are RED **17/24** in the focused base reproduction and RED
+**4/6** in managed Chromium on reviewed HEAD `6a050bd`; they are GREEN **68/68**
+across the affected security/auth/operator set, **23/23** in focused real
+PostgreSQL identity/offboarding, and **6/6** in managed Chromium. The complete
+gate passes: integration **520/520**, PostgreSQL **94/94**, Chromium **90/90**,
+engineering harness, and the 36-module production build with the existing chunk
+warning. The exact pre-reconciliation remediation head was independently
+approved with no P0-P3; the reconciled combined head still requires fresh
+review.
+
+External Pilot One identity foundation was originally implemented from exact
+base `44ebebb8da92c8493985e9160d96ba836cba1f8f` and is now reconciled onto
+`0787520d899e488bd17543270c644b989a27d38b` on
+`feat/external-pilot-identity-foundation`. It adds a dry-run/explicit-apply
+operator boundary for exact first-tenant/OWNER bootstrap, server-only Auth0 user
+provisioning plus atomically identity-bound invitations, pending-invitation
+revocation, and individual membership revocation with terminal-tenant,
+cross-tenant, multiple-membership, and last-OWNER guards. Application invitation
+administration remains fail-closed without a real step-up policy.
+
+The production browser now composes explicit invitation begin, Auth0 redirect,
+bounded callback `appState`, callback scrubbing, invitation acceptance, returning
+login, logout, and generic wrong-user/expired/replayed/interrupted recovery. It
+adds no public signup, Organizations, tenant switching, browser tenant claims,
+or local-storage token authority. Local provider behavior uses an injected fake;
+no test calls Auth0. Exact verification evidence and checkpoint are recorded in
+the active identity plan. Live Auth0 AU/plan entitlement, exact issuer/audience/
+allowlists, Management API `read:users` plus `create:users`, custom-domain card
+verification, SMTP/OTP, operator credentials, privacy/legal/customer approval,
+and real external acceptance remain gates rather than shipped evidence.
+
 _Last locally audited on 2026-09-20. This document is a current-state snapshot; CI outcomes require the corresponding GitHub Actions run._
 
 External Pilot One deployment/operations foundation is active from exact clean

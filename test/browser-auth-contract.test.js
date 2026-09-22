@@ -143,6 +143,26 @@ test("direct or refreshed callback navigation does not consume an absent OAuth r
   assert.equal(replacementCalls, 0);
 });
 
+test("consumed callback state distinguishes missing, malformed, returning, and invitation appState", async () => {
+  const { boundedCallbackState } = await import("../web/lib/auth.js");
+  assert.deepEqual(boundedCallbackState(null), { callbackConsumed: true });
+  assert.deepEqual(boundedCallbackState("malformed"), {
+    callbackConsumed: true,
+    appStateInvalid: true
+  });
+  assert.deepEqual(boundedCallbackState({ returnRoute: "imports", tenantId: "ignored" }), {
+    callbackConsumed: true,
+    returnRoute: "imports"
+  });
+  assert.deepEqual(boundedCallbackState({
+    invitationToken: "a".repeat(43),
+    tenantId: "ignored"
+  }), {
+    callbackConsumed: true,
+    invitationToken: "a".repeat(43)
+  });
+});
+
 test("malformed OAuth callback parameters fail closed without invoking Auth0", async () => {
   const { initializeBrowserAuth } = await import("../web/lib/auth.js");
   let callbackCalls = 0;

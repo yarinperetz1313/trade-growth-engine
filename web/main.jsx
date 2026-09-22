@@ -27,6 +27,13 @@ import {
   initializeBrowserAuth
 } from "./lib/auth";
 import {
+  beginInvitation,
+  invitationFromLocation,
+  loginReturningUser,
+  logoutUser,
+  resolveIdentityState
+} from "./lib/identityFlow.mjs";
+import {
   buildCommercialValueSummary,
   compareOpportunityCommercialValues,
   formatCommercialValue,
@@ -133,7 +140,7 @@ function pageTitle(page, route) {
   return nav.find(item => item[0] === page)?.[1] || page;
 }
 
-function App() {
+function App({ authSession = null }) {
   const [
     page,
     setPage
@@ -265,6 +272,15 @@ function App() {
             </div>
 
           </div>
+          )}
+
+          {authSession && (
+            <button
+              className="text-button auth-logout"
+              onClick={() => logoutUser(authSession)}
+            >
+              Sign out
+            </button>
           )}
 
         </header>
@@ -1716,10 +1732,124 @@ const root = createRoot(
   )
 );
 
+function IdentityAccess({ auth, initialState, invitation }) {
+  const [state, setState] = useState(initialState);
+  const [working, setWorking] = useState(false);
+
+  const act = async work => {
+    setWorking(true);
+    try {
+      await work();
+    } catch {
+      setState({ kind: "INVITATION_UNAVAILABLE" });
+      setWorking(false);
+    }
+  };
+
+  if (invitation && state.kind === "INVITATION_PENDING") {
+    return (
+      <main className="identity-page">
+        <section className="identity-card">
+          <p className="eyebrow">ASSISTED PILOT ACCESS</p>
+          <h1>Your Trade Growth invitation</h1>
+          <p>Continue to the secure sign-in service to verify the identity this invitation was prepared for.</p>
+          <button
+            className="primary"
+            disabled={working}
+            onClick={() => act(() => beginInvitation({
+              apiBase: API_BASE,
+              auth,
+              callbackUrl: auth.callbackUrl,
+              token: invitation.token
+            }))}
+          >
+            {working ? "Opening secure sign in…" : "Continue to secure sign in"}
+          </button>
+          <p className="identity-help">This link does not create public access and cannot choose a business account.</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (state.kind === "SIGNED_OUT") {
+    return (
+      <main className="identity-page">
+        <section className="identity-card">
+          <p className="eyebrow">TRADE GROWTH ENGINE</p>
+          <h1>Sign in</h1>
+          <p>Access is limited to people already assigned to the assisted Pilot.</p>
+          <button
+            className="primary"
+            disabled={working}
+            onClick={() => act(() => loginReturningUser(auth, "opportunities"))}
+          >
+            {working ? "Opening secure sign in…" : "Continue to sign in"}
+          </button>
+          <p className="identity-help">There is no public signup.</p>
+        </section>
+      </main>
+    );
+  }
+
+  const interrupted = state.kind === "INTERRUPTED";
+  return (
+    <main className="identity-page" role="alert">
+      <section className="identity-card">
+        <p className="eyebrow">ACCESS NOT COMPLETED</p>
+        <h1>{interrupted ? "Sign-in was interrupted" : "Access is unavailable"}</h1>
+        <p>{interrupted
+          ? state.recovery === "RESTART_INVITATION"
+            ? "Return to the original invitation link and begin again."
+            : "Return to sign in and try again."
+          : "This invitation may be expired, already used, revoked, or prepared for another identity."}</p>
+        <button className="secondary" disabled={working} onClick={() => act(() => logoutUser(auth))}>
+          Sign out and try again
+        </button>
+        <p className="identity-help">If the problem continues, contact the assisted-pilot operator. No new account can be created here.</p>
+      </section>
+    </main>
+  );
+}
+
 async function bootstrapApplication() {
   try {
+    let auth = null;
     if (import.meta.env.PROD) {
-      await initializeBrowserAuth({ apiBase: API_BASE });
+      auth = await initializeBrowserAuth({ apiBase: API_BASE });
+    } else if (typeof globalThis.__TGE_AUTH_E2E_CLIENT_FACTORY__ === "function") {
+      auth = await initializeBrowserAuth({
+        apiBase: API_BASE,
+        createAuth: globalThis.__TGE_AUTH_E2E_CLIENT_FACTORY__
+      });
+    }
+    if (auth) {
+      const invitation = invitationFromLocation(window.location);
+      if (invitation) {
+        root.render(
+          <IdentityAccess
+            auth={auth}
+            initialState={{ kind: "INVITATION_PENDING" }}
+            invitation={invitation}
+          />
+        );
+        return;
+      }
+      const identityState = await resolveIdentityState({ auth, apiBase: API_BASE });
+      if (identityState.kind !== "AUTHENTICATED") {
+        root.render(
+          <IdentityAccess
+            auth={auth}
+            initialState={identityState}
+            invitation={null}
+          />
+        );
+        return;
+      }
+      if (window.location.pathname === "/auth/callback") {
+        window.location.hash = identityState.returnRoute;
+      }
+      root.render(<App authSession={auth} />);
+      return;
     }
     root.render(<App />);
   } catch {
@@ -1727,6 +1857,8 @@ async function bootstrapApplication() {
       <main className="page" role="alert">
         <h1>Authentication unavailable</h1>
         <p>The secure browser session could not be initialized.</p>
+        <p>Return to the original invitation link, or return to sign in and try again.</p>
+        <a className="secondary" href="/">Return to sign in</a>
       </main>
     );
   }

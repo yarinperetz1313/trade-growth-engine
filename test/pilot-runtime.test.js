@@ -472,6 +472,64 @@ test("a ready pilot still requires membership-derived auth and never exposes an 
   }
 });
 
+test("ready Pilot application invitation administration stays fail-closed without a real step-up policy", async () => {
+  const { createPilotRuntime, readPilotConfig } = loadRuntime();
+  const owner = {
+    tenantId: "10000000-0000-4000-8000-000000000001",
+    issuer: VALID_ENV.TGE_AUTH0_ISSUER,
+    subject: "auth0|owner",
+    role: "OWNER",
+    status: "ACTIVE"
+  };
+  const fixture = fakePool({ memberships: [owner] });
+  const runtime = createPilotRuntime({
+    config: readPilotConfig(VALID_ENV),
+    pool: fixture.pool,
+    tokenVerifier: {
+      async verify() {
+        return { issuer: owner.issuer, subject: owner.subject };
+      }
+    },
+    logger: { info() {}, warn() {}, error() {} }
+  });
+  await runtime.probeReadiness();
+  const server = await runtime.listen({ port: 0, autoProbe: false });
+  try {
+    for (const pathname of [
+      "/api/auth/invitations",
+      "/api/auth/invitations/20000000-0000-4000-8000-000000000002/revoke"
+    ]) {
+      const response = await request(server, pathname, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer owner",
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          email: "must-not-provision@example.test",
+          role: "MEMBER",
+          expiresAt: "2099-01-01T00:00:00.000Z"
+        })
+      });
+      assert.equal(response.status, 403);
+      assert.equal(response.data.error, "ACCESS_DENIED");
+    }
+
+    const provisioning = await request(
+      server,
+      "/api/auth/invitations/20000000-0000-4000-8000-000000000002/provision",
+      {
+        method: "POST",
+        headers: { authorization: "Bearer owner" }
+      }
+    );
+    assert.equal(provisioning.status, 404);
+    assert.equal(provisioning.data.error, "ROUTE_NOT_FOUND");
+  } finally {
+    await runtime.close();
+  }
+});
+
 test("pilot shutdown is idempotent and releases an owned pool exactly once", async () => {
   const { createPilotRuntime, readPilotConfig } = loadRuntime();
   const fixture = fakePool();
